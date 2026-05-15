@@ -1,0 +1,20 @@
+# Credentials — never commit these
+.env
+
+# Runtime data — never commit these
+gatekeeper/audio/
+gatekeeper/logs/
+gatekeeper/models/
+mosquitto/data/
+mosquitto/log/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db

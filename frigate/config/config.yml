@@ -1,0 +1,63 @@
+mqtt:
+  enabled: true
+  host: mqtt
+  topic_prefix: frigate
+
+cameras:
+  front_door:
+    ffmpeg:
+      inputs:
+        # DETECT (low stream)
+        - path: rtsp://go2rtc:8554/front_door_sub
+          input_args: preset-rtsp-restream
+          roles: [detect]
+
+        # RECORD (high stream)
+        - path: rtsp://go2rtc:8554/front_door
+          input_args: preset-rtsp-restream
+          roles: [record]
+
+      output_args:
+        record: preset-record-generic-audio-aac
+
+    detect:
+      enabled: true
+      width: 640
+      height: 480
+      fps: 5
+
+    objects:
+      track:
+        - person
+
+    record:
+      enabled: true
+
+    snapshots:
+      enabled: true
+
+record:
+  enabled: true
+  retain:
+    days: 3
+    mode: motion
+  alerts:
+    retain:
+      days: 7
+    pre_capture: 3
+    post_capture: 7
+  detections:
+    retain:
+      days: 7
+    pre_capture: 3
+    post_capture: 7
+
+snapshots:
+  enabled: true
+  retain:
+    default: 7
+
+detect:
+  enabled: true
+
+version: 0.16-0

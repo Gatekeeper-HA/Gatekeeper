@@ -1,0 +1,8 @@
+paho-mqtt
+faster-whisper
+soundfile
+numpy
+onnxruntime
+kokoro[en]
+aiortc
+aiohttp

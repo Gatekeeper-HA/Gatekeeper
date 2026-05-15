@@ -1,0 +1,87 @@
+services:
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: mqtt
+    restart: unless-stopped
+    networks: [surveil]
+    ports:
+      - "${SERVER_IP}:1883:1883"
+    volumes:
+      - /docker/mosquitto/config:/mosquitto/config
+      - /docker/mosquitto/data:/mosquitto/data
+      - /docker/mosquitto/log:/mosquitto/log
+
+  frigate:
+    image: ghcr.io/blakeblackshear/frigate:stable
+    container_name: frigate
+    restart: unless-stopped
+    networks: [surveil]
+    depends_on:
+      - mqtt
+      - go2rtc
+    shm_size: "256mb"
+    ports:
+      - "${SERVER_IP}:8971:8971"  # Frigate UI
+      - "${SERVER_IP}:5000:5000"  # Frigate internal API
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /docker/frigate/config:/config
+      - /docker/frigate/storage:/media/frigate
+      - /docker/gatekeeper/audio:/gatekeeper_audio:ro
+    environment:
+      TZ: "America/Chicago"
+
+  go2rtc:
+    image: alexxit/go2rtc:latest
+    container_name: go2rtc
+    restart: unless-stopped
+    networks: [surveil]
+    ports:
+      - "${SERVER_IP}:1986:1984"  # go2rtc UI/API
+      - "${SERVER_IP}:8556:8554"  # go2rtc RTSP
+      - "${SERVER_IP}:8557:8555"  # go2rtc WebRTC
+    env_file: .env
+    volumes:
+      - /docker/go2rtc/go2rtc.yaml:/config/go2rtc.yaml:ro
+      - /docker/gatekeeper/audio:/gatekeeper_audio:ro
+
+  gatekeeper:
+    build:
+      context: /docker/gatekeeper
+      dockerfile: Dockerfile
+    container_name: gatekeeper
+    restart: unless-stopped
+    networks: [surveil]
+    depends_on:
+      - mqtt
+      - frigate
+      - go2rtc
+    shm_size: "1gb"
+    environment:
+      TZ: "America/Chicago"
+      MQTT_HOST: "mqtt"
+      MQTT_PORT: "1883"
+      MQTT_TOPIC: "frigate/events"
+      CAMERA_NAME: "front_door"
+      AUDIO_RTSP_URL: "rtsp://go2rtc:8554/front_door"
+      DWELL_SECONDS: "1"
+      LISTEN_SECONDS: "4"
+      WHISPER_MODEL: "tiny"
+      WHISPER_COMPUTE_TYPE: "int8"
+      KOKORO_VOICE: "af_heart"
+      AUDIO_DIR: "/audio"
+      LOG_DIR: "/logs"
+      GO2RTC_API: "http://go2rtc:1984"
+      GO2RTC_TALK_STREAM: "front_door_talk"
+      NNPACK_DISABLE: "1"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /docker/gatekeeper/app:/app/app
+      - /docker/gatekeeper/models:/models
+      - /docker/gatekeeper/audio:/audio
+      - /docker/gatekeeper/logs:/logs
+      - /docker/gatekeeper/cache:/root/.cache
+
+networks:
+  surveil:
+    driver: bridge
