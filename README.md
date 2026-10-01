@@ -83,6 +83,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `LISTEN_SECONDS` | `4` | How long to record the visitor's response |
 | `SESSION_TTL_SECONDS` | `120` | Forget a Frigate event this long after its last update |
 | `SWEEP_INTERVAL_SECONDS` | `1` | How often sessions are checked for dwell and expiry |
+| `COOLDOWN_SECONDS` | `90` | After a visit, new person events this soon are merged into it instead of greeting again |
 | `VISIT_TIMEOUT_SECONDS` | `60` | Give up on a visit (greet, listen, reply) after this long |
 | `WHISPER_MODEL` | `tiny` | Whisper model size (`tiny`, `base`, `small`) |
 | `WHISPER_COMPUTE_TYPE` | `int8` | `int8` for CPU, `float32` if issues arise |

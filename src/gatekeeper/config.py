@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     listen_seconds: int = 4
     session_ttl_seconds: float = 120.0
     sweep_interval_seconds: float = 1.0
+    # New person events this soon after a visit are merged into it, not re-greeted.
+    cooldown_seconds: float = 90.0
     # A visit (greet, listen, reply) normally takes ~25 s; give up after this.
     visit_timeout_seconds: float = 60.0
 

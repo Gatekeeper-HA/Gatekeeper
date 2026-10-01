@@ -80,6 +80,7 @@ def main() -> None:
         camera=settings.camera_name,
         dwell_seconds=settings.dwell_seconds,
         ttl_seconds=settings.session_ttl_seconds,
+        cooldown_seconds=settings.cooldown_seconds,
         run_visit=interaction.run,
     )
     threading.Thread(

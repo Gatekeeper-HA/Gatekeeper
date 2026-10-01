@@ -18,6 +18,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - A stalled camera stream no longer hangs the doorbell. ffmpeg gets an RTSP socket timeout
   (`-timeout`; `-rw_timeout` has no effect on RTSP) and a hard process timeout, and each
   visit is bounded by `VISIT_TIMEOUT_SECONDS`.
+- Visitors are no longer greeted repeatedly. Only one visit runs per camera, and person
+  events during it or within `COOLDOWN_SECONDS` (90) after it are merged into it.
 - No visit goes unlogged: a busy talkback, a failed greeting or reply, a timeout or an
   error are all written to `events.jsonl` with an `outcome`.
 
