@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     # Storage
     audio_dir: Path = Path("/audio")
     log_dir: Path = Path("/logs")
+    # Retention, in days (0 = keep forever). Visitor audio and transcripts are
+    # third parties' voice data.
+    audio_retention_days: float = 7.0
+    event_log_retention_days: float = 30.0
 
     # Logging
     log_level: str = "INFO"

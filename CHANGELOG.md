@@ -23,6 +23,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - No visit goes unlogged: a busy talkback, a failed greeting or reply, a timeout or an
   error are all written to `events.jsonl` with an `outcome`.
 
+- Visitor audio and visit logs are no longer kept forever. Recordings are deleted after
+  `AUDIO_RETENTION_DAYS` (7); `events.jsonl` rotates daily to `events-YYYY-MM-DD.jsonl`,
+  deleted after `EVENT_LOG_RETENTION_DAYS` (30). `0` keeps them.
+
 ### Changed
 - **Breaking for `events.jsonl` readers:** classifications are now `likely_delivery`,
   `solicitor`, `service_visit`, `cooperative_other` and `no_response` (replacing

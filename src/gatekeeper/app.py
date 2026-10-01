@@ -15,6 +15,7 @@ from gatekeeper.eventlog import EventLog
 from gatekeeper.frigate import parse_event
 from gatekeeper.interaction import Interaction
 from gatekeeper.logs import setup_logging
+from gatekeeper.retention import Retention
 from gatekeeper.sessions import SessionTracker
 
 log = logging.getLogger(__name__)
@@ -89,6 +90,8 @@ def main() -> None:
         name="sweep",
         daemon=True,
     ).start()
+
+    threading.Thread(target=Retention(settings).run_forever, name="retention", daemon=True).start()
 
     client = build_mqtt_client(settings, tracker)
     while True:

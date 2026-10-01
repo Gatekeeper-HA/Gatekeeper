@@ -96,6 +96,8 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `REPLY_NO_ANSWER` | *You are being recorded. Please state your purpose or leave the property.* | Reply to silence or a one-word answer |
 | `AUDIO_DIR` | `/audio` | Visitor clips (`in/`) and synthesized speech (`out/`) |
 | `LOG_DIR` | `/logs` | Directory for `events.jsonl` |
+| `AUDIO_RETENTION_DAYS` | `7` | Delete visitor recordings (and per-visit synthesized speech) older than this. `0` keeps them forever |
+| `EVENT_LOG_RETENTION_DAYS` | `30` | Delete rotated daily visit logs older than this. `0` keeps them forever |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
 | `LOG_FORMAT` | `text` | `text`, or `json` for one JSON object per line. Every line carries the visit's Frigate `event_id` |
 
@@ -159,7 +161,7 @@ Every visit adds one JSON line to `events.jsonl`:
 |-------------------------|----------|
 | `gatekeeper/audio/in/` | Captured visitor audio clips |
 | `gatekeeper/audio/out/` | Synthesized TTS files |
-| `gatekeeper/logs/events.jsonl` | Interaction log (JSON Lines) |
+| `gatekeeper/logs/events.jsonl` | Today's visit log (JSON Lines); earlier days are rotated to `events-YYYY-MM-DD.jsonl` |
 | `gatekeeper/cache/` | Kokoro and Whisper model cache |
 | `frigate/config/` | Frigate database, model cache and secrets (`config.yml` comes from the repo) |
 | `frigate/storage/` | Frigate recordings, clips and snapshots |
