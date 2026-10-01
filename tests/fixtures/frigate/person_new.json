@@ -1,0 +1,77 @@
+{
+  "type": "new",
+  "before": {
+    "id": "1727712000.123456-abc123",
+    "camera": "front_door",
+    "frame_time": 1727712003.5,
+    "snapshot": null,
+    "label": "person",
+    "sub_label": null,
+    "top_score": 0.84,
+    "false_positive": false,
+    "start_time": 1727712000.1,
+    "end_time": null,
+    "score": 0.81,
+    "box": [
+      210,
+      95,
+      330,
+      470
+    ],
+    "area": 45000,
+    "ratio": 0.32,
+    "region": [
+      120,
+      0,
+      440,
+      480
+    ],
+    "active": true,
+    "stationary": false,
+    "motionless_count": 0,
+    "position_changes": 0,
+    "current_zones": [],
+    "entered_zones": [],
+    "has_clip": true,
+    "has_snapshot": true,
+    "attributes": {},
+    "current_attributes": []
+  },
+  "after": {
+    "id": "1727712000.123456-abc123",
+    "camera": "front_door",
+    "frame_time": 1727712003.5,
+    "snapshot": null,
+    "label": "person",
+    "sub_label": null,
+    "top_score": 0.84,
+    "false_positive": false,
+    "start_time": 1727712000.1,
+    "end_time": null,
+    "score": 0.81,
+    "box": [
+      210,
+      95,
+      330,
+      470
+    ],
+    "area": 45000,
+    "ratio": 0.32,
+    "region": [
+      120,
+      0,
+      440,
+      480
+    ],
+    "active": true,
+    "stationary": false,
+    "motionless_count": 0,
+    "position_changes": 0,
+    "current_zones": [],
+    "entered_zones": [],
+    "has_clip": true,
+    "has_snapshot": true,
+    "attributes": {},
+    "current_attributes": []
+  }
+}

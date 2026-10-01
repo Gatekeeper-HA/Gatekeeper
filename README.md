@@ -40,8 +40,8 @@ Frigate detects person
 ## Quick start
 
 ```bash
-git clone https://github.com/your-username/gatekeeper.git
-cd gatekeeper
+git clone https://github.com/Gatekeeper-HA/Gatekeeper.git
+cd Gatekeeper
 cp .env.example .env
 ```
 
@@ -52,30 +52,50 @@ SERVER_IP=192.168.x.x       # LAN IP of the machine running Docker
 CAMERA_IP=192.168.x.x       # LAN IP of your camera
 CAMERA_USER=admin            # Camera RTSP username
 CAMERA_PASS=yourpassword     # Camera RTSP password
+DATA_DIR=./data              # Where recordings, audio, logs and caches are stored
+TZ=America/Chicago
 ```
 
-Copy configs to your server's Docker volume paths and start:
+Then build and start everything:
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
+
+Configs (`frigate/config/config.yml`, `go2rtc/go2rtc.yaml`, `mosquitto/config/`) are read
+from the repo. Everything the services write lives under `DATA_DIR`.
 
 ## Configuration
 
-Gatekeeper is configured via environment variables in `docker-compose.yml`:
+Gatekeeper is configured via environment variables, set in `docker-compose.yml` (or the
+add-on options in Home Assistant). Unset or empty variables use the default.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `MQTT_HOST` | `mqtt` | MQTT broker host |
+| `MQTT_PORT` | `1883` | MQTT broker port |
+| `MQTT_TOPIC` | `frigate/events` | Frigate event topic |
 | `CAMERA_NAME` | `front_door` | Must match the camera name in your Frigate config |
-| `GREETING` | *(see below)* | What Gatekeeper says when a visitor is detected |
+| `GO2RTC_API` | `http://go2rtc:1984` | go2rtc API endpoint |
+| `GO2RTC_TALK_STREAM` | `front_door_talk` | go2rtc stream name for talkback |
+| `AUDIO_RTSP_URL` | `rtsp://go2rtc:8554/<CAMERA_NAME>` | RTSP stream for capturing visitor audio |
 | `DWELL_SECONDS` | `1` | Seconds a person must be visible before triggering |
 | `LISTEN_SECONDS` | `4` | How long to record the visitor's response |
+| `SESSION_TTL_SECONDS` | `120` | Forget a Frigate event this long after its last update |
+| `SWEEP_INTERVAL_SECONDS` | `1` | How often sessions are checked for dwell and expiry |
 | `WHISPER_MODEL` | `tiny` | Whisper model size (`tiny`, `base`, `small`) |
 | `WHISPER_COMPUTE_TYPE` | `int8` | `int8` for CPU, `float32` if issues arise |
 | `KOKORO_VOICE` | `af_heart` | TTS voice (see voices below) |
-| `GO2RTC_API` | `http://go2rtc:1984` | go2rtc API endpoint |
-| `GO2RTC_TALK_STREAM` | `front_door_talk` | go2rtc stream name for talkback |
-| `AUDIO_RTSP_URL` | `rtsp://go2rtc:8554/front_door` | RTSP stream for capturing visitor audio |
+| `GREETING` | *Hello. This property is monitored. Please state the purpose of your visit.* | What Gatekeeper says when a visitor is detected |
+| `REPLY_DELIVERY` | *Thank you. Please leave the package at the door.* | Reply to a delivery |
+| `REPLY_SALES` | *No solicitation. Please leave the property.* | Reply to a solicitor |
+| `REPLY_MAINTENANCE` | *Please wait while I notify the resident.* | Reply to a service visit |
+| `REPLY_GENERIC` | *Thank you. Please wait while I notify the resident.* | Reply to any other answer |
+| `REPLY_NO_ANSWER` | *You are being recorded. Please state your purpose or leave the property.* | Reply to silence or a one-word answer |
+| `AUDIO_DIR` | `/audio` | Visitor clips (`in/`) and synthesized speech (`out/`) |
+| `LOG_DIR` | `/logs` | Directory for `events.jsonl` |
+| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
+| `LOG_FORMAT` | `text` | `text`, or `json` for one JSON object per line. Every line carries the visit's Frigate `event_id` |
 
 ### Available voices
 
@@ -115,19 +135,36 @@ Gatekeeper classifies visitors based on keywords in their response:
 
 ## Data
 
-| Path (on server) | Contents |
-|------------------|----------|
-| `/docker/gatekeeper/audio/in/` | Captured visitor audio clips |
-| `/docker/gatekeeper/audio/out/` | Synthesized TTS files |
-| `/docker/gatekeeper/logs/events.jsonl` | Interaction log (JSON Lines) |
-| `/docker/gatekeeper/cache/` | Kokoro and Whisper model cache |
+| Path (under `DATA_DIR`) | Contents |
+|-------------------------|----------|
+| `gatekeeper/audio/in/` | Captured visitor audio clips |
+| `gatekeeper/audio/out/` | Synthesized TTS files |
+| `gatekeeper/logs/events.jsonl` | Interaction log (JSON Lines) |
+| `gatekeeper/cache/` | Kokoro and Whisper model cache |
+| `frigate/config/` | Frigate database, model cache and secrets (`config.yml` comes from the repo) |
+| `frigate/storage/` | Frigate recordings, clips and snapshots |
+| `mosquitto/data/`, `mosquitto/log/` | MQTT broker persistence and log |
 
 ## Development
 
-The app directory is volume-mounted (`/docker/gatekeeper/app:/app/app`), so changes to `gatekeeper/app/main.py` on the server take effect on the next interaction without rebuilding the container. Rebuild is only needed when changing `requirements.txt` or `Dockerfile`.
+The app is the `gatekeeper` Python package in `src/gatekeeper/`. The Home Assistant add-on
+([Gatekeeper-HA](https://github.com/Gatekeeper-HA/Gatekeeper-HA)) installs the same package
+from a tagged release of this repo.
 
 ```bash
-# Rebuild after dependency changes
+python -m venv .venv && . .venv/bin/activate
+pip install -e ".[dev]"     # core + test tools; no torch or aiortc needed
+ruff check src tests
+pytest --cov
+```
+
+The speech (`faster-whisper`, `kokoro`) and talkback (`aiortc`) dependencies are optional
+extras, imported lazily, so the core logic is tested without them. The image installs
+everything from `requirements.lock`; regenerate it after changing dependencies in
+`pyproject.toml` (the command is at the top of the file).
+
+```bash
+# Rebuild after code or dependency changes
 docker compose up -d --build gatekeeper
 
 # View live logs
@@ -136,4 +173,4 @@ docker compose logs -f gatekeeper
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
+AGPL-3.0 — see [LICENSE](LICENSE)
