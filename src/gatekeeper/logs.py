@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 event_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("event_id", default="-")
 
 TEXT_FORMAT = "%(asctime)s %(levelname)-7s %(name)s [%(event_id)s] %(message)s"
+NOISY_LOGGERS = ("httpx", "huggingface_hub", "urllib3")
 
 
 class EventIdFilter(logging.Filter):
@@ -44,3 +45,7 @@ def setup_logging(level: str = "INFO", fmt: str = "text") -> None:
     root = logging.getLogger()
     root.handlers[:] = [handler]
     root.setLevel(level.upper())
+
+    # These log every HTTP request (model downloads and update checks) at INFO.
+    for name in NOISY_LOGGERS:
+        logging.getLogger(name).setLevel(max(root.level, logging.WARNING))

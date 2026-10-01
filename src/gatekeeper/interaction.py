@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import threading
 import time
 from collections.abc import Awaitable, Callable
@@ -16,16 +17,15 @@ from gatekeeper.audio import Synthesizer, Transcriber, capture_audio_clip, wav_d
 from gatekeeper.classify import classify_response
 from gatekeeper.config import Settings
 from gatekeeper.eventlog import EventLog
+from gatekeeper.listen import join_words, strip_greeting
 from gatekeeper.logs import event_id_var
 
 log = logging.getLogger(__name__)
 
 # Keep the talkback session open this long after the clip ends, to cover
-# go2rtc's jitter buffer, RTSP backchannel latency and the camera's buffer.
+# go2rtc's jitter buffer, RTSP backchannel latency and the camera's buffer
+# (measured on a Reolink doorbell: ~2.4 s from connect to audible).
 PLAYBACK_TAIL_SECONDS = 2.5
-# Pause between the end of the greeting and the start of recording, so the
-# room echo dies down.
-ECHO_SETTLE_SECONDS = 0.5
 
 # play(wav_path) -> an open connection with an async close(), or None on failure.
 PlayFn = Callable[[Path], Awaitable[Any]]
@@ -96,27 +96,36 @@ class Interaction:
             log.error("aiortc not available")
             return
 
-        # Greeting
+        # Greeting and listen. Recording starts with the greeting: visitors
+        # answer as soon as it ends, and opening the RTSP stream takes about as
+        # long as the talkback latency. The greeting's echo is cut out after
+        # transcription (see listen.strip_greeting).
         greet_wav, greet_pc = await self._speak(
             "greeting", s.greeting, s.out_dir / f"{event_id}_greeting.wav"
         )
         if greet_pc is None:
             return
-        await self._sleep(wav_duration(greet_wav) + PLAYBACK_TAIL_SECONDS)
+        greet_seconds = wav_duration(greet_wav)
+        capture_seconds = math.ceil(greet_seconds + PLAYBACK_TAIL_SECONDS + s.listen_seconds)
+        capture = asyncio.create_task(
+            asyncio.to_thread(
+                self._capture, s.audio_rtsp_url, s.in_dir / f"{event_id}.wav", capture_seconds
+            )
+        )
+        await self._sleep(greet_seconds + PLAYBACK_TAIL_SECONDS)
         await greet_pc.close()
 
-        # Listen
-        await self._sleep(ECHO_SETTLE_SECONDS)
-        clip_path = await asyncio.to_thread(
-            self._capture, s.audio_rtsp_url, s.in_dir / f"{event_id}.wav", s.listen_seconds
-        )
+        clip_path = await capture
         log.info("capture: %s (%d bytes)", clip_path, clip_path.stat().st_size if clip_path else 0)
 
         transcript = ""
         classification, reply_key = "unknown_uncooperative", "no_answer"
         if clip_path:
-            transcript = await asyncio.to_thread(self._transcriber.transcribe, clip_path)
-            log.info("transcript: %r", transcript)
+            words = await asyncio.to_thread(self._transcriber.transcribe, clip_path)
+            answer, method = strip_greeting(words, s.greeting)
+            transcript = join_words(answer)
+            log.info("heard: %r", join_words(words))
+            log.info("transcript (%s): %r", method, transcript)
             classification, reply_key = classify_response(transcript)
 
         # Reply

@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- The visitor's answer was usually missed. Recording started about 3 s after the greeting
+  ended (playback buffer + a fresh RTSP connection), after most visitors had finished
+  answering; 96% of logged v0.1 visits had an empty transcript. Recording now starts
+  with the greeting, and the greeting's echo is cut out by matching its words in the
+  transcript (Whisper's VAD filter is off for this, as it drops the echo).
+- The Whisper model loads at startup instead of on the first visit.
+
 ### Changed
 - The app is now the `gatekeeper` Python package (`src/gatekeeper/`, run with
   `python -m gatekeeper`), shared with the Home Assistant add-on. Behavior is unchanged.

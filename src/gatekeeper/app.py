@@ -63,10 +63,16 @@ def main() -> None:
         synth, settings.out_dir, {"greeting": settings.greeting, **settings.replies}
     )
 
+    transcriber = Transcriber(settings.whisper_model, settings.whisper_compute_type)
+    try:
+        transcriber.load()
+    except Exception:
+        log.exception("could not load the Whisper model; will retry on the first visit")
+
     interaction = Interaction(
         settings,
         synth=synth,
-        transcriber=Transcriber(settings.whisper_model, settings.whisper_compute_type),
+        transcriber=transcriber,
         presynth=presynth,
         event_log=EventLog(settings.event_log_file),
     )
