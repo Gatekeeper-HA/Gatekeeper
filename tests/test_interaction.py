@@ -149,7 +149,7 @@ def test_greeting_echo_alone_is_no_answer(settings):
     rig.interaction.run(EID)
     (record,) = rig.log_records()
     assert record["transcript"] == ""
-    assert record["classification"] == "unknown_uncooperative"
+    assert record["classification"] == "no_response"
     assert record["response"] == settings.reply_no_answer
 
 
@@ -157,7 +157,7 @@ def test_failed_capture_gives_no_answer_reply(settings):
     rig = Rig(settings, capture_ok=False)
     rig.interaction.run(EID)
     (record,) = rig.log_records()
-    assert record["classification"] == "unknown_uncooperative"
+    assert record["classification"] == "no_response"
     assert record["transcript"] == ""
     assert record["response"] == settings.reply_no_answer
     assert ("play", "_presynth_no_answer.wav") in rig.calls

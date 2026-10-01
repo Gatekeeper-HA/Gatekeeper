@@ -12,8 +12,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   with the greeting, and the greeting's echo is cut out by matching its words in the
   transcript (Whisper's VAD filter is off for this, as it drops the echo).
 - The Whisper model loads at startup instead of on the first visit.
+- Classification matches whole words and phrases: "ups" no longer matches "groups" or
+  "cups", nor "tech" "technically". Solicitors are checked before deliveries.
+- British voices (`bm_george`, `bf_emma`) use Kokoro's British English pipeline.
 
 ### Changed
+- **Breaking for `events.jsonl` readers:** classifications are now `likely_delivery`,
+  `solicitor`, `service_visit`, `cooperative_other` and `no_response` (replacing
+  `unknown_cooperative` and `unknown_uncooperative`).
+- Spanish keywords were removed; transcription is English-only until multilingual support.
 - The app is now the `gatekeeper` Python package (`src/gatekeeper/`, run with
   `python -m gatekeeper`), shared with the Home Assistant add-on. Behavior is unchanged.
 - Settings are read by a typed config module; empty variables fall back to defaults.

@@ -119,7 +119,7 @@ class Interaction:
         log.info("capture: %s (%d bytes)", clip_path, clip_path.stat().st_size if clip_path else 0)
 
         transcript = ""
-        classification, reply_key = "unknown_uncooperative", "no_answer"
+        classification, reply_key = "no_response", "no_answer"
         if clip_path:
             words = await asyncio.to_thread(self._transcriber.transcribe, clip_path)
             answer, method = strip_greeting(words, s.greeting)

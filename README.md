@@ -123,15 +123,20 @@ The stream names must match `CAMERA_NAME` and `GO2RTC_TALK_STREAM` in docker-com
 
 ## Visitor classification
 
-Gatekeeper classifies visitors based on keywords in their response:
+Gatekeeper records from the start of the greeting, cuts the greeting's own echo out of the
+transcript, and classifies what the visitor said by whole words and phrases (English only).
+Categories are checked top to bottom; the first match wins.
 
-| Classification | Keywords | Reply |
+| Classification (`events.jsonl`) | Matches, for example | Reply setting |
 |----------------|----------|-------|
-| Delivery | fedex, ups, amazon, package, doordash… | Leave package at door |
-| Sales | selling, soliciting, campaign, petition… | No solicitation |
-| Maintenance | repair, service, technician, contractor… | Notifying resident |
-| Generic (cooperative) | Any multi-word response | Notifying resident |
-| No answer | Silence or single word | Warning + re-state purpose |
+| `solicitor` | selling, sales, canvassing, campaign, petition, survey, donations, church… | `REPLY_SALES` |
+| `likely_delivery` | delivery, package, parcel, FedEx, UPS, USPS, Amazon, DoorDash, Uber Eats, groceries… | `REPLY_DELIVERY` |
+| `service_visit` | repair, maintenance, technician, plumber, electrician, meter, appointment, install… | `REPLY_MAINTENANCE` |
+| `cooperative_other` | Any other answer of two or more words | `REPLY_GENERIC` |
+| `no_response` | Silence or a single word | `REPLY_NO_ANSWER` |
+
+Solicitors are checked first, so "I'm selling Amazon gift cards" is a solicitor, not a
+delivery.
 
 ## Data
 

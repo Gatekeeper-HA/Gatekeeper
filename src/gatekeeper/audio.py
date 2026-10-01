@@ -106,6 +106,12 @@ class Transcriber:
             return []
 
 
+def kokoro_lang_code(voice: str) -> str:
+    """Kokoro's language code is the voice's first letter: af_heart -> "a"
+    (American English), bm_george -> "b" (British English)."""
+    return voice[:1].lower() or "a"
+
+
 class Synthesizer:
     def __init__(self, voice: str) -> None:
         self.voice = voice
@@ -122,8 +128,9 @@ class Synthesizer:
 
         try:
             if self._pipeline is None:
-                log.info("loading Kokoro pipeline (voice=%s)", self.voice)
-                self._pipeline = KPipeline(lang_code="a")
+                lang = kokoro_lang_code(self.voice)
+                log.info("loading Kokoro pipeline (voice=%s, lang=%s)", self.voice, lang)
+                self._pipeline = KPipeline(lang_code=lang)
 
             chunks = [audio for _, _, audio in self._pipeline(text, voice=self.voice, speed=1.0)]
             if not chunks:
