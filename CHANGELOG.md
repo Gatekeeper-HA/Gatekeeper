@@ -48,6 +48,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Licence in the README corrected to AGPL-3.0.
 
 ### Added
+- `GET /healthz` (port `HEALTH_PORT`, 8099), a Docker `HEALTHCHECK`, and a watchdog that
+  exits on an internal hang lasting `HANG_EXIT_SECONDS` (300) so the container restarts.
 - `SESSION_TTL_SECONDS`, `SWEEP_INTERVAL_SECONDS`, `REPLY_*`, `LOG_LEVEL` and `LOG_FORMAT`
   settings.
 - Unit tests and a GitHub Actions workflow (ruff + pytest).

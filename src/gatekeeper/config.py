@@ -64,6 +64,12 @@ class Settings(BaseSettings):
     audio_retention_days: float = 7.0
     event_log_retention_days: float = 30.0
 
+    # Health: GET :health_port/healthz (0 disables). On an internal hang (sweep
+    # loop stalled or a visit stuck) lasting hang_exit_seconds, exit so the
+    # container restarts (0 disables).
+    health_port: int = 8099
+    hang_exit_seconds: float = 300.0
+
     # Logging
     log_level: str = "INFO"
     log_format: Literal["text", "json"] = "text"

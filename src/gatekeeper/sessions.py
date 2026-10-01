@@ -133,10 +133,12 @@ class SessionTracker:
         for eid in pending:
             self.maybe_start(eid)
 
-    def sweep_forever(self, interval: float) -> None:
+    def sweep_forever(self, interval: float, on_sweep: Callable[[], None] | None = None) -> None:
         while True:
             try:
                 self.sweep()
+                if on_sweep:
+                    on_sweep()
             except Exception:
                 log.exception("session sweep error")
             time.sleep(interval)

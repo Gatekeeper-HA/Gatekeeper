@@ -98,6 +98,8 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `LOG_DIR` | `/logs` | Directory for `events.jsonl` |
 | `AUDIO_RETENTION_DAYS` | `7` | Delete visitor recordings (and per-visit synthesized speech) older than this. `0` keeps them forever |
 | `EVENT_LOG_RETENTION_DAYS` | `30` | Delete rotated daily visit logs older than this. `0` keeps them forever |
+| `HEALTH_PORT` | `8099` | Port for `GET /healthz` (200 when healthy, 503 otherwise, with details as JSON). `0` disables it |
+| `HANG_EXIT_SECONDS` | `300` | Exit (so Docker restarts Gatekeeper) when the session loop has stalled or a visit is stuck for this long. `0` disables it |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
 | `LOG_FORMAT` | `text` | `text`, or `json` for one JSON object per line. Every line carries the visit's Frigate `event_id` |
 
@@ -141,6 +143,15 @@ Categories are checked top to bottom; the first match wins.
 
 Solicitors are checked first, so "I'm selling Amazon gift cards" is a solicitor, not a
 delivery.
+
+## Health
+
+`GET http://<host>:8099/healthz` returns `200` with `{"status": "ok", ...}` when Gatekeeper
+is connected to MQTT, its session loop is running and no visit is stuck; otherwise `503`
+with the problems listed. The image's Docker `HEALTHCHECK` uses it, so `docker compose ps`
+shows `healthy`/`unhealthy`. Docker doesn't restart unhealthy containers by itself, so on an
+internal hang lasting `HANG_EXIT_SECONDS` Gatekeeper exits and `restart: unless-stopped`
+brings it back. An MQTT outage only reports unhealthy, since the client reconnects by itself.
 
 ## Visit log
 

@@ -45,3 +45,20 @@ def test_ensure_dirs(tmp_path):
     s = Settings(audio_dir=tmp_path / "a", log_dir=tmp_path / "l")
     ensure_dirs(s)
     assert s.in_dir.is_dir() and s.out_dir.is_dir() and s.log_dir.is_dir()
+
+
+def test_mqtt_connection_state_feeds_health(settings, clock):
+    from gatekeeper.health import Health
+
+    health = Health(sweep_max_age=10, visit_max_age=90)
+    tracker = SessionTracker(
+        camera="front_door", dwell_seconds=0, ttl_seconds=120, run_visit=lambda _: None
+    )
+    client = build_mqtt_client(settings, tracker, health)
+    fake = SimpleNamespace(subscribe=lambda topic: None)
+    client.on_connect(fake, None, {}, 5, None)  # refused (not authorized)
+    assert not health.mqtt_connected
+    client.on_connect(fake, None, {}, 0, None)
+    assert health.mqtt_connected
+    client.on_disconnect(fake, None, {}, 7, None)
+    assert not health.mqtt_connected
