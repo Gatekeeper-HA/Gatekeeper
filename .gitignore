@@ -1,12 +1,8 @@
 # Credentials — never commit these
 .env
 
-# Runtime data — never commit these
-gatekeeper/audio/
-gatekeeper/logs/
-gatekeeper/models/
-mosquitto/data/
-mosquitto/log/
+# Runtime data (DATA_DIR default) — never commit these
+data/
 
 # Python
 __pycache__/
@@ -14,6 +10,12 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
 
 # OS
 .DS_Store
