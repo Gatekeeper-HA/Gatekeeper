@@ -16,12 +16,22 @@ from gatekeeper.listen import Word
 log = logging.getLogger(__name__)
 
 
-def run_cmd(args: list[str], input_bytes: bytes | None = None) -> subprocess.CompletedProcess:
+# ffmpeg's RTSP socket timeout. Without it, a stream that connects but never
+# sends data hangs ffmpeg forever (-rw_timeout does not apply to RTSP in 5.1).
+RTSP_IO_TIMEOUT_US = 5_000_000
+# Backstop: kill ffmpeg if it runs this much longer than the clip.
+CAPTURE_GRACE_SECONDS = 10
+
+
+def run_cmd(
+    args: list[str], input_bytes: bytes | None = None, timeout: float | None = None
+) -> subprocess.CompletedProcess:
     return subprocess.run(
         args,
         input=input_bytes,
         capture_output=True,
         check=False,
+        timeout=timeout,
     )
 
 
@@ -31,6 +41,7 @@ def capture_audio_clip(rtsp_url: str, wav_path: Path, seconds: int) -> Path | No
         "ffmpeg",
         "-loglevel", "error",
         "-rtsp_transport", "tcp",
+        "-timeout", str(RTSP_IO_TIMEOUT_US),
         "-i", rtsp_url,
         "-vn",
         "-map", "0:a:0?",
@@ -40,7 +51,11 @@ def capture_audio_clip(rtsp_url: str, wav_path: Path, seconds: int) -> Path | No
         "-y",
         str(wav_path),
     ]  # fmt: skip
-    proc = run_cmd(cmd)
+    try:
+        proc = run_cmd(cmd, timeout=seconds + CAPTURE_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        log.error("audio capture killed after %d s", seconds + CAPTURE_GRACE_SECONDS)
+        return None
     if proc.returncode != 0 or not wav_path.exists():
         log.warning("audio capture failed: %s", proc.stderr.decode("utf-8", errors="ignore"))
         return None

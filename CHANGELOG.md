@@ -15,12 +15,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Classification matches whole words and phrases: "ups" no longer matches "groups" or
   "cups", nor "tech" "technically". Solicitors are checked before deliveries.
 - British voices (`bm_george`, `bf_emma`) use Kokoro's British English pipeline.
+- A stalled camera stream no longer hangs the doorbell. ffmpeg gets an RTSP socket timeout
+  (`-timeout`; `-rw_timeout` has no effect on RTSP) and a hard process timeout, and each
+  visit is bounded by `VISIT_TIMEOUT_SECONDS`.
+- No visit goes unlogged: a busy talkback, a failed greeting or reply, a timeout or an
+  error are all written to `events.jsonl` with an `outcome`.
 
 ### Changed
 - **Breaking for `events.jsonl` readers:** classifications are now `likely_delivery`,
   `solicitor`, `service_visit`, `cooperative_other` and `no_response` (replacing
   `unknown_cooperative` and `unknown_uncooperative`).
 - Spanish keywords were removed; transcription is English-only until multilingual support.
+- `events.jsonl` records gain an `outcome` field: `completed`, `reply_failed`,
+  `talkback_busy`, `talkback_failed`, `talkback_unavailable`, `timeout` or `error`.
+  `classification` and `response` are `null` when the visitor was never greeted.
 - The app is now the `gatekeeper` Python package (`src/gatekeeper/`, run with
   `python -m gatekeeper`), shared with the Home Assistant add-on. Behavior is unchanged.
 - Settings are read by a typed config module; empty variables fall back to defaults.

@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     listen_seconds: int = 4
     session_ttl_seconds: float = 120.0
     sweep_interval_seconds: float = 1.0
+    # A visit (greet, listen, reply) normally takes ~25 s; give up after this.
+    visit_timeout_seconds: float = 60.0
 
     # Speech
     whisper_model: str = "tiny"

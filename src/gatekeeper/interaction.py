@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import functools
 import json
 import logging
 import math
 import threading
 import time
 from collections.abc import Awaitable, Callable
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +34,33 @@ PLAYBACK_TAIL_SECONDS = 2.5
 # play(wav_path) -> an open connection with an async close(), or None on failure.
 PlayFn = Callable[[Path], Awaitable[Any]]
 CaptureFn = Callable[[str, Path, int], Path | None]
+
+
+@dataclass
+class Visit:
+    """What happened at the door; written to events.jsonl once per visit.
+
+    outcome is one of: completed, reply_failed, talkback_busy,
+    talkback_failed, talkback_unavailable, timeout, error.
+    """
+
+    event_id: str
+    camera: str
+    outcome: str = "error"
+    classification: str | None = None
+    transcript: str = ""
+    response: str | None = None
+
+    def record(self, ts: float) -> dict:
+        return {
+            "ts": ts,
+            "event_id": self.event_id,
+            "camera": self.camera,
+            "outcome": self.outcome,
+            "classification": self.classification,
+            "transcript": self.transcript,
+            "response": self.response,
+        }
 
 
 class Interaction:
@@ -59,41 +90,68 @@ class Interaction:
         self._webrtc_available = webrtc_available
         # go2rtc supports one talkback WebRTC session at a time.
         self._talkback_lock = threading.Lock()
+        # Blocking work (ffmpeg, Whisper, Kokoro) runs here rather than in
+        # asyncio's default executor, which asyncio.run waits for on exit: a
+        # stuck thread must not stop a timed-out visit from returning.
+        self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="visit-io")
 
     async def _play_via_go2rtc(self, wav_path: Path):
         return await talkback.play_wav(
             self.settings.go2rtc_api, self.settings.go2rtc_talk_stream, wav_path
         )
 
-    def run(self, event_id: str) -> None:
-        """Handle the visit for Frigate event ``event_id`` (blocking)."""
+    def run(self, event_id: str) -> Visit:
+        """Handle the visit for Frigate event ``event_id`` (blocking) and log it."""
         token = event_id_var.set(event_id)
+        visit = Visit(event_id, self.settings.camera_name)
         try:
             log.info("interaction started")
             if not self._talkback_lock.acquire(blocking=False):
-                log.warning("talkback busy, skipping")
-                return
-            try:
-                asyncio.run(self._run_async(event_id))
-            except Exception:
-                log.exception("interaction error")
-            finally:
-                self._talkback_lock.release()
+                log.warning("talkback busy; logging the visit without a greeting")
+                visit.outcome = "talkback_busy"
+            else:
+                try:
+                    asyncio.run(self._run_with_timeout(visit))
+                except TimeoutError:
+                    log.error("visit timed out after %.0f s", self.settings.visit_timeout_seconds)
+                    visit.outcome = "timeout"
+                except Exception:
+                    log.exception("interaction error")
+                    visit.outcome = "error"
+                finally:
+                    self._talkback_lock.release()
+            self._log_visit(visit)
+            return visit
         finally:
             event_id_var.reset(token)
+
+    def _log_visit(self, visit: Visit) -> None:
+        record = visit.record(self._clock())
+        self._event_log.append(record)
+        log.info("visit: %s", json.dumps(record, ensure_ascii=False))
+
+    async def _run_with_timeout(self, visit: Visit) -> None:
+        await asyncio.wait_for(self._run_async(visit), self.settings.visit_timeout_seconds)
+
+    async def _in_thread(self, fn: Callable, *args):
+        loop = asyncio.get_running_loop()
+        ctx = contextvars.copy_context()
+        return await loop.run_in_executor(self._executor, functools.partial(ctx.run, fn, *args))
 
     async def _speak(self, key: str, text: str, fallback_path: Path):
         """Play a pre-synthesized phrase (or synthesize it now); return the open connection."""
         wav = self._presynth.get(key)
         if wav is None:
             wav = fallback_path
-            await asyncio.to_thread(self._synth.synthesize, text, wav)
+            await self._in_thread(self._synth.synthesize, text, wav)
         return wav, await self._play(wav)
 
-    async def _run_async(self, event_id: str) -> None:
+    async def _run_async(self, visit: Visit) -> None:
         s = self.settings
+        event_id = visit.event_id
         if not self._webrtc_available:
             log.error("aiortc not available")
+            visit.outcome = "talkback_unavailable"
             return
 
         # Greeting and listen. Recording starts with the greeting: visitors
@@ -104,46 +162,42 @@ class Interaction:
             "greeting", s.greeting, s.out_dir / f"{event_id}_greeting.wav"
         )
         if greet_pc is None:
+            visit.outcome = "talkback_failed"
             return
-        greet_seconds = wav_duration(greet_wav)
-        capture_seconds = math.ceil(greet_seconds + PLAYBACK_TAIL_SECONDS + s.listen_seconds)
-        capture = asyncio.create_task(
-            asyncio.to_thread(
-                self._capture, s.audio_rtsp_url, s.in_dir / f"{event_id}.wav", capture_seconds
+        try:
+            greet_seconds = wav_duration(greet_wav)
+            capture_seconds = math.ceil(greet_seconds + PLAYBACK_TAIL_SECONDS + s.listen_seconds)
+            capture = asyncio.ensure_future(
+                self._in_thread(
+                    self._capture, s.audio_rtsp_url, s.in_dir / f"{event_id}.wav", capture_seconds
+                )
             )
-        )
-        await self._sleep(greet_seconds + PLAYBACK_TAIL_SECONDS)
-        await greet_pc.close()
+            await self._sleep(greet_seconds + PLAYBACK_TAIL_SECONDS)
+        finally:
+            await greet_pc.close()
 
         clip_path = await capture
         log.info("capture: %s (%d bytes)", clip_path, clip_path.stat().st_size if clip_path else 0)
 
-        transcript = ""
-        classification, reply_key = "no_response", "no_answer"
+        visit.classification, reply_key = "no_response", "no_answer"
         if clip_path:
-            words = await asyncio.to_thread(self._transcriber.transcribe, clip_path)
+            words = await self._in_thread(self._transcriber.transcribe, clip_path)
             answer, method = strip_greeting(words, s.greeting)
-            transcript = join_words(answer)
+            visit.transcript = join_words(answer)
             log.info("heard: %r", join_words(words))
-            log.info("transcript (%s): %r", method, transcript)
-            classification, reply_key = classify_response(transcript)
+            log.info("transcript (%s): %r", method, visit.transcript)
+            visit.classification, reply_key = classify_response(visit.transcript)
 
         # Reply
-        response_text = s.replies[reply_key]
+        visit.response = s.replies[reply_key]
         reply_wav, reply_pc = await self._speak(
-            reply_key, response_text, s.out_dir / f"{event_id}_reply.wav"
+            reply_key, visit.response, s.out_dir / f"{event_id}_reply.wav"
         )
-        if reply_pc is not None:
+        if reply_pc is None:
+            visit.outcome = "reply_failed"
+            return
+        try:
             await self._sleep(wav_duration(reply_wav) + PLAYBACK_TAIL_SECONDS)
+        finally:
             await reply_pc.close()
-
-        result = {
-            "ts": self._clock(),
-            "event_id": event_id,
-            "camera": s.camera_name,
-            "classification": classification,
-            "transcript": transcript,
-            "response": response_text,
-        }
-        self._event_log.append(result)
-        log.info("visit: %s", json.dumps(result, ensure_ascii=False))
+        visit.outcome = "completed"

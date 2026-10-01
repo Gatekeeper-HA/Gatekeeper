@@ -2,6 +2,7 @@ import asyncio
 import json
 import math
 import threading
+import time
 from pathlib import Path
 
 from conftest import write_wav
@@ -109,9 +110,9 @@ class Rig:
         return [json.loads(line) for line in f.read_text(encoding="utf-8").splitlines()]
 
 
-def test_full_visit_logs_v01_record(settings):
+def test_full_visit_record(settings):
     rig = Rig(settings)
-    rig.interaction.run(EID)
+    visit = rig.interaction.run(EID)
 
     capture_seconds = math.ceil(GREETING_WAV_SECONDS + PLAYBACK_TAIL_SECONDS + 4)
     assert rig.calls == [
@@ -123,11 +124,13 @@ def test_full_visit_logs_v01_record(settings):
     ]
     tail = GREETING_WAV_SECONDS + PLAYBACK_TAIL_SECONDS
     assert rig.sleeps == [tail, tail]
+    assert visit.outcome == "completed"
     assert rig.log_records() == [
         {
             "ts": 1234.5,
             "event_id": EID,
             "camera": "front_door",
+            "outcome": "completed",
             "classification": "likely_delivery",
             "transcript": "I have a package for you",
             "response": "Thank you. Please leave the package at the door.",
@@ -148,6 +151,7 @@ def test_greeting_echo_alone_is_no_answer(settings):
     rig = Rig(settings, answer="")
     rig.interaction.run(EID)
     (record,) = rig.log_records()
+    assert record["outcome"] == "completed"
     assert record["transcript"] == ""
     assert record["classification"] == "no_response"
     assert record["response"] == settings.reply_no_answer
@@ -157,6 +161,7 @@ def test_failed_capture_gives_no_answer_reply(settings):
     rig = Rig(settings, capture_ok=False)
     rig.interaction.run(EID)
     (record,) = rig.log_records()
+    assert record["outcome"] == "completed"
     assert record["classification"] == "no_response"
     assert record["transcript"] == ""
     assert record["response"] == settings.reply_no_answer
@@ -178,22 +183,28 @@ def test_custom_reply_text_is_logged(settings):
     assert rig.log_records()[0]["response"] == "Leave it by the bench, thanks."
 
 
-def test_failed_reply_playback_still_logs(settings):
+def test_failed_reply_is_logged_with_what_was_heard(settings):
     rig = Rig(settings, play_fails={"_presynth_delivery.wav"})
     rig.interaction.run(EID)
-    assert len(rig.log_records()) == 1
+    (record,) = rig.log_records()
+    assert record["outcome"] == "reply_failed"
+    assert record["classification"] == "likely_delivery"
+    assert record["transcript"] == "I have a package for you"
 
 
-def test_failed_greeting_logs_nothing(settings):
-    # P0-16 (H5): the visit disappears; will log outcome "talkback_failed".
+def test_failed_greeting_is_logged(settings):
+    # P0-16 (H5): v0.1 lost these visits entirely.
     rig = Rig(settings, play_fails={"_presynth_greeting.wav"})
     rig.interaction.run(EID)
-    assert rig.log_records() == []
+    (record,) = rig.log_records()
+    assert record["outcome"] == "talkback_failed"
+    assert record["classification"] is None
+    assert record["response"] is None
     assert not any(c[0] == "capture" for c in rig.calls)
 
 
-def test_busy_talkback_skips_visit(settings):
-    # P0-16 (H4): the second visitor is dropped silently; will log and notify.
+def test_busy_talkback_is_logged(settings):
+    # P0-16 (H4): v0.1 dropped the second visitor silently.
     rig = Rig(settings)
     rig.interaction._talkback_lock.acquire()
     try:
@@ -201,25 +212,53 @@ def test_busy_talkback_skips_visit(settings):
     finally:
         rig.interaction._talkback_lock.release()
     assert rig.calls == []
-    assert rig.log_records() == []
+    (record,) = rig.log_records()
+    assert record["outcome"] == "talkback_busy"
 
 
-def test_lock_released_after_error(settings):
+def test_error_is_logged_and_lock_released(settings):
     rig = Rig(settings)
 
     def broken_capture(*_):
+        rig.capture_started.set()
         raise OSError("ffmpeg missing")
 
     rig.interaction._capture = broken_capture
     rig.interaction.run(EID)
+    assert rig.log_records()[0]["outcome"] == "error"
+    assert ("close", "_presynth_greeting.wav") in rig.calls
     assert rig.interaction._talkback_lock.acquire(blocking=False)
 
 
-def test_no_webrtc_does_nothing(settings):
+def test_hung_capture_times_out(settings):
+    # P0-15 (H2): a capture that never returns must not hold the doorbell.
+    settings.visit_timeout_seconds = 0.3
+    rig = Rig(settings)
+    release = threading.Event()
+
+    def hung_capture(*_):
+        rig.capture_started.set()
+        release.wait(10)
+
+    rig.interaction._capture = hung_capture
+    started = time.monotonic()
+    try:
+        visit = rig.interaction.run(EID)
+    finally:
+        release.set()
+    assert time.monotonic() - started < 3
+    assert visit.outcome == "timeout"
+    assert rig.log_records()[0]["outcome"] == "timeout"
+    assert ("close", "_presynth_greeting.wav") in rig.calls
+    assert rig.interaction._talkback_lock.acquire(blocking=False)
+
+
+def test_no_webrtc_is_logged(settings):
     rig = Rig(settings)
     rig.interaction._webrtc_available = False
     rig.interaction.run(EID)
     assert rig.calls == []
+    assert rig.log_records()[0]["outcome"] == "talkback_unavailable"
 
 
 def test_sequential_visits_on_worker_threads(settings):

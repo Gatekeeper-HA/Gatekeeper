@@ -16,7 +16,7 @@ Frigate detects person
   ├── WebRTC → go2rtc → camera speaker (plays greeting)
   ├── ffmpeg captures visitor response via RTSP mic
   ├── Whisper STT transcribes response
-  ├── Classifies intent (delivery / sales / maintenance / unknown)
+  ├── Classifies intent (delivery / solicitor / service / other / no response)
   └── Plays contextual reply through camera speaker
 ```
 
@@ -83,6 +83,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `LISTEN_SECONDS` | `4` | How long to record the visitor's response |
 | `SESSION_TTL_SECONDS` | `120` | Forget a Frigate event this long after its last update |
 | `SWEEP_INTERVAL_SECONDS` | `1` | How often sessions are checked for dwell and expiry |
+| `VISIT_TIMEOUT_SECONDS` | `60` | Give up on a visit (greet, listen, reply) after this long |
 | `WHISPER_MODEL` | `tiny` | Whisper model size (`tiny`, `base`, `small`) |
 | `WHISPER_COMPUTE_TYPE` | `int8` | `int8` for CPU, `float32` if issues arise |
 | `KOKORO_VOICE` | `af_heart` | TTS voice (see voices below) |
@@ -137,6 +138,19 @@ Categories are checked top to bottom; the first match wins.
 
 Solicitors are checked first, so "I'm selling Amazon gift cards" is a solicitor, not a
 delivery.
+
+## Visit log
+
+Every visit adds one JSON line to `events.jsonl`:
+
+```json
+{"ts": 1790897594.14, "event_id": "1790897570.2776-z44iqa", "camera": "front_door",
+ "outcome": "completed", "classification": "likely_delivery",
+ "transcript": "I have a package.", "response": "Thank you. Please leave the package at the door."}
+```
+
+`outcome` is `completed`, `reply_failed`, `talkback_busy` (another visit was in progress),
+`talkback_failed`, `talkback_unavailable`, `timeout` or `error`.
 
 ## Data
 
