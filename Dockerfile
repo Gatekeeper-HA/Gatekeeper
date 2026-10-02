@@ -21,4 +21,8 @@ COPY pyproject.toml VERSION README.md LICENSE ./
 COPY src ./src
 RUN pip install --no-deps .
 
+# Startup (loading Kokoro and Whisper, pre-synthesizing phrases) takes 1-3 min on a CPU.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5m --retries=3 \
+    CMD ["python", "-m", "gatekeeper.health"]
+
 CMD ["python", "-m", "gatekeeper"]

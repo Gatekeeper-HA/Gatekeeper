@@ -10,13 +10,14 @@ EID = "1727712000.123456-abc123"
 class Harness:
     """A tracker whose visit workers are queued instead of run on threads."""
 
-    def __init__(self, clock, dwell=1.0, ttl=120.0):
+    def __init__(self, clock, dwell=1.0, ttl=120.0, cooldown=0.0):
         self.started: list[str] = []
         self.workers = []
         self.tracker = SessionTracker(
             camera="front_door",
             dwell_seconds=dwell,
             ttl_seconds=ttl,
+            cooldown_seconds=cooldown,
             run_visit=self.started.append,
             spawn=self.workers.append,
             clock=clock,
@@ -117,3 +118,58 @@ def test_sweep_expires_stale_sessions(clock):
     clock.advance(2)
     h.tracker.sweep()
     assert h.tracker.sessions == {}
+
+
+def person(event_id, type_="new"):
+    return FrigateEvent(type_, event_id, "front_door", "person")
+
+
+# P0-17: one visit per camera at a time, plus a cooldown after it.
+
+
+def test_event_during_a_visit_is_merged(clock):
+    h = Harness(clock, dwell=0, cooldown=90)
+    h.tracker.handle_event(person("A"))
+    assert len(h.workers) == 1  # A's visit is running
+    clock.advance(5)
+    h.tracker.handle_event(person("B"))
+    h.tracker.sweep()
+    assert len(h.workers) == 1
+    assert h.tracker.sessions["B"].merged_into == "A"
+    assert h.tracker.sessions["B"].handled
+
+
+def test_event_within_cooldown_is_merged(clock):
+    h = Harness(clock, dwell=0, cooldown=90)
+    h.tracker.handle_event(person("A"))
+    clock.advance(25)  # the visit takes 25 s
+    h.run_workers()
+    clock.advance(89)
+    h.tracker.handle_event(person("B"))
+    assert h.workers == []
+    assert h.tracker.sessions["B"].merged_into == "A"
+
+
+def test_cooldown_runs_from_the_end_of_the_visit(clock):
+    h = Harness(clock, dwell=0, cooldown=90)
+    h.tracker.handle_event(person("A"))
+    clock.advance(25)
+    h.run_workers()
+    clock.advance(91)
+    h.tracker.handle_event(person("B"))
+    assert len(h.workers) == 1
+    h.run_workers()
+    assert h.started == ["A", "B"]
+
+
+def test_merge_survives_the_visit_event_ending(clock):
+    # Frigate may end the first event before the visit finishes.
+    h = Harness(clock, dwell=0, cooldown=90)
+    h.tracker.handle_event(person("A"))
+    h.tracker.handle_event(person("A", "end"))
+    h.tracker.handle_event(person("B"))
+    assert h.tracker.sessions["B"].merged_into == "A"
+    h.run_workers()
+    clock.advance(10)
+    h.tracker.handle_event(person("C"))
+    assert h.tracker.sessions["C"].merged_into == "A"

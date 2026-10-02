@@ -3,6 +3,11 @@
 A session is created for each Frigate person event on the configured camera.
 Once the person has been seen for ``dwell_seconds`` the visit is started on a
 worker; each session triggers at most one visit.
+
+Only one visit runs per camera. A session that becomes due while a visit is
+running, or within ``cooldown_seconds`` after one ended, is merged into that
+visit instead of greeting again (a person stepping out of frame and back, or
+Frigate splitting one person's track into several events).
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ class Session:
     last_seen: float
     handled: bool = False
     in_progress: bool = False
+    merged_into: str | None = None
 
 
 def spawn_thread(fn: Callable[[], None]) -> None:
@@ -38,17 +44,22 @@ class SessionTracker:
         dwell_seconds: float,
         ttl_seconds: float,
         run_visit: Callable[[str], None],
+        cooldown_seconds: float = 0.0,
         spawn: Callable[[Callable[[], None]], None] = spawn_thread,
         clock: Callable[[], float] = time.time,
     ) -> None:
         self.camera = camera
         self.dwell_seconds = dwell_seconds
         self.ttl_seconds = ttl_seconds
+        self.cooldown_seconds = cooldown_seconds
         self._run_visit = run_visit
         self._spawn = spawn
         self._clock = clock
         self._lock = threading.Lock()
         self.sessions: dict[str, Session] = {}
+        self._active_visit: str | None = None
+        self._last_visit: str | None = None
+        self._cooldown_until = 0.0
 
     def handle_event(self, event: FrigateEvent) -> None:
         if event.camera != self.camera or event.label != "person":
@@ -74,9 +85,19 @@ class SessionTracker:
             session = self.sessions.get(event_id)
             if not session or session.handled or session.in_progress:
                 return False
-            if self._clock() - session.first_seen < self.dwell_seconds:
+            now = self._clock()
+            if now - session.first_seen < self.dwell_seconds:
+                return False
+            merge_into = self._active_visit or (
+                self._last_visit if now < self._cooldown_until else None
+            )
+            if merge_into:
+                session.handled = True
+                session.merged_into = merge_into
+                log.info("person event %s merged into visit %s", event_id, merge_into)
                 return False
             session.in_progress = True
+            self._active_visit = event_id
 
         def worker() -> None:
             try:
@@ -93,6 +114,10 @@ class SessionTracker:
             if session:
                 session.handled = True
                 session.in_progress = False
+            if self._active_visit == event_id:
+                self._active_visit = None
+            self._last_visit = event_id
+            self._cooldown_until = self._clock() + self.cooldown_seconds
 
     def sweep(self) -> None:
         """Expire stale sessions and start any whose dwell time has now passed."""
@@ -108,10 +133,12 @@ class SessionTracker:
         for eid in pending:
             self.maybe_start(eid)
 
-    def sweep_forever(self, interval: float) -> None:
+    def sweep_forever(self, interval: float, on_sweep: Callable[[], None] | None = None) -> None:
         while True:
             try:
                 self.sweep()
+                if on_sweep:
+                    on_sweep()
             except Exception:
                 log.exception("session sweep error")
             time.sleep(interval)

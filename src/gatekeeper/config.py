@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     listen_seconds: int = 4
     session_ttl_seconds: float = 120.0
     sweep_interval_seconds: float = 1.0
+    # New person events this soon after a visit are merged into it, not re-greeted.
+    cooldown_seconds: float = 90.0
+    # A visit (greet, listen, reply) normally takes ~25 s; give up after this.
+    visit_timeout_seconds: float = 60.0
 
     # Speech
     whisper_model: str = "tiny"
@@ -55,6 +59,16 @@ class Settings(BaseSettings):
     # Storage
     audio_dir: Path = Path("/audio")
     log_dir: Path = Path("/logs")
+    # Retention, in days (0 = keep forever). Visitor audio and transcripts are
+    # third parties' voice data.
+    audio_retention_days: float = 7.0
+    event_log_retention_days: float = 30.0
+
+    # Health: GET :health_port/healthz (0 disables). On an internal hang (sweep
+    # loop stalled or a visit stuck) lasting hang_exit_seconds, exit so the
+    # container restarts (0 disables).
+    health_port: int = 8099
+    hang_exit_seconds: float = 300.0
 
     # Logging
     log_level: str = "INFO"

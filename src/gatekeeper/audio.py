@@ -11,15 +11,27 @@ import subprocess
 import wave
 from pathlib import Path
 
+from gatekeeper.listen import Word
+
 log = logging.getLogger(__name__)
 
 
-def run_cmd(args: list[str], input_bytes: bytes | None = None) -> subprocess.CompletedProcess:
+# ffmpeg's RTSP socket timeout. Without it, a stream that connects but never
+# sends data hangs ffmpeg forever (-rw_timeout does not apply to RTSP in 5.1).
+RTSP_IO_TIMEOUT_US = 5_000_000
+# Backstop: kill ffmpeg if it runs this much longer than the clip.
+CAPTURE_GRACE_SECONDS = 10
+
+
+def run_cmd(
+    args: list[str], input_bytes: bytes | None = None, timeout: float | None = None
+) -> subprocess.CompletedProcess:
     return subprocess.run(
         args,
         input=input_bytes,
         capture_output=True,
         check=False,
+        timeout=timeout,
     )
 
 
@@ -29,6 +41,7 @@ def capture_audio_clip(rtsp_url: str, wav_path: Path, seconds: int) -> Path | No
         "ffmpeg",
         "-loglevel", "error",
         "-rtsp_transport", "tcp",
+        "-timeout", str(RTSP_IO_TIMEOUT_US),
         "-i", rtsp_url,
         "-vn",
         "-map", "0:a:0?",
@@ -38,7 +51,11 @@ def capture_audio_clip(rtsp_url: str, wav_path: Path, seconds: int) -> Path | No
         "-y",
         str(wav_path),
     ]  # fmt: skip
-    proc = run_cmd(cmd)
+    try:
+        proc = run_cmd(cmd, timeout=seconds + CAPTURE_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        log.error("audio capture killed after %d s", seconds + CAPTURE_GRACE_SECONDS)
+        return None
     if proc.returncode != 0 or not wav_path.exists():
         log.warning("audio capture failed: %s", proc.stderr.decode("utf-8", errors="ignore"))
         return None
@@ -68,7 +85,8 @@ class Transcriber:
         self.compute_type = compute_type
         self._model = None
 
-    def transcribe(self, wav_path: Path) -> str:
+    def load(self) -> None:
+        """Load the model now, so the first visit doesn't pay for it."""
         if self._model is None:
             from faster_whisper import WhisperModel
 
@@ -77,18 +95,36 @@ class Transcriber:
                 self.model_name, device="cpu", compute_type=self.compute_type
             )
 
+    def transcribe(self, wav_path: Path) -> list[Word]:
+        """Return the words spoken in ``wav_path`` with their times in the clip.
+
+        Whisper's VAD filter is off: it drops the greeting's echo from the
+        doorbell speaker (TTS through a small speaker isn't classed as
+        speech), and the echo is needed to find where the answer starts.
+        Whisper's no-speech/log-prob thresholds still suppress text on silence.
+        """
+        self.load()
         try:
             segments, _info = self._model.transcribe(
                 str(wav_path),
                 beam_size=1,
                 language="en",
-                vad_filter=True,
+                vad_filter=False,
                 condition_on_previous_text=False,
+                word_timestamps=True,
             )
-            return " ".join(seg.text.strip() for seg in segments).strip()
+            return [
+                Word(w.word, w.start, w.end) for seg in segments for w in (seg.words or [])
+            ]
         except Exception:
             log.exception("transcription error")
-            return ""
+            return []
+
+
+def kokoro_lang_code(voice: str) -> str:
+    """Kokoro's language code is the voice's first letter: af_heart -> "a"
+    (American English), bm_george -> "b" (British English)."""
+    return voice[:1].lower() or "a"
 
 
 class Synthesizer:
@@ -107,8 +143,9 @@ class Synthesizer:
 
         try:
             if self._pipeline is None:
-                log.info("loading Kokoro pipeline (voice=%s)", self.voice)
-                self._pipeline = KPipeline(lang_code="a")
+                lang = kokoro_lang_code(self.voice)
+                log.info("loading Kokoro pipeline (voice=%s, lang=%s)", self.voice, lang)
+                self._pipeline = KPipeline(lang_code=lang)
 
             chunks = [audio for _, _, audio in self._pipeline(text, voice=self.voice, speed=1.0)]
             if not chunks:
