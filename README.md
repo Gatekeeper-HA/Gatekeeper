@@ -52,6 +52,9 @@ SERVER_IP=192.168.x.x       # LAN IP of the machine running Docker
 CAMERA_IP=192.168.x.x       # LAN IP of your camera
 CAMERA_USER=admin            # Camera RTSP username
 CAMERA_PASS=yourpassword     # Camera RTSP password
+MQTT_FRIGATE_PASSWORD=...    # One MQTT password per account: openssl rand -hex 16
+MQTT_GATEKEEPER_PASSWORD=...
+MQTT_HOMEASSISTANT_PASSWORD=...
 DATA_DIR=./data              # Where recordings, audio, logs and caches are stored
 TZ=America/Chicago
 ```
@@ -75,6 +78,8 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `MQTT_HOST` | `mqtt` | MQTT broker host |
 | `MQTT_PORT` | `1883` | MQTT broker port |
 | `MQTT_TOPIC` | `frigate/events` | Frigate event topic |
+| `MQTT_USERNAME`, `MQTT_PASSWORD` | *(none)* | MQTT login. The compose stack sets `gatekeeper` and `MQTT_GATEKEEPER_PASSWORD` |
+| `HA_DISCOVERY_PREFIX` | `homeassistant` | Home Assistant MQTT discovery prefix. Empty disables discovery |
 | `CAMERA_NAME` | `front_door` | Must match the camera name in your Frigate config |
 | `GO2RTC_API` | `http://go2rtc:1984` | go2rtc API endpoint |
 | `GO2RTC_TALK_STREAM` | `front_door_talk` | go2rtc stream name for talkback |
@@ -143,6 +148,30 @@ Categories are checked top to bottom; the first match wins.
 
 Solicitors are checked first, so "I'm selling Amazon gift cards" is a solicitor, not a
 delivery.
+
+## MQTT
+
+The broker requires a login. The `mqtt-auth` service writes Mosquitto's password file from
+the three `MQTT_*_PASSWORD` values in `.env` each time the stack starts, and
+`mosquitto/config/acl` limits each account to its topics:
+
+| Account | May use |
+|---------|---------|
+| `frigate` | `frigate/#` |
+| `gatekeeper` | reads `frigate/#`; writes `gatekeeper/#` and `homeassistant/#` |
+| `homeassistant` | everything (for the Home Assistant MQTT integration) |
+
+Gatekeeper publishes (all retained):
+
+| Topic | Payload |
+|-------|---------|
+| `gatekeeper/status` | `online`, or `offline` (last will) |
+| `gatekeeper/<camera>/state` | `conversation` during a visit, else `idle` |
+| `gatekeeper/<camera>/visit` | The latest visit record (JSON, as in `events.jsonl`) |
+
+With Home Assistant's MQTT integration connected to the broker, a **Gatekeeper** device
+appears automatically with a *Last visitor* sensor (classification, with the transcript and
+reply as attributes) and a *Conversation* binary sensor.
 
 ## Health
 

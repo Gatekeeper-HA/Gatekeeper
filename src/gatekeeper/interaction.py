@@ -10,7 +10,7 @@ import logging
 import math
 import threading
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -50,6 +50,7 @@ class Visit:
     classification: str | None = None
     transcript: str = ""
     response: str | None = None
+    notified: bool = False
 
     def record(self, ts: float) -> dict:
         return {
@@ -77,6 +78,8 @@ class Interaction:
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         clock: Callable[[], float] = time.time,
         webrtc_available: bool = talkback.HAS_WEBRTC,
+        on_notify: Sequence[Callable[[Visit], None]] = (),
+        on_logged: Sequence[Callable[[dict], None]] = (),
     ) -> None:
         self.settings = settings
         self._synth = synth
@@ -88,6 +91,11 @@ class Interaction:
         self._sleep = sleep
         self._clock = clock
         self._webrtc_available = webrtc_available
+        # on_notify: once per visit, as soon as there's something to tell the
+        # resident (right after classification, or when the visit fails).
+        # on_logged: with the final record. Callbacks must not block.
+        self._on_notify = list(on_notify)
+        self._on_logged = list(on_logged)
         # go2rtc supports one talkback WebRTC session at a time.
         self._talkback_lock = threading.Lock()
         # Blocking work (ffmpeg, Whisper, Kokoro) runs here rather than in
@@ -120,15 +128,31 @@ class Interaction:
                     visit.outcome = "error"
                 finally:
                     self._talkback_lock.release()
+            self._notify(visit)
             self._log_visit(visit)
             return visit
         finally:
             event_id_var.reset(token)
 
+    def _notify(self, visit: Visit) -> None:
+        if visit.notified:
+            return
+        visit.notified = True
+        for callback in self._on_notify:
+            try:
+                callback(visit)
+            except Exception:
+                log.exception("notify callback failed")
+
     def _log_visit(self, visit: Visit) -> None:
         record = visit.record(self._clock())
         self._event_log.append(record)
         log.info("visit: %s", json.dumps(record, ensure_ascii=False))
+        for callback in self._on_logged:
+            try:
+                callback(record)
+            except Exception:
+                log.exception("visit-logged callback failed")
 
     async def _run_with_timeout(self, visit: Visit) -> None:
         await asyncio.wait_for(self._run_async(visit), self.settings.visit_timeout_seconds)
@@ -187,9 +211,10 @@ class Interaction:
             log.info("heard: %r", join_words(words))
             log.info("transcript (%s): %r", method, visit.transcript)
             visit.classification, reply_key = classify_response(visit.transcript)
+        visit.response = s.replies[reply_key]
+        self._notify(visit)
 
         # Reply
-        visit.response = s.replies[reply_key]
         reply_wav, reply_pc = await self._speak(
             reply_key, visit.response, s.out_dir / f"{event_id}_reply.wav"
         )

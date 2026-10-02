@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import model_validator
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPLY_KEYS = ("no_answer", "delivery", "sales", "maintenance", "generic")
@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     mqtt_host: str = "mqtt"
     mqtt_port: int = 1883
     mqtt_topic: str = "frigate/events"
+    mqtt_username: str = ""
+    mqtt_password: SecretStr = SecretStr("")
+    # Home Assistant MQTT discovery prefix; empty disables discovery.
+    ha_discovery_prefix: str = "homeassistant"
 
     # Camera and go2rtc
     camera_name: str = "front_door"

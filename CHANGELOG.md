@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added (Phase 0 M3)
+- MQTT login: the broker no longer accepts anonymous clients. Frigate, Gatekeeper and Home
+  Assistant each have an account (passwords in `.env`, written to Mosquitto's password file
+  by the `mqtt-auth` service) limited by an ACL. Gatekeeper reads `MQTT_USERNAME` /
+  `MQTT_PASSWORD`.
+- Gatekeeper publishes its status (with a last will), conversation state and each visit
+  record over MQTT, with Home Assistant MQTT discovery for a *Last visitor* sensor and a
+  *Conversation* binary sensor.
+
 ### Fixed
 - The visitor's answer was usually missed. Recording started about 3 s after the greeting
   ended (playback buffer + a fresh RTSP connection), after most visitors had finished

@@ -268,3 +268,46 @@ def test_sequential_visits_on_worker_threads(settings):
         t.start()
         t.join()
     assert [r["event_id"] for r in rig.log_records()] == ["e0", "e1", "e2"]
+
+
+def test_notify_fires_once_right_after_classification(settings):
+    rig = Rig(settings)
+    notified = []
+
+    def on_notify(visit):
+        notified.append((visit.classification, visit.transcript, visit.response))
+        rig.calls.append(("notify",))
+
+    rig.interaction._on_notify = [on_notify]
+    rig.interaction.run(EID)
+    assert notified == [
+        ("likely_delivery", "I have a package for you", settings.reply_delivery)
+    ]
+    # Before the reply is played: the resident hears about it as soon as possible.
+    names = [c[0] for c in rig.calls]
+    assert names.index("notify") < names.index("play", names.index("close"))
+
+
+def test_notify_fires_for_visits_that_fail(settings):
+    rig = Rig(settings, play_fails={"_presynth_greeting.wav"})
+    notified = []
+    rig.interaction._on_notify = [notified.append]
+    rig.interaction.run(EID)
+    (visit,) = notified
+    assert visit.outcome == "talkback_failed"
+    assert visit.classification is None
+
+
+def test_logged_hook_gets_the_record_and_survives_errors(settings):
+    rig = Rig(settings)
+    records = []
+
+    def broken(record):
+        raise RuntimeError("mqtt down")
+
+    rig.interaction._on_logged = [broken, records.append]
+    rig.interaction._on_notify = [broken]
+    rig.interaction.run(EID)
+    (record,) = records
+    assert record == rig.log_records()[0]
+    assert record["outcome"] == "completed"

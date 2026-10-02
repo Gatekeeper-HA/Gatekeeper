@@ -4,15 +4,42 @@
 # logs, model caches) lives under ${DATA_DIR}, default ./data.
 
 services:
+  # Writes the MQTT password file from the passwords in .env, then exits.
+  mqtt-auth:
+    image: eclipse-mosquitto:2.0.22
+    restart: "no"
+    environment:
+      MQTT_FRIGATE_PASSWORD: "${MQTT_FRIGATE_PASSWORD:?set MQTT_FRIGATE_PASSWORD in .env}"
+      MQTT_GATEKEEPER_PASSWORD: "${MQTT_GATEKEEPER_PASSWORD:?set MQTT_GATEKEEPER_PASSWORD in .env}"
+      MQTT_HOMEASSISTANT_PASSWORD: "${MQTT_HOMEASSISTANT_PASSWORD:?set MQTT_HOMEASSISTANT_PASSWORD in .env}"
+    volumes:
+      - ${DATA_DIR:-./data}/mosquitto/auth:/auth
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        f=/auth/passwd.new
+        rm -f "$$f"
+        touch "$$f"
+        chmod 600 "$$f"
+        mosquitto_passwd -b "$$f" frigate "$$MQTT_FRIGATE_PASSWORD"
+        mosquitto_passwd -b "$$f" gatekeeper "$$MQTT_GATEKEEPER_PASSWORD"
+        mosquitto_passwd -b "$$f" homeassistant "$$MQTT_HOMEASSISTANT_PASSWORD"
+        chown 1883:1883 "$$f"
+        mv "$$f" /auth/passwd
+
   mqtt:
     image: eclipse-mosquitto:2.0.22
     container_name: mqtt
     restart: unless-stopped
     networks: [surveil]
+    depends_on:
+      mqtt-auth:
+        condition: service_completed_successfully
     ports:
       - "${SERVER_IP:?set SERVER_IP in .env}:1883:1883"
     volumes:
       - ./mosquitto/config:/mosquitto/config:ro
+      - ${DATA_DIR:-./data}/mosquitto/auth:/mosquitto/auth:ro
       - ${DATA_DIR:-./data}/mosquitto/data:/mosquitto/data
       - ${DATA_DIR:-./data}/mosquitto/log:/mosquitto/log
 
@@ -37,6 +64,8 @@ services:
       - ${DATA_DIR:-./data}/frigate/storage:/media/frigate
     environment:
       TZ: "${TZ:-America/Chicago}"
+      FRIGATE_MQTT_USER: "frigate"
+      FRIGATE_MQTT_PASSWORD: "${MQTT_FRIGATE_PASSWORD:?set MQTT_FRIGATE_PASSWORD in .env}"
 
   go2rtc:
     image: alexxit/go2rtc:1.9.14
@@ -66,6 +95,8 @@ services:
       TZ: "${TZ:-America/Chicago}"
       MQTT_HOST: "mqtt"
       MQTT_PORT: "1883"
+      MQTT_USERNAME: "gatekeeper"
+      MQTT_PASSWORD: "${MQTT_GATEKEEPER_PASSWORD:?set MQTT_GATEKEEPER_PASSWORD in .env}"
       MQTT_TOPIC: "frigate/events"
       CAMERA_NAME: "front_door"
       AUDIO_RTSP_URL: "rtsp://go2rtc:8554/front_door"

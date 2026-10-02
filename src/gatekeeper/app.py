@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections.abc import Callable
 
 import paho.mqtt.client as mqtt
 
@@ -12,10 +13,11 @@ from gatekeeper import __version__
 from gatekeeper.audio import Synthesizer, Transcriber, presynth_all
 from gatekeeper.config import Settings
 from gatekeeper.eventlog import EventLog
-from gatekeeper.frigate import parse_event
+from gatekeeper.frigate import FrigateEvent, parse_event
 from gatekeeper.health import Health, serve
 from gatekeeper.interaction import Interaction
 from gatekeeper.logs import setup_logging
+from gatekeeper.publish import Publisher
 from gatekeeper.retention import Retention
 from gatekeeper.sessions import SessionTracker
 
@@ -28,9 +30,15 @@ def ensure_dirs(settings: Settings) -> None:
 
 
 def build_mqtt_client(
-    settings: Settings, tracker: SessionTracker, health: Health | None = None
+    settings: Settings,
+    *,
+    on_event: Callable[[FrigateEvent], None],
+    health: Health | None = None,
+    on_connected: Callable[[], None] | None = None,
 ) -> mqtt.Client:
     client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
+    if settings.mqtt_username:
+        client.username_pw_set(settings.mqtt_username, settings.mqtt_password.get_secret_value())
 
     def on_connect(client, userdata, flags, reason_code, properties=None):
         if getattr(reason_code, "is_failure", reason_code != 0):
@@ -40,6 +48,8 @@ def build_mqtt_client(
         client.subscribe(settings.mqtt_topic)
         if health:
             health.mqtt_connected = True
+        if on_connected:
+            on_connected()
 
     def on_disconnect(client, userdata, flags, reason_code, properties=None):
         log.warning("disconnected from MQTT: %s", reason_code)
@@ -50,7 +60,7 @@ def build_mqtt_client(
         try:
             event = parse_event(msg.payload)
             if event:
-                tracker.handle_event(event)
+                on_event(event)
         except Exception:
             log.exception("error handling MQTT message on %s", msg.topic)
 
@@ -95,19 +105,38 @@ def main() -> None:
     except Exception:
         log.exception("could not load the Whisper model; will retry on the first visit")
 
+    # The callbacks reference `tracker` and `publisher`, defined below; no
+    # message arrives before connect() at the end.
+    client = build_mqtt_client(
+        settings,
+        on_event=lambda event: tracker.handle_event(event),
+        health=health,
+        on_connected=lambda: publisher.announce(),
+    )
+    publisher = Publisher(
+        client,
+        camera=settings.camera_name,
+        discovery_prefix=settings.ha_discovery_prefix,
+        version=__version__,
+    )
+    publisher.set_will()
+
     interaction = Interaction(
         settings,
         synth=synth,
         transcriber=transcriber,
         presynth=presynth,
         event_log=EventLog(settings.event_log_file),
+        on_logged=[publisher.visit],
     )
 
     def run_visit(event_id: str) -> None:
         health.visit_started()
+        publisher.conversation(True)
         try:
             interaction.run(event_id)
         finally:
+            publisher.conversation(False)
             health.visit_finished()
 
     tracker = SessionTracker(
@@ -124,7 +153,6 @@ def main() -> None:
     if settings.hang_exit_seconds:
         start_thread("watchdog", health.watchdog, settings.hang_exit_seconds)
 
-    client = build_mqtt_client(settings, tracker, health)
     while True:
         try:
             client.connect(settings.mqtt_host, settings.mqtt_port, 60)
