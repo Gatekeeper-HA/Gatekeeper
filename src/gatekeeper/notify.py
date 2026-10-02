@@ -54,6 +54,13 @@ class Notification:
 
 def compose(visit: Visit) -> Notification:
     place = visit.camera.replace("_", " ")
+    if visit.outcome == "pressed_during_visit":
+        return Notification(
+            title=f"Doorbell pressed at the {place}",
+            message="Pressed during or just after a visit Gatekeeper handled.",
+            tags=["bell"],
+            priority=4,
+        )
     if visit.classification is None:
         reason = OUTCOME_TEXT.get(visit.outcome, visit.outcome)
         return Notification(
@@ -64,6 +71,8 @@ def compose(visit: Visit) -> Notification:
         )
     title, tags, priority = STYLES.get(visit.classification, STYLES["cooperative_other"])
     said = f'Said: "{visit.transcript}"' if visit.transcript else "No answer."
+    if visit.trigger == "button":
+        tags = ["bell", *tags]
     return Notification(
         title=title.format(place=place),
         message=f"{said}\nReplied: {visit.response}",
@@ -118,22 +127,33 @@ class NtfyBackend:
             pass
 
 
-def frigate_snapshot(api: str, event_id: str, timeout: float = 3.0) -> bytes | None:
-    """The best snapshot of a Frigate event so far (works while it's in progress)."""
-    url = f"{api.rstrip('/')}/api/events/{urllib.parse.quote(event_id)}/snapshot.jpg?quality=85"
+def _fetch(url: str, timeout: float) -> bytes | None:
     try:
         with urllib.request.urlopen(url, timeout=timeout) as resp:
             return resp.read()
     except (urllib.error.URLError, OSError) as e:
-        log.warning("no Frigate snapshot for %s: %s", event_id, e)
+        log.warning("no snapshot from %s: %s", url, e)
         return None
+
+
+def frigate_snapshot(api: str, visit: Visit, timeout: float = 3.0) -> bytes | None:
+    """The best snapshot of the visit's Frigate event so far (works while it's in
+    progress), else the camera's latest frame (e.g. a doorbell press before
+    Frigate saw anyone)."""
+    base = api.rstrip("/")
+    q = urllib.parse.quote
+    if not visit.event_id.startswith("press-"):
+        image = _fetch(f"{base}/api/events/{q(visit.event_id)}/snapshot.jpg?quality=85", timeout)
+        if image:
+            return image
+    return _fetch(f"{base}/api/{q(visit.camera)}/latest.jpg?h=720&quality=85", timeout)
 
 
 class Notifier:
     def __init__(
         self,
         backends: Sequence[Backend],
-        snapshot: Callable[[str], bytes | None] = lambda event_id: None,
+        snapshot: Callable[[Visit], bytes | None] = lambda visit: None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.backends = list(backends)
@@ -148,7 +168,7 @@ class Notifier:
     def send(self, visit: Visit) -> None:
         started = self._clock()
         notification = compose(visit)
-        image = self._snapshot(visit.event_id)
+        image = self._snapshot(visit)
         for backend in self.backends:
             try:
                 backend.send(notification, image)

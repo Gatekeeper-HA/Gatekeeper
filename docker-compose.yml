@@ -154,6 +154,10 @@ services:
       NTFY_URL: "http://ntfy"
       NTFY_TOPIC: "doorbell"
       NTFY_TOKEN: "${NTFY_GATEKEEPER_TOKEN:?run scripts/ntfy-auth.sh}"
+      # Doorbell button presses (Reolink login over HTTPS, push events on 9000).
+      REOLINK_HOST: "${CAMERA_IP:?set CAMERA_IP in .env}"
+      REOLINK_USERNAME: "${CAMERA_USER:?set CAMERA_USER in .env}"
+      REOLINK_PASSWORD: "${CAMERA_PASS:?set CAMERA_PASS in .env}"
       DWELL_SECONDS: "1"
       LISTEN_SECONDS: "4"
       WHISPER_MODEL: "tiny"

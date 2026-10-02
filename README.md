@@ -91,6 +91,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `NTFY_TOPIC` | `doorbell` | ntfy topic |
 | `NTFY_TOKEN` | *(none)* | ntfy access token (`NTFY_GATEKEEPER_TOKEN` in the compose stack) |
 | `FRIGATE_API` | `http://frigate:5000` | Frigate API, for the visitor's snapshot in notifications |
+| `REOLINK_HOST`, `REOLINK_USERNAME`, `REOLINK_PASSWORD` | *(none)* | Reolink doorbell for button presses (login over HTTPS, push events on port 9000). Empty host disables. The compose stack uses the camera's `.env` values |
 | `CAMERA_NAME` | `front_door` | Must match the camera name in your Frigate config |
 | `GO2RTC_API` | `http://go2rtc:1984` | go2rtc API endpoint |
 | `GO2RTC_TALK_STREAM` | `front_door_talk` | go2rtc stream name for talkback |
@@ -159,6 +160,18 @@ Categories are checked top to bottom; the first match wins.
 
 Solicitors are checked first, so "I'm selling Amazon gift cards" is a solicitor, not a
 delivery.
+
+## Doorbell button
+
+With `REOLINK_HOST` set, Gatekeeper listens for presses of a Reolink doorbell's button
+(the same push events Home Assistant's Reolink integration uses; no Home Assistant needed):
+
+- A press while someone is waiting out `DWELL_SECONDS` greets them right away.
+- A press before Frigate has detected anyone starts a visit anyway, with the camera's latest
+  frame as the snapshot.
+- A press during a visit or its cooldown sends a *Doorbell pressed* notification.
+
+Visit records carry `trigger`: `person` (Frigate detection) or `button`.
 
 ## Notifications
 

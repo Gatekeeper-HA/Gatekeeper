@@ -8,6 +8,10 @@ Only one visit runs per camera. A session that becomes due while a visit is
 running, or within ``cooldown_seconds`` after one ended, is merged into that
 visit instead of greeting again (a person stepping out of frame and back, or
 Frigate splitting one person's track into several events).
+
+A doorbell press starts the waiting visit at once (skipping the dwell), or a
+new one if Frigate hasn't seen anyone yet; during a visit or its cooldown it is
+reported back as merged so the caller can still notify.
 """
 
 from __future__ import annotations
@@ -30,6 +34,7 @@ class Session:
     handled: bool = False
     in_progress: bool = False
     merged_into: str | None = None
+    trigger: str = "person"  # or "button"
 
 
 def spawn_thread(fn: Callable[[], None]) -> None:
@@ -43,7 +48,7 @@ class SessionTracker:
         camera: str,
         dwell_seconds: float,
         ttl_seconds: float,
-        run_visit: Callable[[str], None],
+        run_visit: Callable[[str, str], None],
         cooldown_seconds: float = 0.0,
         spawn: Callable[[Callable[[], None]], None] = spawn_thread,
         clock: Callable[[], float] = time.time,
@@ -99,14 +104,43 @@ class SessionTracker:
             session.in_progress = True
             self._active_visit = event_id
 
+        trigger = session.trigger
+
         def worker() -> None:
             try:
-                self._run_visit(event_id)
+                self._run_visit(event_id, trigger)
             finally:
                 self._finish(event_id)
 
         self._spawn(worker)
         return True
+
+    def press(self) -> tuple[str, str]:
+        """Handle a doorbell press. Returns ``("started", visit_id)`` if a visit
+        starts now, or ``("merged", visit_id)`` if one is running or just ended."""
+        now = self._clock()
+        with self._lock:
+            merge_into = self._active_visit or (
+                self._last_visit if now < self._cooldown_until else None
+            )
+            if merge_into:
+                log.info("doorbell pressed during visit %s", merge_into)
+                return "merged", merge_into
+            waiting = [
+                (s.first_seen, eid)
+                for eid, s in self.sessions.items()
+                if not s.handled and not s.in_progress
+            ]
+            if waiting:
+                event_id = max(waiting)[1]  # the most recent person
+            else:
+                event_id = f"press-{now:.3f}"
+                self.sessions[event_id] = Session(first_seen=now, last_seen=now)
+            session = self.sessions[event_id]
+            session.first_seen = min(session.first_seen, now - self.dwell_seconds)
+            session.trigger = "button"
+        self.maybe_start(event_id)
+        return "started", event_id
 
     def _finish(self, event_id: str) -> None:
         with self._lock:

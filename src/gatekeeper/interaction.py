@@ -41,7 +41,9 @@ class Visit:
     """What happened at the door; written to events.jsonl once per visit.
 
     outcome is one of: completed, reply_failed, talkback_busy,
-    talkback_failed, talkback_unavailable, timeout, error.
+    talkback_failed, talkback_unavailable, timeout, error, or
+    pressed_during_visit (a doorbell press while a visit ran or just ended).
+    trigger is "person" (Frigate detection) or "button" (doorbell press).
     """
 
     event_id: str
@@ -50,6 +52,7 @@ class Visit:
     classification: str | None = None
     transcript: str = ""
     response: str | None = None
+    trigger: str = "person"
     notified: bool = False
 
     def record(self, ts: float) -> dict:
@@ -57,6 +60,7 @@ class Visit:
             "ts": ts,
             "event_id": self.event_id,
             "camera": self.camera,
+            "trigger": self.trigger,
             "outcome": self.outcome,
             "classification": self.classification,
             "transcript": self.transcript,
@@ -108,10 +112,10 @@ class Interaction:
             self.settings.go2rtc_api, self.settings.go2rtc_talk_stream, wav_path
         )
 
-    def run(self, event_id: str) -> Visit:
+    def run(self, event_id: str, trigger: str = "person") -> Visit:
         """Handle the visit for Frigate event ``event_id`` (blocking) and log it."""
         token = event_id_var.set(event_id)
-        visit = Visit(event_id, self.settings.camera_name)
+        visit = Visit(event_id, self.settings.camera_name, trigger=trigger)
         try:
             log.info("interaction started")
             if not self._talkback_lock.acquire(blocking=False):
@@ -133,6 +137,12 @@ class Interaction:
             return visit
         finally:
             event_id_var.reset(token)
+
+    def report(self, visit: Visit) -> None:
+        """Notify and log something that isn't a visit run here (e.g. a press
+        during a visit)."""
+        self._notify(visit)
+        self._log_visit(visit)
 
     def _notify(self, visit: Visit) -> None:
         if visit.notified:

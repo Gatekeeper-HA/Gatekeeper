@@ -130,6 +130,7 @@ def test_full_visit_record(settings):
             "ts": 1234.5,
             "event_id": EID,
             "camera": "front_door",
+            "trigger": "person",
             "outcome": "completed",
             "classification": "likely_delivery",
             "transcript": "I have a package for you",

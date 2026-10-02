@@ -94,8 +94,35 @@ def test_ntfy_without_snapshot_posts_text(server):
 
 
 def test_frigate_snapshot(server):
-    assert frigate_snapshot(server, "e1") == b"JPEGDATA"
-    assert frigate_snapshot("http://127.0.0.1:1", "e1", timeout=0.5) is None
+    assert frigate_snapshot(server, visit()) == b"JPEGDATA"
+    assert frigate_snapshot("http://127.0.0.1:1", visit(), timeout=0.5) is None
+
+
+def test_press_without_frigate_event_uses_latest_frame(server, monkeypatch):
+    import gatekeeper.notify as notify
+
+    urls = []
+    real = notify._fetch
+
+    def spy(url, timeout):
+        urls.append(url.split("?")[0].removeprefix(server))
+        return real(url, timeout)
+
+    monkeypatch.setattr(notify, "_fetch", spy)
+    assert frigate_snapshot(server, visit(event_id="press-1.0")) == b"JPEGDATA"
+    assert urls == ["/api/front_door/latest.jpg"]
+
+
+def test_compose_press_during_visit():
+    n = compose(visit(outcome="pressed_during_visit", trigger="button"))
+    assert n.title == "Doorbell pressed at the front door"
+    assert n.tags == ["bell"] and n.priority == 4
+
+
+def test_compose_button_visit_gets_a_bell():
+    n = compose(visit(classification="likely_delivery", transcript="box", response="OK",
+                      trigger="button"))  # fmt: skip
+    assert n.tags == ["bell", "package"]
 
 
 class FakeBackend:

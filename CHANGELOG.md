@@ -11,6 +11,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   goes to ntfy. The compose stack runs a private ntfy server (deny-all; Gatekeeper token
   publishes, `phone` user reads); `scripts/ntfy-auth.sh` generates its credentials.
 - go2rtc only receives the camera variables it uses, not the whole `.env`.
+- Doorbell button presses (Reolink, via reolink-aio push events over HTTPS): a press greets
+  a waiting visitor at once, starts a visit if Frigate hasn't seen anyone yet, or notifies
+  *Doorbell pressed* during a visit or its cooldown. Visit records gain `trigger`
+  (`person` or `button`).
 - MQTT login: the broker no longer accepts anonymous clients. Frigate, Gatekeeper and Home
   Assistant each have an account (passwords in `.env`, written to Mosquitto's password file
   by the `mqtt-auth` service) limited by an ACL. Gatekeeper reads `MQTT_USERNAME` /

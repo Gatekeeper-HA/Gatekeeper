@@ -11,11 +11,12 @@ import paho.mqtt.client as mqtt
 
 from gatekeeper import __version__
 from gatekeeper.audio import Synthesizer, Transcriber, presynth_all
+from gatekeeper.button import DoorbellButton
 from gatekeeper.config import Settings
 from gatekeeper.eventlog import EventLog
 from gatekeeper.frigate import FrigateEvent, parse_event
 from gatekeeper.health import Health, serve
-from gatekeeper.interaction import Interaction
+from gatekeeper.interaction import Interaction, Visit
 from gatekeeper.logs import setup_logging
 from gatekeeper.notify import Notifier, NtfyBackend, frigate_snapshot
 from gatekeeper.publish import Publisher
@@ -137,7 +138,7 @@ def main() -> None:
 
     notifier = Notifier(
         build_notify_backends(settings),
-        snapshot=lambda event_id: frigate_snapshot(settings.frigate_api, event_id),
+        snapshot=lambda visit: frigate_snapshot(settings.frigate_api, visit),
     )
     interaction = Interaction(
         settings,
@@ -149,11 +150,11 @@ def main() -> None:
         on_logged=[publisher.visit],
     )
 
-    def run_visit(event_id: str) -> None:
+    def run_visit(event_id: str, trigger: str) -> None:
         health.visit_started()
         publisher.conversation(True)
         try:
-            interaction.run(event_id)
+            interaction.run(event_id, trigger)
         finally:
             publisher.conversation(False)
             health.visit_finished()
@@ -169,6 +170,27 @@ def main() -> None:
         "sweep", tracker.sweep_forever, settings.sweep_interval_seconds, on_sweep=health.sweep_done
     )
     start_thread("retention", Retention(settings).run_forever)
+
+    def on_press() -> None:
+        action, visit_id = tracker.press()
+        if action == "merged":
+            interaction.report(
+                Visit(
+                    f"press-{time.time():.3f}",
+                    settings.camera_name,
+                    outcome="pressed_during_visit",
+                    trigger="button",
+                )
+            )
+
+    if settings.reolink_host:
+        button = DoorbellButton(
+            settings.reolink_host,
+            settings.reolink_username,
+            settings.reolink_password.get_secret_value(),
+            on_press=on_press,
+        )
+        start_thread("button", button.run_forever)
     if settings.hang_exit_seconds:
         start_thread("watchdog", health.watchdog, settings.hang_exit_seconds)
 

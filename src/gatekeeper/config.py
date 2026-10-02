@@ -67,6 +67,12 @@ class Settings(BaseSettings):
     ntfy_topic: str = "doorbell"
     ntfy_token: SecretStr = SecretStr("")
 
+    # Doorbell button presses from a Reolink doorbell (HTTPS login + push
+    # events); an empty REOLINK_HOST disables them.
+    reolink_host: str = ""
+    reolink_username: str = ""
+    reolink_password: SecretStr = SecretStr("")
+
     # Storage
     audio_dir: Path = Path("/audio")
     log_dir: Path = Path("/logs")

@@ -17,7 +17,7 @@ def test_mqtt_messages_reach_the_tracker(settings, clock):
     started = []
     tracker = SessionTracker(
         camera="front_door", dwell_seconds=0, ttl_seconds=120,
-        run_visit=started.append, spawn=lambda fn: fn(), clock=clock,
+        run_visit=lambda eid, trigger: started.append(eid), spawn=lambda fn: fn(), clock=clock,
     )  # fmt: skip
     client = build_mqtt_client(settings, on_event=tracker.handle_event)
     client.on_message(client, None, message(load_fixture("frigate/person_new.json")))

@@ -18,7 +18,7 @@ class Harness:
             dwell_seconds=dwell,
             ttl_seconds=ttl,
             cooldown_seconds=cooldown,
-            run_visit=self.started.append,
+            run_visit=lambda event_id, trigger: self.started.append(event_id),
             spawn=self.workers.append,
             clock=clock,
         )
@@ -76,7 +76,7 @@ def test_no_second_start_while_in_progress(h, clock):
 
 
 def test_session_marked_handled_even_if_visit_raises(clock):
-    def boom(_eid):
+    def boom(_eid, _trigger):
         raise RuntimeError("visit failed")
 
     workers = []
@@ -173,3 +173,49 @@ def test_merge_survives_the_visit_event_ending(clock):
     clock.advance(10)
     h.tracker.handle_event(person("C"))
     assert h.tracker.sessions["C"].merged_into == "A"
+
+
+# P0-21: doorbell presses.
+
+
+class TriggerHarness(Harness):
+    def __init__(self, clock, **kw):
+        super().__init__(clock, **kw)
+        self.triggers = []
+        self.tracker._run_visit = lambda eid, trigger: self.triggers.append((eid, trigger))
+
+
+def test_press_starts_the_waiting_visit_without_dwell(clock):
+    h = TriggerHarness(clock, dwell=3)
+    h.send("person_new")
+    assert h.workers == []
+    assert h.tracker.press() == ("started", EID)
+    h.run_workers()
+    assert h.triggers == [(EID, "button")]
+
+
+def test_press_with_nobody_detected_starts_a_new_visit(clock):
+    h = TriggerHarness(clock, dwell=3)
+    action, visit_id = h.tracker.press()
+    assert action == "started" and visit_id == f"press-{clock.now:.3f}"
+    h.run_workers()
+    assert h.triggers == [(visit_id, "button")]
+
+
+def test_press_during_a_visit_or_cooldown_is_merged(clock):
+    h = TriggerHarness(clock, dwell=0, cooldown=90)
+    h.send("person_new")  # starts the visit (dwell 0)
+    assert h.tracker.press() == ("merged", EID)
+    h.run_workers()
+    clock.advance(30)
+    assert h.tracker.press() == ("merged", EID)
+    clock.advance(61)
+    action, _ = h.tracker.press()
+    assert action == "started"
+
+
+def test_person_visit_trigger(clock):
+    h = TriggerHarness(clock, dwell=0)
+    h.send("person_new")
+    h.run_workers()
+    assert h.triggers == [(EID, "person")]
