@@ -45,3 +45,10 @@ def test_explicit_audio_url_wins(monkeypatch):
 
 def test_replies_cover_all_keys():
     assert set(Settings().replies) == set(REPLY_KEYS)
+
+
+def test_trigger_zones(monkeypatch):
+    monkeypatch.setenv("TRIGGER_ZONES", " porch, walkway ,")
+    assert Settings().trigger_zone_list == ["porch", "walkway"]
+    monkeypatch.delenv("TRIGGER_ZONES")
+    assert Settings().trigger_zone_list == []

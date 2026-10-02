@@ -15,6 +15,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   a waiting visitor at once, starts a visit if Frigate hasn't seen anyone yet, or notifies
   *Doorbell pressed* during a visit or its cooldown. Visit records gain `trigger`
   (`person` or `button`).
+- `TRIGGER_ZONES`: only greet people who enter one of the given Frigate zones (e.g. the
+  porch, not the sidewalk); the dwell time counts from entering the zone.
 - MQTT login: the broker no longer accepts anonymous clients. Frigate, Gatekeeper and Home
   Assistant each have an account (passwords in `.env`, written to Mosquitto's password file
   by the `mqtt-auth` service) limited by an ACL. Gatekeeper reads `MQTT_USERNAME` /

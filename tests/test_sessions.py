@@ -219,3 +219,49 @@ def test_person_visit_trigger(clock):
     h.send("person_new")
     h.run_workers()
     assert h.triggers == [(EID, "person")]
+
+
+# P0-18: trigger zones.
+
+
+def zoned(event_id, zones=(), type_="update"):
+    return FrigateEvent(type_, event_id, "front_door", "person", tuple(zones))
+
+
+def test_without_zones_configured_anywhere_counts(clock):
+    h = Harness(clock, dwell=0)
+    h.tracker.handle_event(zoned("A", type_="new"))
+    assert len(h.workers) == 1
+
+
+def test_sidewalk_passer_by_never_triggers(clock):
+    h = Harness(clock, dwell=1)
+    h.tracker.trigger_zones = frozenset({"porch"})
+    h.tracker.handle_event(zoned("A", type_="new"))
+    for _ in range(10):
+        clock.advance(1)
+        h.tracker.handle_event(zoned("A", ["sidewalk"]))
+        h.tracker.sweep()
+    assert h.workers == []
+
+
+def test_dwell_counts_from_entering_the_porch(clock):
+    h = Harness(clock, dwell=2)
+    h.tracker.trigger_zones = frozenset({"porch"})
+    h.tracker.handle_event(zoned("A", type_="new"))
+    clock.advance(30)  # walking up the path
+    h.tracker.handle_event(zoned("A", ["walkway"]))
+    clock.advance(5)
+    h.tracker.handle_event(zoned("A", ["walkway", "porch"]))
+    assert h.workers == []  # just arrived; dwell restarts here
+    clock.advance(2)
+    h.tracker.sweep()
+    assert len(h.workers) == 1
+
+
+def test_press_ignores_zones(clock):
+    h = Harness(clock, dwell=2)
+    h.tracker.trigger_zones = frozenset({"porch"})
+    h.tracker.handle_event(zoned("A", type_="new"))
+    assert h.tracker.press() == ("started", "A")
+    assert len(h.workers) == 1

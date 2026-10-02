@@ -37,6 +37,9 @@ class Settings(BaseSettings):
 
     # Visit timing
     dwell_seconds: float = 1.0
+    # Comma-separated Frigate zones (e.g. "porch"); a person must enter one
+    # before a visit starts. Empty: anywhere in view.
+    trigger_zones: str = ""
     listen_seconds: int = 4
     session_ttl_seconds: float = 120.0
     sweep_interval_seconds: float = 1.0
@@ -108,6 +111,10 @@ class Settings(BaseSettings):
     @property
     def event_log_file(self) -> Path:
         return self.log_dir / "events.jsonl"
+
+    @property
+    def trigger_zone_list(self) -> list[str]:
+        return [z.strip() for z in self.trigger_zones.split(",") if z.strip()]
 
     @property
     def replies(self) -> dict[str, str]:

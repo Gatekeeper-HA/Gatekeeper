@@ -164,6 +164,7 @@ def main() -> None:
         dwell_seconds=settings.dwell_seconds,
         ttl_seconds=settings.session_ttl_seconds,
         cooldown_seconds=settings.cooldown_seconds,
+        trigger_zones=settings.trigger_zone_list,
         run_visit=run_visit,
     )
     start_thread(

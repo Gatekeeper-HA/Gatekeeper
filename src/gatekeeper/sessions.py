@@ -9,6 +9,10 @@ running, or within ``cooldown_seconds`` after one ended, is merged into that
 visit instead of greeting again (a person stepping out of frame and back, or
 Frigate splitting one person's track into several events).
 
+With ``trigger_zones`` set, a person event only starts a visit once it has
+entered one of those Frigate zones (e.g. the porch, not the sidewalk), and the
+dwell time counts from that entry.
+
 A doorbell press starts the waiting visit at once (skipping the dwell), or a
 new one if Frigate hasn't seen anyone yet; during a visit or its cooldown it is
 reported back as merged so the caller can still notify.
@@ -19,7 +23,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from gatekeeper.frigate import FrigateEvent
@@ -35,6 +39,7 @@ class Session:
     in_progress: bool = False
     merged_into: str | None = None
     trigger: str = "person"  # or "button"
+    zones: frozenset[str] = frozenset()  # Frigate zones the person has entered
 
 
 def spawn_thread(fn: Callable[[], None]) -> None:
@@ -50,6 +55,7 @@ class SessionTracker:
         ttl_seconds: float,
         run_visit: Callable[[str, str], None],
         cooldown_seconds: float = 0.0,
+        trigger_zones: Iterable[str] = (),
         spawn: Callable[[Callable[[], None]], None] = spawn_thread,
         clock: Callable[[], float] = time.time,
     ) -> None:
@@ -57,6 +63,7 @@ class SessionTracker:
         self.dwell_seconds = dwell_seconds
         self.ttl_seconds = ttl_seconds
         self.cooldown_seconds = cooldown_seconds
+        self.trigger_zones = frozenset(trigger_zones)
         self._run_visit = run_visit
         self._spawn = spawn
         self._clock = clock
@@ -75,9 +82,13 @@ class SessionTracker:
             with self._lock:
                 session = self.sessions.get(event.id)
                 if session is None:
-                    self.sessions[event.id] = Session(first_seen=now, last_seen=now)
+                    session = self.sessions[event.id] = Session(first_seen=now, last_seen=now)
                 else:
                     session.last_seen = now
+                zones = session.zones | frozenset(event.entered_zones)
+                if self._in_trigger_zone(zones) and not self._in_trigger_zone(session.zones):
+                    session.first_seen = now  # dwell counts from entering the zone
+                session.zones = zones
             self.maybe_start(event.id)
 
         elif event.type == "end":
@@ -91,6 +102,8 @@ class SessionTracker:
             if not session or session.handled or session.in_progress:
                 return False
             now = self._clock()
+            if session.trigger == "person" and not self._in_trigger_zone(session.zones):
+                return False
             if now - session.first_seen < self.dwell_seconds:
                 return False
             merge_into = self._active_visit or (
@@ -114,6 +127,9 @@ class SessionTracker:
 
         self._spawn(worker)
         return True
+
+    def _in_trigger_zone(self, zones: frozenset[str]) -> bool:
+        return not self.trigger_zones or bool(zones & self.trigger_zones)
 
     def press(self) -> tuple[str, str]:
         """Handle a doorbell press. Returns ``("started", visit_id)`` if a visit

@@ -97,6 +97,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `GO2RTC_TALK_STREAM` | `front_door_talk` | go2rtc stream name for talkback |
 | `AUDIO_RTSP_URL` | `rtsp://go2rtc:8554/<CAMERA_NAME>` | RTSP stream for capturing visitor audio |
 | `DWELL_SECONDS` | `1` | Seconds a person must be visible before triggering |
+| `TRIGGER_ZONES` | *(none)* | Comma-separated Frigate zones (e.g. `porch`). A person must enter one before Gatekeeper greets them, and the dwell counts from entering it. Empty: anywhere in view. Doorbell presses ignore it |
 | `LISTEN_SECONDS` | `4` | How long to record the visitor's response |
 | `SESSION_TTL_SECONDS` | `120` | Forget a Frigate event this long after its last update |
 | `SWEEP_INTERVAL_SECONDS` | `1` | How often sessions are checked for dwell and expiry |
