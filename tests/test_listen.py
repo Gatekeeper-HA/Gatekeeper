@@ -40,6 +40,18 @@ def words(text: str, start: float = 0.0, step: float = 0.3) -> list[Word]:
             "I'm here to visit Alex, please.",
             "I'm here to visit Alex, please.",
         ),
+        # The greeting's end was cut off at the door (a button press's chime
+        # delayed playback; 2026-10-01), and the visitor said nothing.
+        ("Please state the purpose.", ""),
+        ("Please state the purpose. I have a package.", "I have a package."),
+        # Only the visitor's answer was captured, and it echoes the greeting.
+        ("The purpose of my visit is a delivery.", "my visit is a delivery."),
+        # A garbled last word: cut after the last run of greeting words.
+        (
+            "Hello this property is monitored please state the purpose of yer fisit "
+            "FedEx here",
+            "yer fisit FedEx here",
+        ),
         # The visitor said nothing.
         (
             "Hello, this property is monitored. Please state the purpose of your visit.",

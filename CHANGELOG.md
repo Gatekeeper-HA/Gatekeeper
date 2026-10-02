@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed (Phase 0 M3)
+- The end of the greeting could be cut off: the talkback session closed 2.5 s after the
+  clip, but a doorbell press's chime delays playback (3.2 s measured). It now stays open
+  5 s after each clip.
+- A greeting whose end was cut off was taken as the visitor's answer. Any run of 3+
+  greeting words now counts as the greeting.
+
 ### Added (Phase 0 M3)
 - Notifications: right after the visitor's answer is classified (and for visits Gatekeeper
   couldn't talk to), a notification with the transcript, the reply and Frigate's snapshot

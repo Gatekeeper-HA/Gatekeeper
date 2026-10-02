@@ -7,7 +7,7 @@ from pathlib import Path
 
 from conftest import write_wav
 from gatekeeper.eventlog import EventLog
-from gatekeeper.interaction import PLAYBACK_TAIL_SECONDS, Interaction
+from gatekeeper.interaction import PLAYBACK_HOLD_SECONDS, TALKBACK_LATENCY_SECONDS, Interaction
 from gatekeeper.listen import Word
 
 EID = "1727712000.123456-abc123"
@@ -114,7 +114,7 @@ def test_full_visit_record(settings):
     rig = Rig(settings)
     visit = rig.interaction.run(EID)
 
-    capture_seconds = math.ceil(GREETING_WAV_SECONDS + PLAYBACK_TAIL_SECONDS + 4)
+    capture_seconds = math.ceil(GREETING_WAV_SECONDS + TALKBACK_LATENCY_SECONDS + 4)
     assert rig.calls == [
         ("play", "_presynth_greeting.wav"),
         ("capture", "rtsp://go2rtc:8554/front_door", f"{EID}.wav", capture_seconds),
@@ -122,7 +122,7 @@ def test_full_visit_record(settings):
         ("play", "_presynth_delivery.wav"),
         ("close", "_presynth_delivery.wav"),
     ]
-    tail = GREETING_WAV_SECONDS + PLAYBACK_TAIL_SECONDS
+    tail = GREETING_WAV_SECONDS + PLAYBACK_HOLD_SECONDS
     assert rig.sleeps == [tail, tail]
     assert visit.outcome == "completed"
     assert rig.log_records() == [

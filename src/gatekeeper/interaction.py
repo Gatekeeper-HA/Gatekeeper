@@ -26,10 +26,14 @@ from gatekeeper.logs import event_id_var
 
 log = logging.getLogger(__name__)
 
-# Keep the talkback session open this long after the clip ends, to cover
-# go2rtc's jitter buffer, RTSP backchannel latency and the camera's buffer
-# (measured on a Reolink doorbell: ~2.4 s from connect to audible).
-PLAYBACK_TAIL_SECONDS = 2.5
+# Typical delay from talkback connect to audible speech (go2rtc jitter buffer,
+# RTSP backchannel, camera buffer): ~2.4 s on a Reolink doorbell. Used to size
+# the recording window.
+TALKBACK_LATENCY_SECONDS = 2.5
+# How long to keep the talkback session open after the clip ends. Generous:
+# the delay varies (3.2 s when a button press's chime plays first), closing
+# early cuts the end off, and holding it open costs nothing while recording.
+PLAYBACK_HOLD_SECONDS = 5.0
 
 # play(wav_path) -> an open connection with an async close(), or None on failure.
 PlayFn = Callable[[Path], Awaitable[Any]]
@@ -200,13 +204,15 @@ class Interaction:
             return
         try:
             greet_seconds = wav_duration(greet_wav)
-            capture_seconds = math.ceil(greet_seconds + PLAYBACK_TAIL_SECONDS + s.listen_seconds)
+            capture_seconds = math.ceil(
+                greet_seconds + TALKBACK_LATENCY_SECONDS + s.listen_seconds
+            )
             capture = asyncio.ensure_future(
                 self._in_thread(
                     self._capture, s.audio_rtsp_url, s.in_dir / f"{event_id}.wav", capture_seconds
                 )
             )
-            await self._sleep(greet_seconds + PLAYBACK_TAIL_SECONDS)
+            await self._sleep(greet_seconds + PLAYBACK_HOLD_SECONDS)
         finally:
             await greet_pc.close()
 
@@ -232,7 +238,7 @@ class Interaction:
             visit.outcome = "reply_failed"
             return
         try:
-            await self._sleep(wav_duration(reply_wav) + PLAYBACK_TAIL_SECONDS)
+            await self._sleep(wav_duration(reply_wav) + PLAYBACK_HOLD_SECONDS)
         finally:
             await reply_pc.close()
         visit.outcome = "completed"

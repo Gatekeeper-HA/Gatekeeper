@@ -2,8 +2,10 @@
 
 Recording starts when the greeting starts playing, so the clip holds the
 greeting (picked up by the doorbell's own mic) followed by the visitor's
-answer. The greeting's end is found by matching its known words in the
-transcript, which tolerates the variable talkback and RTSP-connect delays.
+answer. The greeting is found by matching its known words in the transcript,
+which tolerates the variable talkback and RTSP-connect delays. It counts as
+found if 3+ consecutive greeting words were heard, or its last 2 words, so a
+greeting whose start or end was cut off is still recognized.
 
 If the greeting can't be found (e.g. recording started after it ended),
 every word is kept: a stray greeting word only turns "no answer" into a
@@ -35,12 +37,14 @@ def strip_greeting(words: list[Word], greeting: str) -> tuple[list[Word], str]:
 
     matcher = difflib.SequenceMatcher(a=spoken, b=expected, autojunk=False)
     blocks = [b for b in matcher.get_matching_blocks() if b.size]
-    if blocks:
-        matched = sum(b.size for b in blocks)
-        last = blocks[-1]
-        ends_greeting = last.b + last.size == len(expected) and last.size >= 2
-        if ends_greeting or matched >= max(2, len(expected) // 2):
-            return words[last.a + last.size :], "matched"
+    strong = [
+        b for b in blocks if b.size >= 3 or (b.size >= 2 and b.b + b.size == len(expected))
+    ]
+    if strong or sum(b.size for b in blocks) >= max(2, len(expected) // 2):
+        # Cut after the last run of 2+ greeting words: a lone matching word
+        # further on is more likely the visitor's ("please") than the greeting's.
+        anchor = ([b for b in blocks if b.size >= 2] or blocks)[-1]
+        return words[anchor.a + anchor.size :], "matched"
 
     return words, "unmatched"
 
