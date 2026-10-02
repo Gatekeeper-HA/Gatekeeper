@@ -60,6 +60,13 @@ class Settings(BaseSettings):
     reply_maintenance: str = "Please wait while I notify the resident."
     reply_generic: str = "Thank you. Please wait while I notify the resident."
 
+    # Notifications. FRIGATE_API supplies the visitor's snapshot; an empty
+    # NTFY_URL disables ntfy.
+    frigate_api: str = "http://frigate:5000"
+    ntfy_url: str = ""
+    ntfy_topic: str = "doorbell"
+    ntfy_token: SecretStr = SecretStr("")
+
     # Storage
     audio_dir: Path = Path("/audio")
     log_dir: Path = Path("/logs")

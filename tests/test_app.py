@@ -90,3 +90,14 @@ def test_ensure_dirs(tmp_path):
     s = Settings(audio_dir=tmp_path / "a", log_dir=tmp_path / "l")
     ensure_dirs(s)
     assert s.in_dir.is_dir() and s.out_dir.is_dir() and s.log_dir.is_dir()
+
+
+def test_notify_backends_from_settings(settings):
+    from gatekeeper.app import build_notify_backends
+
+    assert build_notify_backends(settings) == []
+    settings.ntfy_url = "http://ntfy"
+    settings.ntfy_token = SecretStr("tk_x")
+    (backend,) = build_notify_backends(settings)
+    assert backend.endpoint == "http://ntfy/doorbell"
+    assert backend.token == "tk_x"

@@ -59,6 +59,13 @@ DATA_DIR=./data              # Where recordings, audio, logs and caches are stor
 TZ=America/Chicago
 ```
 
+Add the notification credentials (the argument is the password you'll type into the ntfy
+phone app):
+
+```bash
+scripts/ntfy-auth.sh 'a-password-for-the-phone-app' >> .env
+```
+
 Then build and start everything:
 
 ```bash
@@ -80,6 +87,10 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `MQTT_TOPIC` | `frigate/events` | Frigate event topic |
 | `MQTT_USERNAME`, `MQTT_PASSWORD` | *(none)* | MQTT login. The compose stack sets `gatekeeper` and `MQTT_GATEKEEPER_PASSWORD` |
 | `HA_DISCOVERY_PREFIX` | `homeassistant` | Home Assistant MQTT discovery prefix. Empty disables discovery |
+| `NTFY_URL` | *(none)* | ntfy server for notifications; empty disables ntfy. The compose stack runs one (`http://ntfy`) |
+| `NTFY_TOPIC` | `doorbell` | ntfy topic |
+| `NTFY_TOKEN` | *(none)* | ntfy access token (`NTFY_GATEKEEPER_TOKEN` in the compose stack) |
+| `FRIGATE_API` | `http://frigate:5000` | Frigate API, for the visitor's snapshot in notifications |
 | `CAMERA_NAME` | `front_door` | Must match the camera name in your Frigate config |
 | `GO2RTC_API` | `http://go2rtc:1984` | go2rtc API endpoint |
 | `GO2RTC_TALK_STREAM` | `front_door_talk` | go2rtc stream name for talkback |
@@ -148,6 +159,22 @@ Categories are checked top to bottom; the first match wins.
 
 Solicitors are checked first, so "I'm selling Amazon gift cards" is a solicitor, not a
 delivery.
+
+## Notifications
+
+As soon as the visitor's answer is classified (before the reply plays), Gatekeeper sends a
+notification with what they said, how it replied, and Frigate's snapshot of them. Visits
+where Gatekeeper couldn't talk to the visitor (talkback failed, busy, timed out) are
+notified too.
+
+The compose stack runs a private [ntfy](https://ntfy.sh) server on port 8090. Access is
+denied by default: only Gatekeeper's token can publish to the `doorbell` topic, and only
+the `phone` user can read it. In the ntfy Android app:
+
+1. **+** → *Use another server* → `http://<SERVER_IP>:8090`, topic `doorbell`.
+2. Log in as `phone` with the password you gave `scripts/ntfy-auth.sh`.
+
+The phone must be able to reach the server (home Wi-Fi, or a VPN when away).
 
 ## MQTT
 

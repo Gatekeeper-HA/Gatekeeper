@@ -17,6 +17,7 @@ from gatekeeper.frigate import FrigateEvent, parse_event
 from gatekeeper.health import Health, serve
 from gatekeeper.interaction import Interaction
 from gatekeeper.logs import setup_logging
+from gatekeeper.notify import Notifier, NtfyBackend, frigate_snapshot
 from gatekeeper.publish import Publisher
 from gatekeeper.retention import Retention
 from gatekeeper.sessions import SessionTracker
@@ -70,6 +71,19 @@ def build_mqtt_client(
     return client
 
 
+def build_notify_backends(settings: Settings) -> list:
+    backends = []
+    if settings.ntfy_url:
+        backends.append(
+            NtfyBackend(
+                settings.ntfy_url, settings.ntfy_topic, settings.ntfy_token.get_secret_value()
+            )
+        )
+    if not backends:
+        log.warning("no notification backend configured (set NTFY_URL); nobody will be notified")
+    return backends
+
+
 def start_thread(name: str, target, *args, **kwargs) -> None:
     threading.Thread(target=target, args=args, kwargs=kwargs, name=name, daemon=True).start()
 
@@ -121,12 +135,17 @@ def main() -> None:
     )
     publisher.set_will()
 
+    notifier = Notifier(
+        build_notify_backends(settings),
+        snapshot=lambda event_id: frigate_snapshot(settings.frigate_api, event_id),
+    )
     interaction = Interaction(
         settings,
         synth=synth,
         transcriber=transcriber,
         presynth=presynth,
         event_log=EventLog(settings.event_log_file),
+        on_notify=[notifier],
         on_logged=[publisher.visit],
     )
 

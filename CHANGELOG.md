@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added (Phase 0 M3)
+- Notifications: right after the visitor's answer is classified (and for visits Gatekeeper
+  couldn't talk to), a notification with the transcript, the reply and Frigate's snapshot
+  goes to ntfy. The compose stack runs a private ntfy server (deny-all; Gatekeeper token
+  publishes, `phone` user reads); `scripts/ntfy-auth.sh` generates its credentials.
+- go2rtc only receives the camera variables it uses, not the whole `.env`.
 - MQTT login: the broker no longer accepts anonymous clients. Frigate, Gatekeeper and Home
   Assistant each have an account (passwords in `.env`, written to Mosquitto's password file
   by the `mqtt-auth` service) limited by an ACL. Gatekeeper reads `MQTT_USERNAME` /
