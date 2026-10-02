@@ -108,6 +108,25 @@ services:
     volumes:
       - ${DATA_DIR:-./data}/ntfy:/var/lib/ntfy
 
+  # Optional Home Assistant for testing MQTT discovery and HA notifications.
+  # Enable with COMPOSE_PROFILES=ha in .env; then connect HA's MQTT integration
+  # to broker "mqtt" as user "homeassistant" (MQTT_HOMEASSISTANT_PASSWORD).
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:2026.9.4
+    profiles: [ha]
+    container_name: homeassistant
+    restart: unless-stopped
+    networks: [surveil]
+    depends_on:
+      - mqtt
+    ports:
+      - "${SERVER_IP:?set SERVER_IP in .env}:8123:8123"
+    environment:
+      TZ: "${TZ:-America/Chicago}"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ${DATA_DIR:-./data}/homeassistant:/config
+
   gatekeeper:
     build: .
     image: gatekeeper:local
