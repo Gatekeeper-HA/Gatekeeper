@@ -93,9 +93,10 @@ def main() -> None:
     settings = Settings()
     setup_logging(settings.log_level, settings.log_format)
     log.info(
-        "Gatekeeper %s starting: camera=%s mqtt=%s:%s go2rtc=%s",
+        "Gatekeeper %s starting: camera=%s zones=%s mqtt=%s:%s go2rtc=%s",
         __version__,
         settings.camera_name,
+        settings.trigger_zones or "any",
         settings.mqtt_host,
         settings.mqtt_port,
         settings.go2rtc_api,

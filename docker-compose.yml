@@ -159,6 +159,8 @@ services:
       REOLINK_USERNAME: "${CAMERA_USER:?set CAMERA_USER in .env}"
       REOLINK_PASSWORD: "${CAMERA_PASS:?set CAMERA_PASS in .env}"
       DWELL_SECONDS: "1"
+      # Only greet people who enter Frigate's porch zone (frigate/config/config.yml).
+      TRIGGER_ZONES: "porch"
       LISTEN_SECONDS: "4"
       WHISPER_MODEL: "tiny"
       WHISPER_COMPUTE_TYPE: "int8"
