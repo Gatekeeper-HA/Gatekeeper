@@ -283,8 +283,8 @@ class Interaction:
             )
             if ask_pc is None:
                 visit.response = None
-                self._notify(visit)
                 visit.outcome = "reply_failed"
+                self._notify(visit)
                 return
             reply_key = await self._ask(
                 visit, s.replies["no_answer"], ask_wav, ask_pc, f"{event_id}-2.wav"

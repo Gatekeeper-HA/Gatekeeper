@@ -15,6 +15,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   answer. When the greeting's last words aren't recognized, its end is estimated from the
   speaking rate of the words that were, and anything before it counts as greeting.
 
+- A notification for a visit whose reply couldn't be played said "Replied: None"; it now
+  says why ("Couldn't reply: the doorbell speaker didn't connect.").
+
 ### Added (Phase 0 M3)
 - Notifications: right after the visitor's answer is classified (and for visits Gatekeeper
   couldn't talk to), a notification with the transcript, the reply and Frigate's snapshot

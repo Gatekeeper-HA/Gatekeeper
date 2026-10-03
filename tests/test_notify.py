@@ -164,3 +164,10 @@ def test_notifier_runs_in_the_background_on_a_copy():
 
 def test_notifier_without_backends_does_nothing():
     Notifier([])(visit())
+
+
+def test_compose_when_the_reply_could_not_be_played():
+    # 2026-10-03 go2rtc-stop test: the message read "Replied: None".
+    n = compose(visit(classification="no_response", transcript="Hello?", response=None,
+                      outcome="reply_failed"))  # fmt: skip
+    assert n.message == 'Said: "Hello?"\nCouldn\'t reply: the doorbell speaker didn\'t connect.'

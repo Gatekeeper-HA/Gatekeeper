@@ -408,8 +408,8 @@ def test_silent_twice_ends_after_the_question(settings):
 def test_failed_second_question_is_logged(settings):
     rig = Rig(settings, answer="", play_fails={"_presynth_no_answer.wav"})
     notified = []
-    rig.interaction._on_notify = [notified.append]
+    rig.interaction._on_notify = [lambda v: notified.append(v.outcome)]
     rig.interaction.run(EID)
     (record,) = rig.log_records()
     assert (record["outcome"], record["turns"], record["response"]) == ("reply_failed", 1, None)
-    assert len(notified) == 1
+    assert notified == ["reply_failed"]  # the notification knows why

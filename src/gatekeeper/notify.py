@@ -36,6 +36,7 @@ STYLES = {
 }
 
 OUTCOME_TEXT = {
+    "reply_failed": "the doorbell speaker didn't connect",
     "talkback_busy": "another visit was in progress",
     "talkback_failed": "the doorbell speaker didn't connect",
     "talkback_unavailable": "talkback isn't available",
@@ -71,11 +72,15 @@ def compose(visit: Visit) -> Notification:
         )
     title, tags, priority = STYLES.get(visit.classification, STYLES["cooperative_other"])
     said = f'Said: "{visit.transcript}"' if visit.transcript else "No answer."
+    if visit.response:
+        replied = f"Replied: {visit.response}"
+    else:
+        replied = f"Couldn't reply: {OUTCOME_TEXT.get(visit.outcome, visit.outcome)}."
     if visit.trigger == "button":
         tags = ["bell", *tags]
     return Notification(
         title=title.format(place=place),
-        message=f"{said}\nReplied: {visit.response}",
+        message=f"{said}\n{replied}",
         tags=list(tags),
         priority=priority,
     )
