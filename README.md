@@ -75,6 +75,21 @@ docker compose up -d --build
 Configs (`frigate/config/config.yml`, `go2rtc/go2rtc.yaml`, `mosquitto/config/`) are read
 from the repo. Everything the services write lives under `DATA_DIR`.
 
+### Ports on your network
+
+Only services that require a login are published, on `SERVER_IP`:
+
+| Port | Service | Access |
+|------|---------|--------|
+| 8971 | Frigate UI and API | HTTPS, Frigate login |
+| 1883 | MQTT | Per-account passwords (see [MQTT](#mqtt)) |
+| 8090 | ntfy notifications | Gatekeeper token / `phone` user |
+| 8123 | Home Assistant (optional `ha` profile) | Home Assistant login |
+
+Frigate's unauthenticated API (5000) and go2rtc (API/UI, RTSP restream, WebRTC) are used
+only inside Docker. Without a login, anyone on the network could watch the doorbell or
+talk through its speaker.
+
 ## Configuration
 
 Gatekeeper is configured via environment variables, set in `docker-compose.yml` (or the
