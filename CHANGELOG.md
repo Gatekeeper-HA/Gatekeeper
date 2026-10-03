@@ -32,6 +32,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   a waiting visitor at once, starts a visit if Frigate hasn't seen anyone yet, or notifies
   *Doorbell pressed* during a visit or its cooldown. Visit records gain `trigger`
   (`person` or `button`).
+- If the visitor says nothing, the no-answer reply (which asks them to state their purpose)
+  is followed by a second listen, and their answer gets the matching reply. Records gain
+  `turns`; `VISIT_TIMEOUT_SECONDS` defaults to 90.
 - `REPLY_PRESSED`: said when the doorbell is pressed during a visit's cooldown (previously
   silence). The compose stack uses Whisper `base.en` (more accurate than `tiny`).
 - `TRIGGER_ZONES`: only greet people who enter one of the given Frigate zones (e.g. the

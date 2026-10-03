@@ -35,13 +35,14 @@ class FakeSynth:
 
 
 class FakeTranscriber:
-    """Hears ``text`` spread over the clip, 0.3 s per word."""
+    """Hears the next of ``texts`` on each call, 0.3 s per word."""
 
-    def __init__(self, text):
-        self.text = text
+    def __init__(self, *texts):
+        self.texts = list(texts)
 
     def transcribe(self, path):
-        return [Word(f" {w}", i * 0.3, i * 0.3 + 0.25) for i, w in enumerate(self.text.split())]
+        text = self.texts.pop(0) if len(self.texts) > 1 else self.texts[0]
+        return [Word(f" {w}", i * 0.3, i * 0.3 + 0.25) for i, w in enumerate(text.split())]
 
 
 class Rig:
@@ -52,6 +53,7 @@ class Rig:
         settings,
         *,
         answer="I have a package for you",
+        answer2="",
         capture_ok=True,
         play_fails=(),
         presynth_keys=("greeting", *ALL_REPLY_KEYS),
@@ -72,7 +74,9 @@ class Rig:
         self.interaction = Interaction(
             settings,
             synth=self.synth,
-            transcriber=FakeTranscriber(f"{settings.greeting} {answer}"),
+            transcriber=FakeTranscriber(
+                f"{settings.greeting} {answer}", f"{settings.reply_no_answer} {answer2}"
+            ),
             presynth=presynth,
             event_log=EventLog(settings.event_log_file),
             play=self.play,
@@ -135,6 +139,7 @@ def test_full_visit_record(settings):
             "classification": "likely_delivery",
             "transcript": "I have a package for you",
             "response": "Thank you. Please leave the package at the door.",
+            "turns": 1,
         }
     ]
 
@@ -357,3 +362,54 @@ def test_press_reply_failing_to_play_is_logged_without_response(settings):
     rig.interaction.acknowledge_press(press_visit())
     assert rig.log_records()[0]["response"] is None
     assert rig.interaction._talkback_lock.acquire(blocking=False)
+
+
+# No answer: the no-answer reply asks again and Gatekeeper listens once more.
+
+
+def test_answer_on_the_second_turn(settings):
+    rig = Rig(settings, answer="", answer2="I'm visiting my friend Sam")
+    notified = []
+    rig.interaction._on_notify = [lambda v: notified.append((v.classification, v.transcript))]
+    visit = rig.interaction.run(EID)
+    # Captures run on a worker thread, so only their order relative to the
+    # plays is fixed.
+    assert [c[:2] for c in rig.calls if c[0] != "close"] == [
+        ("play", "_presynth_greeting.wav"),
+        ("capture", "rtsp://go2rtc:8554/front_door"),
+        ("play", "_presynth_no_answer.wav"),
+        ("capture", "rtsp://go2rtc:8554/front_door"),
+        ("play", "_presynth_generic.wav"),
+    ]
+    assert sorted(c[1] for c in rig.calls if c[0] == "close") == [
+        "_presynth_generic.wav", "_presynth_greeting.wav", "_presynth_no_answer.wav",
+    ]  # fmt: skip
+    assert [c[2] for c in rig.calls if c[0] == "capture"] == [f"{EID}.wav", f"{EID}-2.wav"]
+    assert notified == [("cooperative_other", "I'm visiting my friend Sam")]  # once, final
+    assert (visit.turns, visit.outcome, visit.response) == (2, "completed", settings.reply_generic)
+
+
+def test_silent_twice_ends_after_the_question(settings):
+    rig = Rig(settings, answer="", answer2="")
+    notified = []
+    rig.interaction._on_notify = [notified.append]
+    rig.interaction.run(EID)
+    assert [c[:2] for c in rig.calls if c[0] == "play"] == [
+        ("play", "_presynth_greeting.wav"),
+        ("play", "_presynth_no_answer.wav"),
+    ]
+    (record,) = rig.log_records()
+    assert record["classification"] == "no_response"
+    assert record["response"] == settings.reply_no_answer
+    assert record["turns"] == 2 and record["outcome"] == "completed"
+    assert len(notified) == 1
+
+
+def test_failed_second_question_is_logged(settings):
+    rig = Rig(settings, answer="", play_fails={"_presynth_no_answer.wav"})
+    notified = []
+    rig.interaction._on_notify = [notified.append]
+    rig.interaction.run(EID)
+    (record,) = rig.log_records()
+    assert (record["outcome"], record["turns"], record["response"]) == ("reply_failed", 1, None)
+    assert len(notified) == 1

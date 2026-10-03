@@ -45,8 +45,9 @@ class Settings(BaseSettings):
     sweep_interval_seconds: float = 1.0
     # New person events this soon after a visit are merged into it, not re-greeted.
     cooldown_seconds: float = 90.0
-    # A visit (greet, listen, reply) normally takes ~25 s; give up after this.
-    visit_timeout_seconds: float = 60.0
+    # A visit (greet, listen, reply) takes ~25 s, ~45 s when the visitor only
+    # answers the second time; give up after this.
+    visit_timeout_seconds: float = 90.0
 
     # Speech
     whisper_model: str = "tiny"

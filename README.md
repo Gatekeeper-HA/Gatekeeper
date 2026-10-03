@@ -117,7 +117,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `SESSION_TTL_SECONDS` | `120` | Forget a Frigate event this long after its last update |
 | `SWEEP_INTERVAL_SECONDS` | `1` | How often sessions are checked for dwell and expiry |
 | `COOLDOWN_SECONDS` | `90` | After a visit, new person events this soon are merged into it instead of greeting again |
-| `VISIT_TIMEOUT_SECONDS` | `60` | Give up on a visit (greet, listen, reply) after this long |
+| `VISIT_TIMEOUT_SECONDS` | `90` | Give up on a visit (greet, listen, reply) after this long |
 | `WHISPER_MODEL` | `tiny` | Whisper model (`tiny`, `base.en`, `small.en`, ...). On a 4-core CPU, `base.en` takes ~3.4 s per visit vs ~1.8 s for `tiny`, but hears noticeably better; the compose stack uses `base.en` |
 | `WHISPER_COMPUTE_TYPE` | `int8` | `int8` for CPU, `float32` if issues arise |
 | `KOKORO_VOICE` | `af_heart` | TTS voice (see voices below) |
@@ -164,7 +164,8 @@ The stream names must match `CAMERA_NAME` and `GO2RTC_TALK_STREAM` in docker-com
 ## Visitor classification
 
 Gatekeeper records from the start of the greeting, cuts the greeting's own echo out of the
-transcript, and classifies what the visitor said by whole words and phrases (English only).
+transcript (if the visitor says nothing, `REPLY_NO_ANSWER` asks again and Gatekeeper listens
+once more), and classifies what the visitor said by whole words and phrases (English only).
 Categories are checked top to bottom; the first match wins.
 
 | Classification (`events.jsonl`) | Matches, for example | Reply setting |
@@ -251,7 +252,9 @@ Every visit adds one JSON line to `events.jsonl`:
 ```
 
 `outcome` is `completed`, `reply_failed`, `talkback_busy` (another visit was in progress),
-`talkback_failed`, `talkback_unavailable`, `timeout` or `error`.
+`talkback_failed`, `talkback_unavailable`, `timeout`, `error`, or `pressed_during_visit`.
+`trigger` is `person` or `button`. `turns` is how many times Gatekeeper listened: if the
+visitor says nothing, the no-answer reply asks again and Gatekeeper listens once more.
 
 ## Data
 

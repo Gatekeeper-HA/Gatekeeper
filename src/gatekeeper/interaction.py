@@ -48,6 +48,8 @@ class Visit:
     talkback_failed, talkback_unavailable, timeout, error, or
     pressed_during_visit (a doorbell press while a visit ran or just ended).
     trigger is "person" (Frigate detection) or "button" (doorbell press).
+    turns is how many times Gatekeeper listened: 2 when the first answer was
+    silence and the no-answer reply asked again.
     """
 
     event_id: str
@@ -57,6 +59,7 @@ class Visit:
     transcript: str = ""
     response: str | None = None
     trigger: str = "person"
+    turns: int = 0
     notified: bool = False
 
     def record(self, ts: float) -> dict:
@@ -69,6 +72,7 @@ class Visit:
             "classification": self.classification,
             "transcript": self.transcript,
             "response": self.response,
+            "turns": self.turns,
         }
 
 
@@ -219,6 +223,42 @@ class Interaction:
             await self._in_thread(self._synth.synthesize, text, wav)
         return wav, await self._play(wav)
 
+    async def _ask(self, visit: Visit, prompt: str, wav: Path, pc, clip_name: str) -> str:
+        """Listen while ``prompt`` plays on the open talkback ``pc`` and for
+        LISTEN_SECONDS after it; classify the answer. Returns the reply key.
+
+        Recording starts with the prompt: visitors answer as soon as it ends,
+        and opening the RTSP stream takes about as long as the talkback
+        latency. The prompt's own echo is cut out after transcription (see
+        listen.strip_greeting).
+        """
+        s = self.settings
+        visit.turns += 1
+        try:
+            seconds = wav_duration(wav)
+            capture_seconds = math.ceil(seconds + TALKBACK_LATENCY_SECONDS + s.listen_seconds)
+            clip = s.in_dir / clip_name
+            capture = asyncio.ensure_future(
+                self._in_thread(self._capture, s.audio_rtsp_url, clip, capture_seconds)
+            )
+            await self._sleep(seconds + PLAYBACK_HOLD_SECONDS)
+        finally:
+            await pc.close()
+
+        clip_path = await capture
+        log.info("capture: %s (%d bytes)", clip_path, clip_path.stat().st_size if clip_path else 0)
+
+        visit.transcript = ""
+        visit.classification, reply_key = "no_response", "no_answer"
+        if clip_path:
+            words = await self._in_thread(self._transcriber.transcribe, clip_path)
+            answer, method = strip_greeting(words, prompt)
+            visit.transcript = join_words(answer)
+            log.info("heard: %r", join_words(words))
+            log.info("transcript (%s): %r", method, visit.transcript)
+            visit.classification, reply_key = classify_response(visit.transcript)
+        return reply_key
+
     async def _run_async(self, visit: Visit) -> None:
         s = self.settings
         event_id = visit.event_id
@@ -227,41 +267,35 @@ class Interaction:
             visit.outcome = "talkback_unavailable"
             return
 
-        # Greeting and listen. Recording starts with the greeting: visitors
-        # answer as soon as it ends, and opening the RTSP stream takes about as
-        # long as the talkback latency. The greeting's echo is cut out after
-        # transcription (see listen.strip_greeting).
         greet_wav, greet_pc = await self._speak(
             "greeting", s.greeting, s.out_dir / f"{event_id}_greeting.wav"
         )
         if greet_pc is None:
             visit.outcome = "talkback_failed"
             return
-        try:
-            greet_seconds = wav_duration(greet_wav)
-            capture_seconds = math.ceil(
-                greet_seconds + TALKBACK_LATENCY_SECONDS + s.listen_seconds
-            )
-            capture = asyncio.ensure_future(
-                self._in_thread(
-                    self._capture, s.audio_rtsp_url, s.in_dir / f"{event_id}.wav", capture_seconds
-                )
-            )
-            await self._sleep(greet_seconds + PLAYBACK_HOLD_SECONDS)
-        finally:
-            await greet_pc.close()
+        reply_key = await self._ask(visit, s.greeting, greet_wav, greet_pc, f"{event_id}.wav")
 
-        clip_path = await capture
-        log.info("capture: %s (%d bytes)", clip_path, clip_path.stat().st_size if clip_path else 0)
+        if reply_key == "no_answer":
+            # The no-answer reply asks again ("...please state your purpose"):
+            # listen once more while and after it plays.
+            ask_wav, ask_pc = await self._speak(
+                "no_answer", s.replies["no_answer"], s.out_dir / f"{event_id}_reply.wav"
+            )
+            if ask_pc is None:
+                visit.response = None
+                self._notify(visit)
+                visit.outcome = "reply_failed"
+                return
+            reply_key = await self._ask(
+                visit, s.replies["no_answer"], ask_wav, ask_pc, f"{event_id}-2.wav"
+            )
+            if reply_key == "no_answer":
+                # Still silent: the question was the reply.
+                visit.response = s.replies["no_answer"]
+                self._notify(visit)
+                visit.outcome = "completed"
+                return
 
-        visit.classification, reply_key = "no_response", "no_answer"
-        if clip_path:
-            words = await self._in_thread(self._transcriber.transcribe, clip_path)
-            answer, method = strip_greeting(words, s.greeting)
-            visit.transcript = join_words(answer)
-            log.info("heard: %r", join_words(words))
-            log.info("transcript (%s): %r", method, visit.transcript)
-            visit.classification, reply_key = classify_response(visit.transcript)
         visit.response = s.replies[reply_key]
         self._notify(visit)
 
