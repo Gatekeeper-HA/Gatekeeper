@@ -28,5 +28,5 @@ jobs:
       - name: Validate docker-compose.yml
         run: |
           cp .env.example .env
-          sed -i -E 's/^([A-Z_]+)=$/\1=ci/' .env
+          sed -i -E -e 's/^SERVER_IP=$/SERVER_IP=127.0.0.1/' -e 's/^([A-Z_]+)=$/\1=ci/' .env
           docker compose config --quiet
