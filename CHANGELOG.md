@@ -23,6 +23,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   inside Docker.
 - go2rtc's API/UI and RTSP restream (no authentication: anyone could watch the doorbell
   or talk through its speaker) are no longer published on the LAN.
+- go2rtc's WebRTC port isn't published either, and go2rtc no longer contacts public STUN
+  servers: Gatekeeper's talkback runs entirely inside Docker.
 - Doorbell button presses (Reolink, via reolink-aio push events over HTTPS): a press greets
   a waiting visitor at once, starts a visit if Frigate hasn't seen anyone yet, or notifies
   *Doorbell pressed* during a visit or its cooldown. Visit records gain `trigger`

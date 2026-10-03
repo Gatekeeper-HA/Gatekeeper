@@ -9,9 +9,9 @@ rtsp:
 
 webrtc:
   listen: ":8555"
-  candidates:
-    # Server LAN IP + host port mapped to container :8555
-    - ${SERVER_IP}:8557
+  # Only Gatekeeper connects, from inside Docker: no STUN lookups of the
+  # home's public IP (go2rtc's default asks Google's STUN servers).
+  ice_servers: []
 
 streams:
   front_door: rtsp://${CAMERA_USER}:${CAMERA_PASS}@${CAMERA_IP}:554/h264Preview_01_main#backchannel=0
