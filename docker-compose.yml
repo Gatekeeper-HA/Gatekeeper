@@ -74,9 +74,9 @@ services:
     container_name: go2rtc
     restart: unless-stopped
     networks: [surveil]
+    # go2rtc's API/UI (1984) and RTSP restream (8554) have no authentication, so
+    # they are not published: Frigate and Gatekeeper use them inside Docker.
     ports:
-      - "${SERVER_IP:?set SERVER_IP in .env}:1986:1984"  # go2rtc UI/API
-      - "${SERVER_IP:?set SERVER_IP in .env}:8556:8554"  # go2rtc RTSP
       - "${SERVER_IP:?set SERVER_IP in .env}:8557:8555"  # go2rtc WebRTC
     environment:
       # Substituted into go2rtc.yaml.
