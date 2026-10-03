@@ -27,6 +27,9 @@ talkback = [
     "aiohttp",
     "aiortc",
 ]
+doorbell = [
+    "reolink-aio",
+]
 dev = [
     "pytest>=8",
     "pytest-cov>=5",

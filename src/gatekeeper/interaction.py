@@ -10,7 +10,7 @@ import logging
 import math
 import threading
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,10 +26,14 @@ from gatekeeper.logs import event_id_var
 
 log = logging.getLogger(__name__)
 
-# Keep the talkback session open this long after the clip ends, to cover
-# go2rtc's jitter buffer, RTSP backchannel latency and the camera's buffer
-# (measured on a Reolink doorbell: ~2.4 s from connect to audible).
-PLAYBACK_TAIL_SECONDS = 2.5
+# Typical delay from talkback connect to audible speech (go2rtc jitter buffer,
+# RTSP backchannel, camera buffer): ~2.4 s on a Reolink doorbell. Used to size
+# the recording window.
+TALKBACK_LATENCY_SECONDS = 2.5
+# How long to keep the talkback session open after the clip ends. Generous:
+# the delay varies (3.2 s when a button press's chime plays first), closing
+# early cuts the end off, and holding it open costs nothing while recording.
+PLAYBACK_HOLD_SECONDS = 5.0
 
 # play(wav_path) -> an open connection with an async close(), or None on failure.
 PlayFn = Callable[[Path], Awaitable[Any]]
@@ -41,7 +45,11 @@ class Visit:
     """What happened at the door; written to events.jsonl once per visit.
 
     outcome is one of: completed, reply_failed, talkback_busy,
-    talkback_failed, talkback_unavailable, timeout, error.
+    talkback_failed, talkback_unavailable, timeout, error, or
+    pressed_during_visit (a doorbell press while a visit ran or just ended).
+    trigger is "person" (Frigate detection) or "button" (doorbell press).
+    turns is how many times Gatekeeper listened: 2 when the first answer was
+    silence and the no-answer reply asked again.
     """
 
     event_id: str
@@ -50,16 +58,21 @@ class Visit:
     classification: str | None = None
     transcript: str = ""
     response: str | None = None
+    trigger: str = "person"
+    turns: int = 0
+    notified: bool = False
 
     def record(self, ts: float) -> dict:
         return {
             "ts": ts,
             "event_id": self.event_id,
             "camera": self.camera,
+            "trigger": self.trigger,
             "outcome": self.outcome,
             "classification": self.classification,
             "transcript": self.transcript,
             "response": self.response,
+            "turns": self.turns,
         }
 
 
@@ -77,6 +90,8 @@ class Interaction:
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         clock: Callable[[], float] = time.time,
         webrtc_available: bool = talkback.HAS_WEBRTC,
+        on_notify: Sequence[Callable[[Visit], None]] = (),
+        on_logged: Sequence[Callable[[dict], None]] = (),
     ) -> None:
         self.settings = settings
         self._synth = synth
@@ -88,6 +103,11 @@ class Interaction:
         self._sleep = sleep
         self._clock = clock
         self._webrtc_available = webrtc_available
+        # on_notify: once per visit, as soon as there's something to tell the
+        # resident (right after classification, or when the visit fails).
+        # on_logged: with the final record. Callbacks must not block.
+        self._on_notify = list(on_notify)
+        self._on_logged = list(on_logged)
         # go2rtc supports one talkback WebRTC session at a time.
         self._talkback_lock = threading.Lock()
         # Blocking work (ffmpeg, Whisper, Kokoro) runs here rather than in
@@ -100,10 +120,10 @@ class Interaction:
             self.settings.go2rtc_api, self.settings.go2rtc_talk_stream, wav_path
         )
 
-    def run(self, event_id: str) -> Visit:
+    def run(self, event_id: str, trigger: str = "person") -> Visit:
         """Handle the visit for Frigate event ``event_id`` (blocking) and log it."""
         token = event_id_var.set(event_id)
-        visit = Visit(event_id, self.settings.camera_name)
+        visit = Visit(event_id, self.settings.camera_name, trigger=trigger)
         try:
             log.info("interaction started")
             if not self._talkback_lock.acquire(blocking=False):
@@ -120,15 +140,72 @@ class Interaction:
                     visit.outcome = "error"
                 finally:
                     self._talkback_lock.release()
+            self._notify(visit)
             self._log_visit(visit)
             return visit
         finally:
             event_id_var.reset(token)
 
+    def acknowledge_press(self, visit: Visit) -> Visit:
+        """A doorbell press during a visit's cooldown: notify at once, then say
+        REPLY_PRESSED if the speaker is free (not mid-visit), and log it."""
+        token = event_id_var.set(visit.event_id)
+        try:
+            self._notify(visit)
+            if self._webrtc_available and self._talkback_lock.acquire(blocking=False):
+                try:
+                    visit.response = self.settings.replies["pressed"]
+                    asyncio.run(self._say(visit, "pressed"))
+                except Exception:
+                    log.exception("could not answer the doorbell press")
+                    visit.response = None
+                finally:
+                    self._talkback_lock.release()
+            self._log_visit(visit)
+            return visit
+        finally:
+            event_id_var.reset(token)
+
+    async def _say(self, visit: Visit, key: str) -> None:
+        """Play one phrase and keep the talkback open until it has been heard."""
+        text = self.settings.replies[key]
+        wav, pc = await asyncio.wait_for(
+            self._speak(key, text, self.settings.out_dir / f"{visit.event_id}_{key}.wav"),
+            self.settings.visit_timeout_seconds,
+        )
+        if pc is None:
+            visit.response = None
+            return
+        try:
+            await self._sleep(wav_duration(wav) + PLAYBACK_HOLD_SECONDS)
+        finally:
+            await pc.close()
+
+    def report(self, visit: Visit) -> None:
+        """Notify and log something that isn't a visit run here (e.g. a press
+        during a visit)."""
+        self._notify(visit)
+        self._log_visit(visit)
+
+    def _notify(self, visit: Visit) -> None:
+        if visit.notified:
+            return
+        visit.notified = True
+        for callback in self._on_notify:
+            try:
+                callback(visit)
+            except Exception:
+                log.exception("notify callback failed")
+
     def _log_visit(self, visit: Visit) -> None:
         record = visit.record(self._clock())
         self._event_log.append(record)
         log.info("visit: %s", json.dumps(record, ensure_ascii=False))
+        for callback in self._on_logged:
+            try:
+                callback(record)
+            except Exception:
+                log.exception("visit-logged callback failed")
 
     async def _run_with_timeout(self, visit: Visit) -> None:
         await asyncio.wait_for(self._run_async(visit), self.settings.visit_timeout_seconds)
@@ -146,6 +223,42 @@ class Interaction:
             await self._in_thread(self._synth.synthesize, text, wav)
         return wav, await self._play(wav)
 
+    async def _ask(self, visit: Visit, prompt: str, wav: Path, pc, clip_name: str) -> str:
+        """Listen while ``prompt`` plays on the open talkback ``pc`` and for
+        LISTEN_SECONDS after it; classify the answer. Returns the reply key.
+
+        Recording starts with the prompt: visitors answer as soon as it ends,
+        and opening the RTSP stream takes about as long as the talkback
+        latency. The prompt's own echo is cut out after transcription (see
+        listen.strip_greeting).
+        """
+        s = self.settings
+        visit.turns += 1
+        try:
+            seconds = wav_duration(wav)
+            capture_seconds = math.ceil(seconds + TALKBACK_LATENCY_SECONDS + s.listen_seconds)
+            clip = s.in_dir / clip_name
+            capture = asyncio.ensure_future(
+                self._in_thread(self._capture, s.audio_rtsp_url, clip, capture_seconds)
+            )
+            await self._sleep(seconds + PLAYBACK_HOLD_SECONDS)
+        finally:
+            await pc.close()
+
+        clip_path = await capture
+        log.info("capture: %s (%d bytes)", clip_path, clip_path.stat().st_size if clip_path else 0)
+
+        visit.transcript = ""
+        visit.classification, reply_key = "no_response", "no_answer"
+        if clip_path:
+            words = await self._in_thread(self._transcriber.transcribe, clip_path)
+            answer, method = strip_greeting(words, prompt)
+            visit.transcript = join_words(answer)
+            log.info("heard: %r", join_words(words))
+            log.info("transcript (%s): %r", method, visit.transcript)
+            visit.classification, reply_key = classify_response(visit.transcript)
+        return reply_key
+
     async def _run_async(self, visit: Visit) -> None:
         s = self.settings
         event_id = visit.event_id
@@ -154,42 +267,39 @@ class Interaction:
             visit.outcome = "talkback_unavailable"
             return
 
-        # Greeting and listen. Recording starts with the greeting: visitors
-        # answer as soon as it ends, and opening the RTSP stream takes about as
-        # long as the talkback latency. The greeting's echo is cut out after
-        # transcription (see listen.strip_greeting).
         greet_wav, greet_pc = await self._speak(
             "greeting", s.greeting, s.out_dir / f"{event_id}_greeting.wav"
         )
         if greet_pc is None:
             visit.outcome = "talkback_failed"
             return
-        try:
-            greet_seconds = wav_duration(greet_wav)
-            capture_seconds = math.ceil(greet_seconds + PLAYBACK_TAIL_SECONDS + s.listen_seconds)
-            capture = asyncio.ensure_future(
-                self._in_thread(
-                    self._capture, s.audio_rtsp_url, s.in_dir / f"{event_id}.wav", capture_seconds
-                )
+        reply_key = await self._ask(visit, s.greeting, greet_wav, greet_pc, f"{event_id}.wav")
+
+        if reply_key == "no_answer":
+            # The no-answer reply asks again ("...please state your purpose"):
+            # listen once more while and after it plays.
+            ask_wav, ask_pc = await self._speak(
+                "no_answer", s.replies["no_answer"], s.out_dir / f"{event_id}_reply.wav"
             )
-            await self._sleep(greet_seconds + PLAYBACK_TAIL_SECONDS)
-        finally:
-            await greet_pc.close()
+            if ask_pc is None:
+                visit.response = None
+                visit.outcome = "reply_failed"
+                self._notify(visit)
+                return
+            reply_key = await self._ask(
+                visit, s.replies["no_answer"], ask_wav, ask_pc, f"{event_id}-2.wav"
+            )
+            if reply_key == "no_answer":
+                # Still silent: the question was the reply.
+                visit.response = s.replies["no_answer"]
+                self._notify(visit)
+                visit.outcome = "completed"
+                return
 
-        clip_path = await capture
-        log.info("capture: %s (%d bytes)", clip_path, clip_path.stat().st_size if clip_path else 0)
-
-        visit.classification, reply_key = "no_response", "no_answer"
-        if clip_path:
-            words = await self._in_thread(self._transcriber.transcribe, clip_path)
-            answer, method = strip_greeting(words, s.greeting)
-            visit.transcript = join_words(answer)
-            log.info("heard: %r", join_words(words))
-            log.info("transcript (%s): %r", method, visit.transcript)
-            visit.classification, reply_key = classify_response(visit.transcript)
+        visit.response = s.replies[reply_key]
+        self._notify(visit)
 
         # Reply
-        visit.response = s.replies[reply_key]
         reply_wav, reply_pc = await self._speak(
             reply_key, visit.response, s.out_dir / f"{event_id}_reply.wav"
         )
@@ -197,7 +307,7 @@ class Interaction:
             visit.outcome = "reply_failed"
             return
         try:
-            await self._sleep(wav_duration(reply_wav) + PLAYBACK_TAIL_SECONDS)
+            await self._sleep(wav_duration(reply_wav) + PLAYBACK_HOLD_SECONDS)
         finally:
             await reply_pc.close()
         visit.outcome = "completed"

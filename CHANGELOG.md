@@ -5,6 +5,53 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed (Phase 0 M3)
+- The end of the greeting could be cut off: the talkback session closed 2.5 s after the
+  clip, but a doorbell press's chime delays playback (3.2 s measured). It now stays open
+  5 s after each clip.
+- A greeting whose end was cut off was taken as the visitor's answer. Any run of 3+
+  greeting words now counts as the greeting.
+- A misheard greeting end ("...state the perfect living room") was taken as the visitor's
+  answer. When the greeting's last words aren't recognized, its end is estimated from the
+  speaking rate of the words that were, and anything before it counts as greeting.
+
+- A notification for a visit whose reply couldn't be played said "Replied: None"; it now
+  says why ("Couldn't reply: the doorbell speaker didn't connect.").
+
+### Added (Phase 0 M3)
+- Notifications: right after the visitor's answer is classified (and for visits Gatekeeper
+  couldn't talk to), a notification with the transcript, the reply and Frigate's snapshot
+  goes to ntfy. The compose stack runs a private ntfy server (deny-all; Gatekeeper token
+  publishes, `phone` user reads); `scripts/ntfy-auth.sh` generates its credentials.
+- go2rtc only receives the camera variables it uses, not the whole `.env`.
+- Frigate's unauthenticated port 5000 is no longer published on the LAN; use the UI on
+  port 8971 (HTTPS, login). Gatekeeper and Home Assistant use `http://frigate:5000`
+  inside Docker.
+- go2rtc's API/UI and RTSP restream (no authentication: anyone could watch the doorbell
+  or talk through its speaker) are no longer published on the LAN.
+- go2rtc's WebRTC port isn't published either, and go2rtc no longer contacts public STUN
+  servers: Gatekeeper's talkback runs entirely inside Docker.
+- Doorbell button presses (Reolink, via reolink-aio push events over HTTPS): a press greets
+  a waiting visitor at once, starts a visit if Frigate hasn't seen anyone yet, or notifies
+  *Doorbell pressed* during a visit or its cooldown. Visit records gain `trigger`
+  (`person` or `button`).
+- If the visitor says nothing, the no-answer reply (which asks them to state their purpose)
+  is followed by a second listen, and their answer gets the matching reply. Records gain
+  `turns`; `VISIT_TIMEOUT_SECONDS` defaults to 90.
+- `REPLY_PRESSED`: said when the doorbell is pressed during a visit's cooldown (previously
+  silence). The compose stack uses Whisper `base.en` (more accurate than `tiny`).
+- `TRIGGER_ZONES`: only greet people who enter one of the given Frigate zones (e.g. the
+  porch, not the sidewalk); the dwell time counts from entering the zone.
+- Frigate config: a `porch` zone and a person mask over the street and lawn; the compose
+  stack sets `TRIGGER_ZONES=porch`.
+- MQTT login: the broker no longer accepts anonymous clients. Frigate, Gatekeeper and Home
+  Assistant each have an account (passwords in `.env`, written to Mosquitto's password file
+  by the `mqtt-auth` service) limited by an ACL. Gatekeeper reads `MQTT_USERNAME` /
+  `MQTT_PASSWORD`.
+- Gatekeeper publishes its status (with a last will), conversation state and each visit
+  record over MQTT, with Home Assistant MQTT discovery for a *Last visitor* sensor and a
+  *Conversation* binary sensor.
+
 ### Fixed
 - The visitor's answer was usually missed. Recording started about 3 s after the greeting
   ended (playback buffer + a fresh RTSP connection), after most visitors had finished

@@ -4,15 +4,42 @@
 # logs, model caches) lives under ${DATA_DIR}, default ./data.
 
 services:
+  # Writes the MQTT password file from the passwords in .env, then exits.
+  mqtt-auth:
+    image: eclipse-mosquitto:2.0.22
+    restart: "no"
+    environment:
+      MQTT_FRIGATE_PASSWORD: "${MQTT_FRIGATE_PASSWORD:?set MQTT_FRIGATE_PASSWORD in .env}"
+      MQTT_GATEKEEPER_PASSWORD: "${MQTT_GATEKEEPER_PASSWORD:?set MQTT_GATEKEEPER_PASSWORD in .env}"
+      MQTT_HOMEASSISTANT_PASSWORD: "${MQTT_HOMEASSISTANT_PASSWORD:?set MQTT_HOMEASSISTANT_PASSWORD in .env}"
+    volumes:
+      - ${DATA_DIR:-./data}/mosquitto/auth:/auth
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        f=/auth/passwd.new
+        rm -f "$$f"
+        touch "$$f"
+        chmod 600 "$$f"
+        mosquitto_passwd -b "$$f" frigate "$$MQTT_FRIGATE_PASSWORD"
+        mosquitto_passwd -b "$$f" gatekeeper "$$MQTT_GATEKEEPER_PASSWORD"
+        mosquitto_passwd -b "$$f" homeassistant "$$MQTT_HOMEASSISTANT_PASSWORD"
+        chown 1883:1883 "$$f"
+        mv "$$f" /auth/passwd
+
   mqtt:
     image: eclipse-mosquitto:2.0.22
     container_name: mqtt
     restart: unless-stopped
     networks: [surveil]
+    depends_on:
+      mqtt-auth:
+        condition: service_completed_successfully
     ports:
       - "${SERVER_IP:?set SERVER_IP in .env}:1883:1883"
     volumes:
       - ./mosquitto/config:/mosquitto/config:ro
+      - ${DATA_DIR:-./data}/mosquitto/auth:/mosquitto/auth:ro
       - ${DATA_DIR:-./data}/mosquitto/data:/mosquitto/data
       - ${DATA_DIR:-./data}/mosquitto/log:/mosquitto/log
 
@@ -26,8 +53,10 @@ services:
       - go2rtc
     shm_size: "256mb"
     ports:
-      - "${SERVER_IP:?set SERVER_IP in .env}:8971:8971"  # Frigate UI
-      - "${SERVER_IP:?set SERVER_IP in .env}:5000:5000"  # Frigate internal API
+      # Frigate UI and API, with login (HTTPS). Port 5000 (the same without any
+      # authentication) is deliberately not published: Gatekeeper and Home
+      # Assistant reach it inside Docker as http://frigate:5000.
+      - "${SERVER_IP:?set SERVER_IP in .env}:8971:8971"
     volumes:
       - /etc/localtime:/etc/localtime:ro
       # Frigate keeps its database, model cache and secrets in /config, so the
@@ -37,19 +66,65 @@ services:
       - ${DATA_DIR:-./data}/frigate/storage:/media/frigate
     environment:
       TZ: "${TZ:-America/Chicago}"
+      FRIGATE_MQTT_USER: "frigate"
+      FRIGATE_MQTT_PASSWORD: "${MQTT_FRIGATE_PASSWORD:?set MQTT_FRIGATE_PASSWORD in .env}"
 
   go2rtc:
     image: alexxit/go2rtc:1.9.14
     container_name: go2rtc
     restart: unless-stopped
     networks: [surveil]
-    ports:
-      - "${SERVER_IP:?set SERVER_IP in .env}:1986:1984"  # go2rtc UI/API
-      - "${SERVER_IP:?set SERVER_IP in .env}:8556:8554"  # go2rtc RTSP
-      - "${SERVER_IP:?set SERVER_IP in .env}:8557:8555"  # go2rtc WebRTC
-    env_file: .env
+    # No published ports: go2rtc's API/UI, RTSP restream and WebRTC have no
+    # authentication, and Frigate and Gatekeeper use them inside Docker.
+    environment:
+      # Substituted into go2rtc.yaml.
+      CAMERA_IP: "${CAMERA_IP:?set CAMERA_IP in .env}"
+      CAMERA_USER: "${CAMERA_USER:?set CAMERA_USER in .env}"
+      CAMERA_PASS: "${CAMERA_PASS:?set CAMERA_PASS in .env}"
     volumes:
       - ./go2rtc/go2rtc.yaml:/config/go2rtc.yaml:ro
+
+  # Doorbell notifications for the ntfy phone app. Only the "phone" user may
+  # read the topic and only Gatekeeper's token may publish to it.
+  ntfy:
+    image: binwiederhier/ntfy:v2.28.0
+    container_name: ntfy
+    restart: unless-stopped
+    networks: [surveil]
+    command: serve
+    ports:
+      - "${SERVER_IP:?set SERVER_IP in .env}:8090:80"
+    environment:
+      TZ: "${TZ:-America/Chicago}"
+      NTFY_BASE_URL: "http://${SERVER_IP:?set SERVER_IP in .env}:8090"
+      NTFY_CACHE_FILE: "/var/lib/ntfy/cache.db"
+      NTFY_ATTACHMENT_CACHE_DIR: "/var/lib/ntfy/attachments"
+      NTFY_AUTH_FILE: "/var/lib/ntfy/user.db"
+      NTFY_AUTH_DEFAULT_ACCESS: "deny-all"
+      NTFY_AUTH_USERS: "gatekeeper:${NTFY_GATEKEEPER_PASSWORD_HASH:?run scripts/ntfy-auth.sh}:user,phone:${NTFY_PHONE_PASSWORD_HASH:?run scripts/ntfy-auth.sh}:user"
+      NTFY_AUTH_ACCESS: "gatekeeper:doorbell:write-only,phone:doorbell:read-only"
+      NTFY_AUTH_TOKENS: "gatekeeper:${NTFY_GATEKEEPER_TOKEN:?run scripts/ntfy-auth.sh}:Gatekeeper"
+    volumes:
+      - ${DATA_DIR:-./data}/ntfy:/var/lib/ntfy
+
+  # Optional Home Assistant for testing MQTT discovery and HA notifications.
+  # Enable with COMPOSE_PROFILES=ha in .env; then connect HA's MQTT integration
+  # to broker "mqtt" as user "homeassistant" (MQTT_HOMEASSISTANT_PASSWORD).
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:2026.9.4
+    profiles: [ha]
+    container_name: homeassistant
+    restart: unless-stopped
+    networks: [surveil]
+    depends_on:
+      - mqtt
+    ports:
+      - "${SERVER_IP:?set SERVER_IP in .env}:8123:8123"
+    environment:
+      TZ: "${TZ:-America/Chicago}"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ${DATA_DIR:-./data}/homeassistant:/config
 
   gatekeeper:
     build: .
@@ -61,21 +136,35 @@ services:
       - mqtt
       - frigate
       - go2rtc
+      - ntfy
     shm_size: "1gb"
     environment:
       TZ: "${TZ:-America/Chicago}"
       MQTT_HOST: "mqtt"
       MQTT_PORT: "1883"
+      MQTT_USERNAME: "gatekeeper"
+      MQTT_PASSWORD: "${MQTT_GATEKEEPER_PASSWORD:?set MQTT_GATEKEEPER_PASSWORD in .env}"
       MQTT_TOPIC: "frigate/events"
       CAMERA_NAME: "front_door"
       AUDIO_RTSP_URL: "rtsp://go2rtc:8554/front_door"
       GO2RTC_API: "http://go2rtc:1984"
       GO2RTC_TALK_STREAM: "front_door_talk"
+      FRIGATE_API: "http://frigate:5000"
+      NTFY_URL: "http://ntfy"
+      NTFY_TOPIC: "doorbell"
+      NTFY_TOKEN: "${NTFY_GATEKEEPER_TOKEN:?run scripts/ntfy-auth.sh}"
+      # Doorbell button presses (Reolink login over HTTPS, push events on 9000).
+      REOLINK_HOST: "${CAMERA_IP:?set CAMERA_IP in .env}"
+      REOLINK_USERNAME: "${CAMERA_USER:?set CAMERA_USER in .env}"
+      REOLINK_PASSWORD: "${CAMERA_PASS:?set CAMERA_PASS in .env}"
       DWELL_SECONDS: "1"
+      # Only greet people who enter Frigate's porch zone (frigate/config/config.yml).
+      TRIGGER_ZONES: "porch"
       LISTEN_SECONDS: "4"
-      WHISPER_MODEL: "tiny"
+      WHISPER_MODEL: "base.en"
       WHISPER_COMPUTE_TYPE: "int8"
       KOKORO_VOICE: "af_heart"
+      REPLY_PRESSED: "I've already told them you're here. If nobody answers the door, take the hint: they don't want to talk to you."
       AUDIO_DIR: "/audio"
       LOG_DIR: "/logs"
       LOG_FORMAT: "text"

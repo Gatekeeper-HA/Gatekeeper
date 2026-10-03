@@ -29,16 +29,29 @@ def words(text: str, start: float = 0.0, step: float = 0.3) -> list[Word]:
         ),
         # Recording started late, after the greeting began.
         ("purpose of your visit. Amazon delivery.", "Amazon delivery."),
-        # The visitor talks over the last words of the greeting.
+        # The visitor talks over the last words of the greeting: the words spoken
+        # while the rest of it played are dropped, the keyword survives.
         (
             "Hello, this property is monitored. Please state the purpose I'm with FedEx.",
-            "I'm with FedEx.",
+            "FedEx.",
         ),
         # The answer repeats greeting words.
         (
             "Hello, this property is monitored. Please state the purpose of your visit. "
             "I'm here to visit Alex, please.",
             "I'm here to visit Alex, please.",
+        ),
+        # The greeting's end was cut off at the door (a button press's chime
+        # delayed playback; 2026-10-01), and the visitor said nothing.
+        ("Please state the purpose.", ""),
+        ("Please state the purpose. I have a package.", "a package."),
+        # Only the visitor's answer was captured, and it echoes the greeting.
+        ("The purpose of my visit is a delivery.", "visit is a delivery."),
+        # Garbled last words: dropped as far as the greeting's estimated end.
+        (
+            "Hello this property is monitored please state the purpose of yer fisit "
+            "FedEx here",
+            "fisit FedEx here",
         ),
         # The visitor said nothing.
         (
@@ -51,6 +64,25 @@ def test_greeting_is_matched_and_removed(heard, answer):
     kept, method = strip_greeting(words(heard), GREETING)
     assert method == "matched"
     assert join_words(kept) == answer
+
+
+def test_misheard_greeting_end_is_estimated_from_its_speaking_rate():
+    # 2026-10-03: Whisper tiny heard "...Please state the perfect living room."
+    step = 0.36
+    greeting = words("Hello, this property is monitored. Please state the", step=step)
+    misheard = words("perfect living room.", start=8 * step, step=step)
+    kept, method = strip_greeting(greeting + misheard, GREETING)
+    assert method == "matched"
+    assert kept == []
+
+
+def test_answer_after_a_misheard_greeting_end_is_kept():
+    step = 0.36
+    greeting = words("Hello, this property is monitored. Please state the", step=step)
+    misheard = words("perfect living room.", start=8 * step, step=step)
+    answer = words("I have a package", start=13 * step + 0.4, step=0.3)
+    kept, _ = strip_greeting(greeting + misheard + answer, GREETING)
+    assert join_words(kept) == "I have a package"
 
 
 def test_unrecognized_greeting_keeps_everything():

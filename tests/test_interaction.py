@@ -7,7 +7,7 @@ from pathlib import Path
 
 from conftest import write_wav
 from gatekeeper.eventlog import EventLog
-from gatekeeper.interaction import PLAYBACK_TAIL_SECONDS, Interaction
+from gatekeeper.interaction import PLAYBACK_HOLD_SECONDS, TALKBACK_LATENCY_SECONDS, Interaction
 from gatekeeper.listen import Word
 
 EID = "1727712000.123456-abc123"
@@ -35,13 +35,14 @@ class FakeSynth:
 
 
 class FakeTranscriber:
-    """Hears ``text`` spread over the clip, 0.3 s per word."""
+    """Hears the next of ``texts`` on each call, 0.3 s per word."""
 
-    def __init__(self, text):
-        self.text = text
+    def __init__(self, *texts):
+        self.texts = list(texts)
 
     def transcribe(self, path):
-        return [Word(f" {w}", i * 0.3, i * 0.3 + 0.25) for i, w in enumerate(self.text.split())]
+        text = self.texts.pop(0) if len(self.texts) > 1 else self.texts[0]
+        return [Word(f" {w}", i * 0.3, i * 0.3 + 0.25) for i, w in enumerate(text.split())]
 
 
 class Rig:
@@ -52,6 +53,7 @@ class Rig:
         settings,
         *,
         answer="I have a package for you",
+        answer2="",
         capture_ok=True,
         play_fails=(),
         presynth_keys=("greeting", *ALL_REPLY_KEYS),
@@ -72,7 +74,9 @@ class Rig:
         self.interaction = Interaction(
             settings,
             synth=self.synth,
-            transcriber=FakeTranscriber(f"{settings.greeting} {answer}"),
+            transcriber=FakeTranscriber(
+                f"{settings.greeting} {answer}", f"{settings.reply_no_answer} {answer2}"
+            ),
             presynth=presynth,
             event_log=EventLog(settings.event_log_file),
             play=self.play,
@@ -114,7 +118,7 @@ def test_full_visit_record(settings):
     rig = Rig(settings)
     visit = rig.interaction.run(EID)
 
-    capture_seconds = math.ceil(GREETING_WAV_SECONDS + PLAYBACK_TAIL_SECONDS + 4)
+    capture_seconds = math.ceil(GREETING_WAV_SECONDS + TALKBACK_LATENCY_SECONDS + 4)
     assert rig.calls == [
         ("play", "_presynth_greeting.wav"),
         ("capture", "rtsp://go2rtc:8554/front_door", f"{EID}.wav", capture_seconds),
@@ -122,7 +126,7 @@ def test_full_visit_record(settings):
         ("play", "_presynth_delivery.wav"),
         ("close", "_presynth_delivery.wav"),
     ]
-    tail = GREETING_WAV_SECONDS + PLAYBACK_TAIL_SECONDS
+    tail = GREETING_WAV_SECONDS + PLAYBACK_HOLD_SECONDS
     assert rig.sleeps == [tail, tail]
     assert visit.outcome == "completed"
     assert rig.log_records() == [
@@ -130,10 +134,12 @@ def test_full_visit_record(settings):
             "ts": 1234.5,
             "event_id": EID,
             "camera": "front_door",
+            "trigger": "person",
             "outcome": "completed",
             "classification": "likely_delivery",
             "transcript": "I have a package for you",
             "response": "Thank you. Please leave the package at the door.",
+            "turns": 1,
         }
     ]
 
@@ -268,3 +274,142 @@ def test_sequential_visits_on_worker_threads(settings):
         t.start()
         t.join()
     assert [r["event_id"] for r in rig.log_records()] == ["e0", "e1", "e2"]
+
+
+def test_notify_fires_once_right_after_classification(settings):
+    rig = Rig(settings)
+    notified = []
+
+    def on_notify(visit):
+        notified.append((visit.classification, visit.transcript, visit.response))
+        rig.calls.append(("notify",))
+
+    rig.interaction._on_notify = [on_notify]
+    rig.interaction.run(EID)
+    assert notified == [
+        ("likely_delivery", "I have a package for you", settings.reply_delivery)
+    ]
+    # Before the reply is played: the resident hears about it as soon as possible.
+    names = [c[0] for c in rig.calls]
+    assert names.index("notify") < names.index("play", names.index("close"))
+
+
+def test_notify_fires_for_visits_that_fail(settings):
+    rig = Rig(settings, play_fails={"_presynth_greeting.wav"})
+    notified = []
+    rig.interaction._on_notify = [notified.append]
+    rig.interaction.run(EID)
+    (visit,) = notified
+    assert visit.outcome == "talkback_failed"
+    assert visit.classification is None
+
+
+def test_logged_hook_gets_the_record_and_survives_errors(settings):
+    rig = Rig(settings)
+    records = []
+
+    def broken(record):
+        raise RuntimeError("mqtt down")
+
+    rig.interaction._on_logged = [broken, records.append]
+    rig.interaction._on_notify = [broken]
+    rig.interaction.run(EID)
+    (record,) = records
+    assert record == rig.log_records()[0]
+    assert record["outcome"] == "completed"
+
+
+# Doorbell pressed during a visit's cooldown.
+
+
+def press_visit():
+    from gatekeeper.interaction import Visit
+
+    return Visit("press-1.0", "front_door", outcome="pressed_during_visit", trigger="button")
+
+
+def test_press_during_cooldown_is_answered_and_logged(settings):
+    rig = Rig(settings, presynth_keys=("greeting", *ALL_REPLY_KEYS, "pressed"))
+    notified = []
+    rig.interaction._on_notify = [lambda v: notified.append(rig.calls[:])]
+    visit = rig.interaction.acknowledge_press(press_visit())
+    assert notified == [[]]  # notified before anything was played
+    assert rig.calls == [("play", "_presynth_pressed.wav"), ("close", "_presynth_pressed.wav")]
+    assert visit.response == settings.reply_pressed
+    (record,) = rig.log_records()
+    assert record["outcome"] == "pressed_during_visit"
+    assert record["trigger"] == "button"
+    assert record["response"] == settings.reply_pressed
+
+
+def test_press_during_an_active_visit_is_only_notified(settings):
+    rig = Rig(settings)
+    notified = []
+    rig.interaction._on_notify = [notified.append]
+    rig.interaction._talkback_lock.acquire()
+    try:
+        rig.interaction.acknowledge_press(press_visit())
+    finally:
+        rig.interaction._talkback_lock.release()
+    assert rig.calls == []
+    assert len(notified) == 1
+    assert rig.log_records()[0]["response"] is None
+
+
+def test_press_reply_failing_to_play_is_logged_without_response(settings):
+    rig = Rig(settings, play_fails={"_presynth_pressed.wav"},
+              presynth_keys=("greeting", *ALL_REPLY_KEYS, "pressed"))  # fmt: skip
+    rig.interaction.acknowledge_press(press_visit())
+    assert rig.log_records()[0]["response"] is None
+    assert rig.interaction._talkback_lock.acquire(blocking=False)
+
+
+# No answer: the no-answer reply asks again and Gatekeeper listens once more.
+
+
+def test_answer_on_the_second_turn(settings):
+    rig = Rig(settings, answer="", answer2="I'm visiting my friend Sam")
+    notified = []
+    rig.interaction._on_notify = [lambda v: notified.append((v.classification, v.transcript))]
+    visit = rig.interaction.run(EID)
+    # Captures run on a worker thread, so only their order relative to the
+    # plays is fixed.
+    assert [c[:2] for c in rig.calls if c[0] != "close"] == [
+        ("play", "_presynth_greeting.wav"),
+        ("capture", "rtsp://go2rtc:8554/front_door"),
+        ("play", "_presynth_no_answer.wav"),
+        ("capture", "rtsp://go2rtc:8554/front_door"),
+        ("play", "_presynth_generic.wav"),
+    ]
+    assert sorted(c[1] for c in rig.calls if c[0] == "close") == [
+        "_presynth_generic.wav", "_presynth_greeting.wav", "_presynth_no_answer.wav",
+    ]  # fmt: skip
+    assert [c[2] for c in rig.calls if c[0] == "capture"] == [f"{EID}.wav", f"{EID}-2.wav"]
+    assert notified == [("cooperative_other", "I'm visiting my friend Sam")]  # once, final
+    assert (visit.turns, visit.outcome, visit.response) == (2, "completed", settings.reply_generic)
+
+
+def test_silent_twice_ends_after_the_question(settings):
+    rig = Rig(settings, answer="", answer2="")
+    notified = []
+    rig.interaction._on_notify = [notified.append]
+    rig.interaction.run(EID)
+    assert [c[:2] for c in rig.calls if c[0] == "play"] == [
+        ("play", "_presynth_greeting.wav"),
+        ("play", "_presynth_no_answer.wav"),
+    ]
+    (record,) = rig.log_records()
+    assert record["classification"] == "no_response"
+    assert record["response"] == settings.reply_no_answer
+    assert record["turns"] == 2 and record["outcome"] == "completed"
+    assert len(notified) == 1
+
+
+def test_failed_second_question_is_logged(settings):
+    rig = Rig(settings, answer="", play_fails={"_presynth_no_answer.wav"})
+    notified = []
+    rig.interaction._on_notify = [lambda v: notified.append(v.outcome)]
+    rig.interaction.run(EID)
+    (record,) = rig.log_records()
+    assert (record["outcome"], record["turns"], record["response"]) == ("reply_failed", 1, None)
+    assert notified == ["reply_failed"]  # the notification knows why
