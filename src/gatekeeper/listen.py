@@ -5,7 +5,10 @@ greeting (picked up by the doorbell's own mic) followed by the visitor's
 answer. The greeting is found by matching its known words in the transcript,
 which tolerates the variable talkback and RTSP-connect delays. It counts as
 found if 3+ consecutive greeting words were heard, or its last 2 words, so a
-greeting whose start or end was cut off is still recognized.
+greeting whose start or end was cut off is still recognized. If its last words
+were misheard ("...state the perfect living room"), the greeting's end is
+estimated from the speaking rate of the words that were recognized, and
+anything heard before then is dropped as greeting too.
 
 If the greeting can't be found (e.g. recording started after it ended),
 every word is kept: a stray greeting word only turns "no answer" into a
@@ -26,6 +29,11 @@ class Word:
     end: float
 
 
+# Words starting this close before the estimated end of the greeting still
+# count as the visitor's (the estimate is approximate).
+END_SLACK_SECONDS = 0.3
+
+
 def _norm(text: str) -> str:
     return re.sub(r"[^\w']+", "", text.lower())
 
@@ -44,7 +52,16 @@ def strip_greeting(words: list[Word], greeting: str) -> tuple[list[Word], str]:
         # Cut after the last run of 2+ greeting words: a lone matching word
         # further on is more likely the visitor's ("please") than the greeting's.
         anchor = ([b for b in blocks if b.size >= 2] or blocks)[-1]
-        return words[anchor.a + anchor.size :], "matched"
+        rest = words[anchor.a + anchor.size :]
+        unheard = len(expected) - (anchor.b + anchor.size)  # greeting words after the anchor
+        if unheard and rest:
+            first, last = blocks[0], anchor
+            span_words = last.b + last.size - first.b
+            span_time = words[last.a + last.size - 1].end - words[first.a].start
+            if span_words > 0 and span_time > 0:
+                greeting_end = words[last.a + last.size - 1].end + unheard * span_time / span_words
+                rest = [w for w in rest if w.start >= greeting_end - END_SLACK_SECONDS]
+        return rest, "matched"
 
     return words, "unmatched"
 

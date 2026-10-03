@@ -11,6 +11,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   5 s after each clip.
 - A greeting whose end was cut off was taken as the visitor's answer. Any run of 3+
   greeting words now counts as the greeting.
+- A misheard greeting end ("...state the perfect living room") was taken as the visitor's
+  answer. When the greeting's last words aren't recognized, its end is estimated from the
+  speaking rate of the words that were, and anything before it counts as greeting.
 
 ### Added (Phase 0 M3)
 - Notifications: right after the visitor's answer is classified (and for visits Gatekeeper
