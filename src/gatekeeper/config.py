@@ -13,7 +13,7 @@ from typing import Literal
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-REPLY_KEYS = ("no_answer", "delivery", "sales", "maintenance", "generic")
+REPLY_KEYS = ("no_answer", "delivery", "sales", "maintenance", "generic", "pressed")
 
 
 class Settings(BaseSettings):
@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     reply_sales: str = "No solicitation. Please leave the property."
     reply_maintenance: str = "Please wait while I notify the resident."
     reply_generic: str = "Thank you. Please wait while I notify the resident."
+    # Said when the doorbell is pressed during a visit's cooldown.
+    reply_pressed: str = "The resident has already been notified."
 
     # Notifications. FRIGATE_API supplies the visitor's snapshot; an empty
     # NTFY_URL disables ntfy.

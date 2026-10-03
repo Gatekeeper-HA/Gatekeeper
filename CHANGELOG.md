@@ -32,6 +32,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   a waiting visitor at once, starts a visit if Frigate hasn't seen anyone yet, or notifies
   *Doorbell pressed* during a visit or its cooldown. Visit records gain `trigger`
   (`person` or `button`).
+- `REPLY_PRESSED`: said when the doorbell is pressed during a visit's cooldown (previously
+  silence). The compose stack uses Whisper `base.en` (more accurate than `tiny`).
 - `TRIGGER_ZONES`: only greet people who enter one of the given Frigate zones (e.g. the
   porch, not the sidewalk); the dwell time counts from entering the zone.
 - Frigate config: a `porch` zone and a person mask over the street and lawn; the compose

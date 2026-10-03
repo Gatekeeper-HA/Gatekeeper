@@ -312,3 +312,48 @@ def test_logged_hook_gets_the_record_and_survives_errors(settings):
     (record,) = records
     assert record == rig.log_records()[0]
     assert record["outcome"] == "completed"
+
+
+# Doorbell pressed during a visit's cooldown.
+
+
+def press_visit():
+    from gatekeeper.interaction import Visit
+
+    return Visit("press-1.0", "front_door", outcome="pressed_during_visit", trigger="button")
+
+
+def test_press_during_cooldown_is_answered_and_logged(settings):
+    rig = Rig(settings, presynth_keys=("greeting", *ALL_REPLY_KEYS, "pressed"))
+    notified = []
+    rig.interaction._on_notify = [lambda v: notified.append(rig.calls[:])]
+    visit = rig.interaction.acknowledge_press(press_visit())
+    assert notified == [[]]  # notified before anything was played
+    assert rig.calls == [("play", "_presynth_pressed.wav"), ("close", "_presynth_pressed.wav")]
+    assert visit.response == settings.reply_pressed
+    (record,) = rig.log_records()
+    assert record["outcome"] == "pressed_during_visit"
+    assert record["trigger"] == "button"
+    assert record["response"] == settings.reply_pressed
+
+
+def test_press_during_an_active_visit_is_only_notified(settings):
+    rig = Rig(settings)
+    notified = []
+    rig.interaction._on_notify = [notified.append]
+    rig.interaction._talkback_lock.acquire()
+    try:
+        rig.interaction.acknowledge_press(press_visit())
+    finally:
+        rig.interaction._talkback_lock.release()
+    assert rig.calls == []
+    assert len(notified) == 1
+    assert rig.log_records()[0]["response"] is None
+
+
+def test_press_reply_failing_to_play_is_logged_without_response(settings):
+    rig = Rig(settings, play_fails={"_presynth_pressed.wav"},
+              presynth_keys=("greeting", *ALL_REPLY_KEYS, "pressed"))  # fmt: skip
+    rig.interaction.acknowledge_press(press_visit())
+    assert rig.log_records()[0]["response"] is None
+    assert rig.interaction._talkback_lock.acquire(blocking=False)

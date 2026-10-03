@@ -161,9 +161,10 @@ services:
       # Only greet people who enter Frigate's porch zone (frigate/config/config.yml).
       TRIGGER_ZONES: "porch"
       LISTEN_SECONDS: "4"
-      WHISPER_MODEL: "tiny"
+      WHISPER_MODEL: "base.en"
       WHISPER_COMPUTE_TYPE: "int8"
       KOKORO_VOICE: "af_heart"
+      REPLY_PRESSED: "I've already told them you're here. If nobody answers the door, take the hint: they don't want to talk to you."
       AUDIO_DIR: "/audio"
       LOG_DIR: "/logs"
       LOG_FORMAT: "text"

@@ -142,6 +142,41 @@ class Interaction:
         finally:
             event_id_var.reset(token)
 
+    def acknowledge_press(self, visit: Visit) -> Visit:
+        """A doorbell press during a visit's cooldown: notify at once, then say
+        REPLY_PRESSED if the speaker is free (not mid-visit), and log it."""
+        token = event_id_var.set(visit.event_id)
+        try:
+            self._notify(visit)
+            if self._webrtc_available and self._talkback_lock.acquire(blocking=False):
+                try:
+                    visit.response = self.settings.replies["pressed"]
+                    asyncio.run(self._say(visit, "pressed"))
+                except Exception:
+                    log.exception("could not answer the doorbell press")
+                    visit.response = None
+                finally:
+                    self._talkback_lock.release()
+            self._log_visit(visit)
+            return visit
+        finally:
+            event_id_var.reset(token)
+
+    async def _say(self, visit: Visit, key: str) -> None:
+        """Play one phrase and keep the talkback open until it has been heard."""
+        text = self.settings.replies[key]
+        wav, pc = await asyncio.wait_for(
+            self._speak(key, text, self.settings.out_dir / f"{visit.event_id}_{key}.wav"),
+            self.settings.visit_timeout_seconds,
+        )
+        if pc is None:
+            visit.response = None
+            return
+        try:
+            await self._sleep(wav_duration(wav) + PLAYBACK_HOLD_SECONDS)
+        finally:
+            await pc.close()
+
     def report(self, visit: Visit) -> None:
         """Notify and log something that isn't a visit run here (e.g. a press
         during a visit)."""

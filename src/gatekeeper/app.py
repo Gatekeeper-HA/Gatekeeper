@@ -176,13 +176,16 @@ def main() -> None:
     def on_press() -> None:
         action, visit_id = tracker.press()
         if action == "merged":
-            interaction.report(
+            # Not on the doorbell listener's event loop: the reply plays audio.
+            start_thread(
+                "press-reply",
+                interaction.acknowledge_press,
                 Visit(
                     f"press-{time.time():.3f}",
                     settings.camera_name,
                     outcome="pressed_during_visit",
                     trigger="button",
-                )
+                ),
             )
 
     if settings.reolink_host:

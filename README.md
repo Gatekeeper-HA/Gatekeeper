@@ -118,7 +118,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `SWEEP_INTERVAL_SECONDS` | `1` | How often sessions are checked for dwell and expiry |
 | `COOLDOWN_SECONDS` | `90` | After a visit, new person events this soon are merged into it instead of greeting again |
 | `VISIT_TIMEOUT_SECONDS` | `60` | Give up on a visit (greet, listen, reply) after this long |
-| `WHISPER_MODEL` | `tiny` | Whisper model size (`tiny`, `base`, `small`) |
+| `WHISPER_MODEL` | `tiny` | Whisper model (`tiny`, `base.en`, `small.en`, ...). On a 4-core CPU, `base.en` takes ~3.4 s per visit vs ~1.8 s for `tiny`, but hears noticeably better; the compose stack uses `base.en` |
 | `WHISPER_COMPUTE_TYPE` | `int8` | `int8` for CPU, `float32` if issues arise |
 | `KOKORO_VOICE` | `af_heart` | TTS voice (see voices below) |
 | `GREETING` | *Hello. This property is monitored. Please state the purpose of your visit.* | What Gatekeeper says when a visitor is detected |
@@ -127,6 +127,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `REPLY_MAINTENANCE` | *Please wait while I notify the resident.* | Reply to a service visit |
 | `REPLY_GENERIC` | *Thank you. Please wait while I notify the resident.* | Reply to any other answer |
 | `REPLY_NO_ANSWER` | *You are being recorded. Please state your purpose or leave the property.* | Reply to silence or a one-word answer |
+| `REPLY_PRESSED` | *The resident has already been notified.* | Said when the doorbell is pressed during a visit's cooldown |
 | `AUDIO_DIR` | `/audio` | Visitor clips (`in/`) and synthesized speech (`out/`) |
 | `LOG_DIR` | `/logs` | Directory for `events.jsonl` |
 | `AUDIO_RETENTION_DAYS` | `7` | Delete visitor recordings (and per-visit synthesized speech) older than this. `0` keeps them forever |
@@ -185,7 +186,8 @@ With `REOLINK_HOST` set, Gatekeeper listens for presses of a Reolink doorbell's 
 - A press while someone is waiting out `DWELL_SECONDS` greets them right away.
 - A press before Frigate has detected anyone starts a visit anyway, with the camera's latest
   frame as the snapshot.
-- A press during a visit or its cooldown sends a *Doorbell pressed* notification.
+- A press during a visit or its cooldown sends a *Doorbell pressed* notification and, if the
+  speaker isn't mid-visit, says `REPLY_PRESSED`.
 
 Visit records carry `trigger`: `person` (Frigate detection) or `button`.
 
