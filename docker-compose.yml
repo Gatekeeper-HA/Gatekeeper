@@ -53,8 +53,10 @@ services:
       - go2rtc
     shm_size: "256mb"
     ports:
-      - "${SERVER_IP:?set SERVER_IP in .env}:8971:8971"  # Frigate UI
-      - "${SERVER_IP:?set SERVER_IP in .env}:5000:5000"  # Frigate internal API
+      # Frigate UI and API, with login (HTTPS). Port 5000 (the same without any
+      # authentication) is deliberately not published: Gatekeeper and Home
+      # Assistant reach it inside Docker as http://frigate:5000.
+      - "${SERVER_IP:?set SERVER_IP in .env}:8971:8971"
     volumes:
       - /etc/localtime:/etc/localtime:ro
       # Frigate keeps its database, model cache and secrets in /config, so the
