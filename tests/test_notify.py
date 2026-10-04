@@ -171,3 +171,20 @@ def test_compose_when_the_reply_could_not_be_played():
     n = compose(visit(classification="no_response", transcript="Hello?", response=None,
                       outcome="reply_failed"))  # fmt: skip
     assert n.message == 'Said: "Hello?"\nCouldn\'t reply: the doorbell speaker didn\'t connect.'
+
+
+def test_notifier_logs_every_attempt(tmp_path):
+    import json
+
+    from gatekeeper.eventlog import EventLog
+
+    path = tmp_path / "notifications.jsonl"
+    broken, ok = FakeBackend("broken", fail=True), FakeBackend("ok")
+    notifier = Notifier([broken, ok], snapshot=lambda v: b"IMG", log_to=EventLog(path))
+    notifier.send(visit(classification="likely_delivery", transcript="box", response="OK"))
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    assert [(r["event_id"], r["backend"], r["ok"], r["snapshot"]) for r in rows] == [
+        ("e1", "broken", False, True), ("e1", "ok", True, True),
+    ]  # fmt: skip
+    assert rows[0]["error"] == "down" and rows[1]["error"] is None
+    assert all(r["seconds"] >= 0 for r in rows)

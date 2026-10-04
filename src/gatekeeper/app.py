@@ -140,6 +140,7 @@ def main() -> None:
     notifier = Notifier(
         build_notify_backends(settings),
         snapshot=lambda visit: frigate_snapshot(settings.frigate_api, visit),
+        log_to=EventLog(settings.notification_log_file),
     )
     interaction = Interaction(
         settings,

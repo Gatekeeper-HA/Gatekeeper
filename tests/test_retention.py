@@ -21,12 +21,14 @@ def test_removes_old_audio_and_logs_but_keeps_presynth(settings):
     presynth = touch(settings.out_dir / "_presynth_greeting.wav", 300)
     old_log = touch(settings.log_dir / "events-2026-08-01.jsonl", 31)
     new_log = touch(settings.log_dir / "events-2026-09-25.jsonl", 6)
+    old_notifications = touch(settings.log_dir / "notifications-2026-08-01.jsonl", 31)
     current = touch(settings.event_log_file, 40)  # only daily files are purged
 
     removed = Retention(settings, clock=lambda: NOW).run_once()
 
-    assert removed == {"audio_in": 1, "audio_out": 1, "event_logs": 1}
+    assert removed == {"audio_in": 1, "audio_out": 1, "event_logs": 2}
     assert not old_in.exists() and not old_reply.exists() and not old_log.exists()
+    assert not old_notifications.exists()
     assert new_in.exists() and presynth.exists() and new_log.exists() and current.exists()
 
 

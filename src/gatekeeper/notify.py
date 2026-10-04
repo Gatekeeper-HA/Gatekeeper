@@ -22,6 +22,7 @@ from dataclasses import dataclass, field, replace
 from email.header import Header
 from typing import Protocol
 
+from gatekeeper.eventlog import EventLog
 from gatekeeper.interaction import Visit
 
 log = logging.getLogger(__name__)
@@ -160,10 +161,14 @@ class Notifier:
         backends: Sequence[Backend],
         snapshot: Callable[[Visit], bytes | None] = lambda visit: None,
         clock: Callable[[], float] = time.monotonic,
+        log_to: EventLog | None = None,
     ) -> None:
         self.backends = list(backends)
         self._snapshot = snapshot
         self._clock = clock
+        # One line per attempt (notifications.jsonl), so "was every visit
+        # notified, and how fast" can be checked later.
+        self._log_to = log_to
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="notify")
 
     def __call__(self, visit: Visit) -> None:
@@ -175,6 +180,7 @@ class Notifier:
         notification = compose(visit)
         image = self._snapshot(visit)
         for backend in self.backends:
+            error = None
             try:
                 backend.send(notification, image)
                 log.info(
@@ -185,4 +191,16 @@ class Notifier:
                     " (with snapshot)" if image else "",
                 )
             except Exception as e:
+                error = str(e)
                 log.error("notification via %s failed: %s", backend.name, e)
+            if self._log_to:
+                self._log_to.append({
+                    "ts": time.time(),
+                    "event_id": visit.event_id,
+                    "backend": backend.name,
+                    "ok": error is None,
+                    "seconds": round(self._clock() - started, 3),
+                    "title": notification.title,
+                    "snapshot": bool(image),
+                    "error": error,
+                })

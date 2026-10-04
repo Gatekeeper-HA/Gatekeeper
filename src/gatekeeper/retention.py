@@ -52,7 +52,11 @@ class Retention:
                 now,
             ),
             "event_logs": purge(
-                log_file.parent.glob(f"{log_file.stem}-*{log_file.suffix}"),
+                (
+                    p
+                    for log in (log_file, s.notification_log_file)
+                    for p in log.parent.glob(f"{log.stem}-*{log.suffix}")
+                ),
                 s.event_log_retention_days,
                 now,
             ),
