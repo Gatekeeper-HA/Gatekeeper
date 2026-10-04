@@ -10,10 +10,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import model_validator
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-REPLY_KEYS = ("no_answer", "delivery", "sales", "maintenance", "generic")
+REPLY_KEYS = ("no_answer", "delivery", "sales", "maintenance", "generic", "pressed")
 
 
 class Settings(BaseSettings):
@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     mqtt_host: str = "mqtt"
     mqtt_port: int = 1883
     mqtt_topic: str = "frigate/events"
+    mqtt_username: str = ""
+    mqtt_password: SecretStr = SecretStr("")
+    # Home Assistant MQTT discovery prefix; empty disables discovery.
+    ha_discovery_prefix: str = "homeassistant"
 
     # Camera and go2rtc
     camera_name: str = "front_door"
@@ -33,13 +37,17 @@ class Settings(BaseSettings):
 
     # Visit timing
     dwell_seconds: float = 1.0
+    # Comma-separated Frigate zones (e.g. "porch"); a person must enter one
+    # before a visit starts. Empty: anywhere in view.
+    trigger_zones: str = ""
     listen_seconds: int = 4
     session_ttl_seconds: float = 120.0
     sweep_interval_seconds: float = 1.0
     # New person events this soon after a visit are merged into it, not re-greeted.
     cooldown_seconds: float = 90.0
-    # A visit (greet, listen, reply) normally takes ~25 s; give up after this.
-    visit_timeout_seconds: float = 60.0
+    # A visit (greet, listen, reply) takes ~25 s, ~45 s when the visitor only
+    # answers the second time; give up after this.
+    visit_timeout_seconds: float = 90.0
 
     # Speech
     whisper_model: str = "tiny"
@@ -55,6 +63,21 @@ class Settings(BaseSettings):
     reply_sales: str = "No solicitation. Please leave the property."
     reply_maintenance: str = "Please wait while I notify the resident."
     reply_generic: str = "Thank you. Please wait while I notify the resident."
+    # Said when the doorbell is pressed during a visit's cooldown.
+    reply_pressed: str = "The resident has already been notified."
+
+    # Notifications. FRIGATE_API supplies the visitor's snapshot; an empty
+    # NTFY_URL disables ntfy.
+    frigate_api: str = "http://frigate:5000"
+    ntfy_url: str = ""
+    ntfy_topic: str = "doorbell"
+    ntfy_token: SecretStr = SecretStr("")
+
+    # Doorbell button presses from a Reolink doorbell (HTTPS login + push
+    # events); an empty REOLINK_HOST disables them.
+    reolink_host: str = ""
+    reolink_username: str = ""
+    reolink_password: SecretStr = SecretStr("")
 
     # Storage
     audio_dir: Path = Path("/audio")
@@ -91,6 +114,10 @@ class Settings(BaseSettings):
     @property
     def event_log_file(self) -> Path:
         return self.log_dir / "events.jsonl"
+
+    @property
+    def trigger_zone_list(self) -> list[str]:
+        return [z.strip() for z in self.trigger_zones.split(",") if z.strip()]
 
     @property
     def replies(self) -> dict[str, str]:

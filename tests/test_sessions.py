@@ -18,7 +18,7 @@ class Harness:
             dwell_seconds=dwell,
             ttl_seconds=ttl,
             cooldown_seconds=cooldown,
-            run_visit=self.started.append,
+            run_visit=lambda event_id, trigger: self.started.append(event_id),
             spawn=self.workers.append,
             clock=clock,
         )
@@ -76,7 +76,7 @@ def test_no_second_start_while_in_progress(h, clock):
 
 
 def test_session_marked_handled_even_if_visit_raises(clock):
-    def boom(_eid):
+    def boom(_eid, _trigger):
         raise RuntimeError("visit failed")
 
     workers = []
@@ -173,3 +173,95 @@ def test_merge_survives_the_visit_event_ending(clock):
     clock.advance(10)
     h.tracker.handle_event(person("C"))
     assert h.tracker.sessions["C"].merged_into == "A"
+
+
+# P0-21: doorbell presses.
+
+
+class TriggerHarness(Harness):
+    def __init__(self, clock, **kw):
+        super().__init__(clock, **kw)
+        self.triggers = []
+        self.tracker._run_visit = lambda eid, trigger: self.triggers.append((eid, trigger))
+
+
+def test_press_starts_the_waiting_visit_without_dwell(clock):
+    h = TriggerHarness(clock, dwell=3)
+    h.send("person_new")
+    assert h.workers == []
+    assert h.tracker.press() == ("started", EID)
+    h.run_workers()
+    assert h.triggers == [(EID, "button")]
+
+
+def test_press_with_nobody_detected_starts_a_new_visit(clock):
+    h = TriggerHarness(clock, dwell=3)
+    action, visit_id = h.tracker.press()
+    assert action == "started" and visit_id == f"press-{clock.now:.3f}"
+    h.run_workers()
+    assert h.triggers == [(visit_id, "button")]
+
+
+def test_press_during_a_visit_or_cooldown_is_merged(clock):
+    h = TriggerHarness(clock, dwell=0, cooldown=90)
+    h.send("person_new")  # starts the visit (dwell 0)
+    assert h.tracker.press() == ("merged", EID)
+    h.run_workers()
+    clock.advance(30)
+    assert h.tracker.press() == ("merged", EID)
+    clock.advance(61)
+    action, _ = h.tracker.press()
+    assert action == "started"
+
+
+def test_person_visit_trigger(clock):
+    h = TriggerHarness(clock, dwell=0)
+    h.send("person_new")
+    h.run_workers()
+    assert h.triggers == [(EID, "person")]
+
+
+# P0-18: trigger zones.
+
+
+def zoned(event_id, zones=(), type_="update"):
+    return FrigateEvent(type_, event_id, "front_door", "person", tuple(zones))
+
+
+def test_without_zones_configured_anywhere_counts(clock):
+    h = Harness(clock, dwell=0)
+    h.tracker.handle_event(zoned("A", type_="new"))
+    assert len(h.workers) == 1
+
+
+def test_sidewalk_passer_by_never_triggers(clock):
+    h = Harness(clock, dwell=1)
+    h.tracker.trigger_zones = frozenset({"porch"})
+    h.tracker.handle_event(zoned("A", type_="new"))
+    for _ in range(10):
+        clock.advance(1)
+        h.tracker.handle_event(zoned("A", ["sidewalk"]))
+        h.tracker.sweep()
+    assert h.workers == []
+
+
+def test_dwell_counts_from_entering_the_porch(clock):
+    h = Harness(clock, dwell=2)
+    h.tracker.trigger_zones = frozenset({"porch"})
+    h.tracker.handle_event(zoned("A", type_="new"))
+    clock.advance(30)  # walking up the path
+    h.tracker.handle_event(zoned("A", ["walkway"]))
+    clock.advance(5)
+    h.tracker.handle_event(zoned("A", ["walkway", "porch"]))
+    assert h.workers == []  # just arrived; dwell restarts here
+    clock.advance(2)
+    h.tracker.sweep()
+    assert len(h.workers) == 1
+
+
+def test_press_ignores_zones(clock):
+    h = Harness(clock, dwell=2)
+    h.tracker.trigger_zones = frozenset({"porch"})
+    h.tracker.handle_event(zoned("A", type_="new"))
+    assert h.tracker.press() == ("started", "A")
+    assert len(h.workers) == 1

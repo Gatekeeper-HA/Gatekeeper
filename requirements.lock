@@ -1,12 +1,14 @@
 # Pinned dependencies for the gatekeeper image (Python 3.11, linux x86_64 + aarch64).
 # Regenerate after changing dependencies in pyproject.toml:
-#   uv pip compile pyproject.toml --extra speech --extra talkback --python-version 3.11 \
-#     --universal --no-header --annotation-style line -o requirements.lock
+#   uv pip compile pyproject.toml --extra speech --extra talkback --extra doorbell \
+#     --python-version 3.11 --universal --no-header --annotation-style line \
+#     -o requirements.lock
 addict==2.4.0             # via misaki
 aiohappyeyeballs==2.7.1   # via aiohttp
-aiohttp==3.14.3           # via gatekeeper (pyproject.toml)
+aiohttp==3.14.3           # via reolink-aio, gatekeeper (pyproject.toml)
 aioice==0.10.2            # via aiortc
 aiortc==1.15.0            # via gatekeeper (pyproject.toml)
+aiortsp==1.4.0            # via reolink-aio
 aiosignal==1.4.0          # via aiohttp
 annotated-doc==0.0.5      # via typer
 annotated-types==0.8.0    # via pydantic
@@ -36,9 +38,10 @@ cymem==2.0.13             # via preshed, spacy, thinc
 dlinfo==2.0.0             # via phonemizer-fork
 dnspython==2.8.0          # via aioice
 docopt==0.6.2             # via num2words
+dpkt==1.9.8               # via aiortsp
 espeakng-loader==0.2.4    # via misaki
 faster-whisper==1.2.1     # via gatekeeper (pyproject.toml)
-filelock==4.0.7           # via huggingface-hub, torch
+filelock==4.0.9           # via huggingface-hub, torch
 flatbuffers==25.12.19     # via onnxruntime
 frozenlist==1.8.0         # via aiohttp, aiosignal
 fsspec==2026.9.0          # via huggingface-hub, torch
@@ -86,6 +89,7 @@ nvidia-nvjitlink==13.4.92 ; (platform_machine == 'aarch64' and sys_platform == '
 nvidia-nvshmem-cu13==3.4.5 ; sys_platform == 'linux'  # via torch
 nvidia-nvtx==13.0.85 ; (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')  # via cuda-toolkit
 onnxruntime==1.30.0       # via faster-whisper
+orjson==3.12.0            # via reolink-aio
 packaging==26.3           # via huggingface-hub, onnxruntime, spacy, thinc, transformers, weasel
 paho-mqtt==2.1.0          # via gatekeeper (pyproject.toml)
 phonemizer-fork==3.3.2    # via misaki
@@ -93,6 +97,7 @@ preshed==3.0.13           # via spacy, thinc
 propcache==0.5.4          # via aiohttp, yarl
 protobuf==7.36.2          # via onnxruntime
 pycparser==3.0 ; implementation_name != 'PyPy'  # via cffi
+pycryptodomex==3.23.0     # via reolink-aio
 pydantic==2.13.5          # via pydantic-settings, spacy, thinc, weasel
 pydantic-core==2.46.5     # via pydantic
 pydantic-settings==2.15.0  # via gatekeeper (pyproject.toml)
@@ -103,11 +108,12 @@ pylibsrtp==1.0.0          # via aiortc
 pyopenssl==26.4.0         # via aiortc
 pyparsing==3.3.3          # via rdflib
 python-dateutil==2.9.0.post0  # via csvw
-python-dotenv==1.2.3      # via pydantic-settings
+python-dotenv==1.2.4      # via pydantic-settings
 pyyaml==6.0.3             # via ctranslate2, huggingface-hub, transformers
 rdflib==7.6.0             # via csvw
 referencing==0.37.0       # via jsonschema, jsonschema-specifications
 regex==2026.9.29          # via curated-tokenizers, misaki, segments, transformers
+reolink-aio==0.21.17      # via gatekeeper (pyproject.toml)
 requests==2.34.2          # via spacy
 rfc3986==1.5.0            # via csvw
 rich==15.0.0              # via typer
@@ -133,7 +139,7 @@ tqdm==4.70.1              # via faster-whisper, huggingface-hub, spacy, transfor
 transformers==5.18.0      # via kokoro
 triton==3.8.0 ; python_full_version < '3.15' and sys_platform == 'linux'  # via torch
 typer==0.27.2             # via spacy, transformers, weasel
-typing-extensions==4.16.0  # via aiohttp, aiosignal, anyio, huggingface-hub, phonemizer-fork, pydantic, pydantic-core, pyee, pyopenssl, referencing, soundfile, torch, typing-inspection
+typing-extensions==4.16.0  # via aiohttp, aiosignal, anyio, huggingface-hub, phonemizer-fork, pydantic, pydantic-core, pyee, pyopenssl, referencing, reolink-aio, soundfile, torch, typing-inspection
 typing-inspection==0.4.4  # via pydantic, pydantic-settings
 uritemplate==4.2.0        # via csvw
 urllib3==2.8.0            # via requests

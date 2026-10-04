@@ -2,6 +2,9 @@ mqtt:
   enabled: true
   host: mqtt
   topic_prefix: frigate
+  # Set from the environment (docker-compose.yml, .env).
+  user: "{FRIGATE_MQTT_USER}"
+  password: "{FRIGATE_MQTT_PASSWORD}"
 
 cameras:
   front_door:
@@ -26,9 +29,21 @@ cameras:
       height: 480
       fps: 5
 
+    # Gatekeeper greets only people in the porch zone (TRIGGER_ZONES=porch).
+    zones:
+      porch:
+        coordinates: 0.48,0.78,1,0.78,1,1,0.48,1
+        objects:
+          - person
+
     objects:
       track:
         - person
+      filters:
+        person:
+          # The street and lawn seen past the walkway: no person detection.
+          mask:
+            - 0.5,0.36,0.93,0.36,0.93,0.66,0.5,0.66
 
     record:
       enabled: true

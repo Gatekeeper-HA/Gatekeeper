@@ -1,0 +1,16 @@
+# Which topics each MQTT account may use. Accounts not listed get nothing.
+
+# Frigate publishes events, snapshots and state, and takes commands.
+user frigate
+topic readwrite frigate/#
+
+# Gatekeeper reads Frigate's events and publishes its results and
+# Home Assistant discovery.
+user gatekeeper
+topic read frigate/#
+topic readwrite gatekeeper/#
+topic readwrite homeassistant/#
+
+# Home Assistant sees and controls everything.
+user homeassistant
+topic readwrite #
