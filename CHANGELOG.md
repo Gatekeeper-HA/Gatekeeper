@@ -5,104 +5,98 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### Fixed (Phase 0 M3)
-- The end of the greeting could be cut off: the talkback session closed 2.5 s after the
-  clip, but a doorbell press's chime delays playback (3.2 s measured). It now stays open
-  5 s after each clip.
-- A greeting whose end was cut off was taken as the visitor's answer. Any run of 3+
-  greeting words now counts as the greeting.
-- A misheard greeting end ("...state the perfect living room") was taken as the visitor's
-  answer. When the greeting's last words aren't recognized, its end is estimated from the
-  speaking rate of the words that were, and anything before it counts as greeting.
+## [0.2.0-rc.1] - 2026-10-04
 
-- A notification for a visit whose reply couldn't be played said "Replied: None"; it now
-  says why ("Couldn't reply: the doorbell speaker didn't connect.").
+Phase 0, "make v0.1 real": Gatekeeper now actually hears visitors, tells you about every
+visit, survives camera and network failures, and runs from one tested package shared with
+the Home Assistant add-on. This release candidate is being soaked on a live porch for a
+week before 0.2.0.
 
-### Added (Phase 0 M3)
-- Notifications: right after the visitor's answer is classified (and for visits Gatekeeper
-  couldn't talk to), a notification with the transcript, the reply and Frigate's snapshot
-  goes to ntfy. The compose stack runs a private ntfy server (deny-all; Gatekeeper token
-  publishes, `phone` user reads); `scripts/ntfy-auth.sh` generates its credentials.
-- go2rtc only receives the camera variables it uses, not the whole `.env`.
-- Frigate's unauthenticated port 5000 is no longer published on the LAN; use the UI on
-  port 8971 (HTTPS, login). Gatekeeper and Home Assistant use `http://frigate:5000`
-  inside Docker.
-- go2rtc's API/UI and RTSP restream (no authentication: anyone could watch the doorbell
-  or talk through its speaker) are no longer published on the LAN.
-- go2rtc's WebRTC port isn't published either, and go2rtc no longer contacts public STUN
-  servers: Gatekeeper's talkback runs entirely inside Docker.
-- Doorbell button presses (Reolink, via reolink-aio push events over HTTPS): a press greets
-  a waiting visitor at once, starts a visit if Frigate hasn't seen anyone yet, or notifies
-  *Doorbell pressed* during a visit or its cooldown. Visit records gain `trigger`
-  (`person` or `button`).
-- If the visitor says nothing, the no-answer reply (which asks them to state their purpose)
-  is followed by a second listen, and their answer gets the matching reply. Records gain
-  `turns`; `VISIT_TIMEOUT_SECONDS` defaults to 90.
-- `REPLY_PRESSED`: said when the doorbell is pressed during a visit's cooldown (previously
-  silence). The compose stack uses Whisper `base.en` (more accurate than `tiny`).
-- `TRIGGER_ZONES`: only greet people who enter one of the given Frigate zones (e.g. the
-  porch, not the sidewalk); the dwell time counts from entering the zone.
-- Frigate config: a `porch` zone and a person mask over the street and lawn; the compose
-  stack sets `TRIGGER_ZONES=porch`.
-- MQTT login: the broker no longer accepts anonymous clients. Frigate, Gatekeeper and Home
-  Assistant each have an account (passwords in `.env`, written to Mosquitto's password file
-  by the `mqtt-auth` service) limited by an ACL. Gatekeeper reads `MQTT_USERNAME` /
-  `MQTT_PASSWORD`.
-- Gatekeeper publishes its status (with a last will), conversation state and each visit
-  record over MQTT, with Home Assistant MQTT discovery for a *Last visitor* sensor and a
-  *Conversation* binary sensor.
-
-### Fixed
-- The visitor's answer was usually missed. Recording started about 3 s after the greeting
-  ended (playback buffer + a fresh RTSP connection), after most visitors had finished
-  answering; 96% of logged v0.1 visits had an empty transcript. Recording now starts
-  with the greeting, and the greeting's echo is cut out by matching its words in the
-  transcript (Whisper's VAD filter is off for this, as it drops the echo).
-- The Whisper model loads at startup instead of on the first visit.
-- Classification matches whole words and phrases: "ups" no longer matches "groups" or
-  "cups", nor "tech" "technically". Solicitors are checked before deliveries.
-- British voices (`bm_george`, `bf_emma`) use Kokoro's British English pipeline.
-- A stalled camera stream no longer hangs the doorbell. ffmpeg gets an RTSP socket timeout
-  (`-timeout`; `-rw_timeout` has no effect on RTSP) and a hard process timeout, and each
-  visit is bounded by `VISIT_TIMEOUT_SECONDS`.
-- Visitors are no longer greeted repeatedly. Only one visit runs per camera, and person
-  events during it or within `COOLDOWN_SECONDS` (90) after it are merged into it.
-- No visit goes unlogged: a busy talkback, a failed greeting or reply, a timeout or an
-  error are all written to `events.jsonl` with an `outcome`.
-
-- Visitor audio and visit logs are no longer kept forever. Recordings are deleted after
-  `AUDIO_RETENTION_DAYS` (7); `events.jsonl` rotates daily to `events-YYYY-MM-DD.jsonl`,
-  deleted after `EVENT_LOG_RETENTION_DAYS` (30). `0` keeps them.
-
-### Changed
-- **Breaking for `events.jsonl` readers:** classifications are now `likely_delivery`,
-  `solicitor`, `service_visit`, `cooperative_other` and `no_response` (replacing
-  `unknown_cooperative` and `unknown_uncooperative`).
-- Spanish keywords were removed; transcription is English-only until multilingual support.
-- `events.jsonl` records gain an `outcome` field: `completed`, `reply_failed`,
-  `talkback_busy`, `talkback_failed`, `talkback_unavailable`, `timeout` or `error`.
-  `classification` and `response` are `null` when the visitor was never greeted.
-- The app is now the `gatekeeper` Python package (`src/gatekeeper/`, run with
-  `python -m gatekeeper`), shared with the Home Assistant add-on. Behavior is unchanged.
-- Settings are read by a typed config module; empty variables fall back to defaults.
-- Logging uses the `logging` module, with the visit's Frigate `event_id` on every line
-  and an optional JSON format (`LOG_FORMAT=json`).
-- Dependencies are pinned in `requirements.lock`, and images are pinned to exact versions
-  (Frigate 0.16.4, Mosquitto 2.0.22, go2rtc 1.9.14, Python 3.11.16).
-- `docker-compose.yml` builds from the repo and reads configs from it; state lives under
-  `DATA_DIR` (default `./data`), so `git clone && cp .env.example .env && docker compose up`
-  works.
-- Licence in the README corrected to AGPL-3.0.
+### Breaking
+- **`.env`** needs three MQTT passwords and the ntfy credentials (see the README's Quick
+  start). The broker no longer accepts anonymous clients.
+- **`events.jsonl` records** have new classification names (`likely_delivery`,
+  `solicitor`, `service_visit`, `cooperative_other`, `no_response`, replacing
+  `unknown_cooperative`/`unknown_uncooperative`) and new fields: `outcome`, `trigger` and
+  `turns`. `classification` and `response` are `null` when the visitor was never greeted.
+- **Ports:** Frigate's port 5000 and go2rtc's ports are no longer published on the LAN (see
+  Security).
+- **Run command:** the app runs as `python -m gatekeeper`; `app/main.py` is gone.
 
 ### Added
-- `GET /healthz` (port `HEALTH_PORT`, 8099), a Docker `HEALTHCHECK`, and a watchdog that
-  exits on an internal hang lasting `HANG_EXIT_SECONDS` (300) so the container restarts.
-- `SESSION_TTL_SECONDS`, `SWEEP_INTERVAL_SECONDS`, `REPLY_*`, `LOG_LEVEL` and `LOG_FORMAT`
-  settings.
-- Unit tests and a GitHub Actions workflow (ruff + pytest).
+- **Notifications** via ntfy, sent right after the visitor's answer is classified, with what
+  they said, the reply and Frigate's snapshot. Visits Gatekeeper couldn't talk to are
+  notified too, and so are doorbell presses during a visit. The compose stack runs a
+  private ntfy server; `scripts/ntfy-auth.sh` generates its credentials.
+- **Doorbell button** (Reolink, via reolink-aio push events over HTTPS):
+  - A press greets at once, even before Frigate has seen anyone.
+  - A press during a visit or its cooldown notifies and says `REPLY_PRESSED`.
+- **Home Assistant over MQTT:**
+  - Gatekeeper publishes its status (with a last will), conversation state and each visit.
+  - MQTT discovery creates a *Gatekeeper* device with *Last visitor* and *Conversation*
+    entities.
+- **Zones:** `TRIGGER_ZONES` only greets people who enter the given Frigate zones; the
+  compose stack ships a `porch` zone and a street mask.
+- **A second chance:** if the visitor says nothing, the no-answer reply asks again and
+  Gatekeeper listens once more.
+- **Health:** `GET /healthz` (port 8099), a Docker `HEALTHCHECK`, and a watchdog that exits
+  on an internal hang lasting `HANG_EXIT_SECONDS` so Docker restarts Gatekeeper.
+- **Retention:** visitor recordings are deleted after `AUDIO_RETENTION_DAYS` (7). Visit logs
+  rotate daily and are deleted after `EVENT_LOG_RETENTION_DAYS` (30).
+- **Settings:**
+  - Every reply text (`REPLY_*`).
+  - `SESSION_TTL_SECONDS`, `SWEEP_INTERVAL_SECONDS`, `COOLDOWN_SECONDS` and
+    `VISIT_TIMEOUT_SECONDS`.
+  - MQTT and ntfy credentials, `FRIGATE_API`, `REOLINK_*` and `HA_DISCOVERY_PREFIX`.
+  - `LOG_LEVEL`, and `LOG_FORMAT=json`, with the visit's Frigate event id on every line.
+- **Optional Home Assistant container** (compose profile `ha`) for testing.
+- **Development:** unit tests (166) and CI (ruff, pytest, compose validation).
+- **Soak tooling:** `scripts/soak/` holds a daily report and an hourly recording-audio
+  check, sent via ntfy.
+
+### Changed
+- **One package:** the app is the `gatekeeper` Python package (`src/gatekeeper/`), installed
+  by both the compose image and the Home Assistant add-on.
+- **Pinned versions:** dependencies are pinned in `requirements.lock`. Images are pinned to
+  Frigate 0.16.4, Mosquitto 2.0.22, go2rtc 1.9.14 and Python 3.11.16.
+- **Compose:** `docker-compose.yml` builds from the repo, reads configs from it, and keeps
+  state under `DATA_DIR`. `git clone && cp .env.example .env && docker compose up` works.
+- **Whisper:** the compose stack uses `base.en` (more accurate than `tiny`, about 1.6 s
+  slower per visit). Whisper loads at startup.
+- **One visit at a time:** only one visit runs per camera. Person detections during it, or
+  within `COOLDOWN_SECONDS` (90) after it, count as the same visitor.
+- **English only:** the Spanish keywords were removed until multilingual support exists.
+
+### Fixed
+- **The visitor's answer was usually missed.** 96% of v0.1's logged visits had an empty
+  transcript, because recording started ~3 s after the greeting ended.
+  - Recording now starts with the greeting.
+  - The greeting's echo is cut out by matching its words, including when its start or end
+    is cut off or misheard.
+- **The end of the greeting was cut off after a button press**, because the doorbell's chime
+  delays playback. Talkback now stays open 5 s after each clip.
+- **A stalled camera stream hung the doorbell until restart.** ffmpeg now gets an RTSP socket
+  timeout (`-rw_timeout` doesn't work for RTSP) and a process timeout, and every visit is
+  bounded.
+- **Visits were lost without a trace.** A busy talkback, failed greeting, failed reply,
+  timeout or error is now logged and notified.
+- **Classification:** it matches whole words, so "ups" no longer matches "groups", and
+  solicitors are checked before deliveries.
+- **British voices** use Kokoro's British English pipeline.
+- **Licence:** the README now says AGPL-3.0.
+
+### Security
+- **Logins:** MQTT requires them, one account per service, limited by an ACL.
+- **Published ports:** only services with a login are published (Frigate 8971, MQTT 1883,
+  ntfy 8090, optional Home Assistant 8123). Frigate's port 5000 and go2rtc's API, RTSP and
+  WebRTC ports had no authentication; anyone on the LAN could watch the doorbell or talk
+  through its speaker.
+- **No STUN:** go2rtc no longer asks public STUN servers for the home's IP.
+- **Secrets:** go2rtc only gets the camera variables, not the whole `.env`.
 
 ### Removed
-- Unused `/gatekeeper_audio` and `/models` mounts, and the unused `alsa-utils` package.
+- **Unused bits:** the `/gatekeeper_audio` and `/models` mounts, and the `alsa-utils`
+  package.
 
 ## [0.1.0] - 2026-05-13
 

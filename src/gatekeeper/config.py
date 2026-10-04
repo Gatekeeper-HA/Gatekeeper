@@ -120,6 +120,10 @@ class Settings(BaseSettings):
         return [z.strip() for z in self.trigger_zones.split(",") if z.strip()]
 
     @property
+    def notification_log_file(self) -> Path:
+        return self.log_dir / "notifications.jsonl"
+
+    @property
     def replies(self) -> dict[str, str]:
         """Reply text by reply key (see ``classify.classify_response``)."""
         return {key: getattr(self, f"reply_{key}") for key in REPLY_KEYS}

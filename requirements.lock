@@ -1,8 +1,14 @@
 # Pinned dependencies for the gatekeeper image (Python 3.11, linux x86_64 + aarch64).
+# torch comes from PyTorch's CPU-only index: the PyPI build pulls ~17 NVIDIA CUDA packages
+# (several GB) that are useless without an NVIDIA GPU.
 # Regenerate after changing dependencies in pyproject.toml:
 #   uv pip compile pyproject.toml --extra speech --extra talkback --extra doorbell \
 #     --python-version 3.11 --universal --no-header --annotation-style line \
-#     -o requirements.lock
+#     --extra-index-url https://download.pytorch.org/whl/cpu \
+#     --index-strategy unsafe-best-match --emit-index-url -o requirements.lock
+--index-url https://pypi.org/simple
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 addict==2.4.0             # via misaki
 aiohappyeyeballs==2.7.1   # via aiohttp
 aiohttp==3.14.3           # via reolink-aio, gatekeeper (pyproject.toml)
@@ -29,9 +35,6 @@ confection==1.3.3         # via spacy, thinc, weasel
 cryptography==50.0.2      # via aiortc, pyopenssl
 csvw==4.1.0               # via segments
 ctranslate2==4.8.2        # via faster-whisper
-cuda-bindings==13.4.3 ; python_full_version < '3.15' and sys_platform == 'linux'  # via torch
-cuda-pathfinder==1.8.2 ; python_full_version < '3.15' and sys_platform == 'linux'  # via cuda-bindings
-cuda-toolkit==13.0.3.0 ; sys_platform == 'linux'  # via torch
 curated-tokenizers==0.0.10  # via spacy-curated-transformers
 curated-transformers==0.1.1  # via spacy-curated-transformers
 cymem==2.0.13             # via preshed, spacy, thinc
@@ -73,21 +76,6 @@ networkx==3.7 ; python_full_version >= '3.12'  # via torch
 num2words==0.5.14         # via misaki
 numpy==2.4.6 ; python_full_version < '3.12'  # via blis, ctranslate2, kokoro, onnxruntime, soundfile, spacy, thinc, transformers, gatekeeper (pyproject.toml)
 numpy==2.5.3 ; python_full_version >= '3.12'  # via blis, ctranslate2, kokoro, onnxruntime, soundfile, spacy, thinc, transformers, gatekeeper (pyproject.toml)
-nvidia-cublas==13.1.1.3 ; sys_platform == 'linux'  # via cuda-toolkit, nvidia-cudnn-cu13, nvidia-cusolver
-nvidia-cuda-cupti==13.0.85 ; (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')  # via cuda-toolkit
-nvidia-cuda-nvrtc==13.0.88 ; sys_platform == 'linux'  # via cuda-toolkit, nvidia-cublas
-nvidia-cuda-runtime==13.0.96 ; (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')  # via cuda-toolkit
-nvidia-cudnn-cu13==9.24.0.43 ; sys_platform == 'linux'  # via torch
-nvidia-cufft==12.0.0.61 ; (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')  # via cuda-toolkit
-nvidia-cufile==1.15.1.6 ; (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')  # via cuda-toolkit
-nvidia-curand==10.4.0.35 ; (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')  # via cuda-toolkit
-nvidia-cusolver==12.0.4.66 ; (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')  # via cuda-toolkit
-nvidia-cusparse==12.6.3.3 ; (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')  # via cuda-toolkit, nvidia-cusolver
-nvidia-cusparselt-cu13==0.8.1 ; sys_platform == 'linux'  # via torch
-nvidia-nccl-cu13==2.30.7 ; sys_platform == 'linux'  # via torch
-nvidia-nvjitlink==13.4.92 ; (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')  # via cuda-toolkit, nvidia-cufft, nvidia-cusolver, nvidia-cusparse
-nvidia-nvshmem-cu13==3.4.5 ; sys_platform == 'linux'  # via torch
-nvidia-nvtx==13.0.85 ; (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')  # via cuda-toolkit
 onnxruntime==1.30.0       # via faster-whisper
 orjson==3.12.0            # via reolink-aio
 packaging==26.3           # via huggingface-hub, onnxruntime, spacy, thinc, transformers, weasel
@@ -134,10 +122,10 @@ sympy==1.14.0             # via torch
 termcolor==3.3.0          # via csvw
 thinc==8.3.13             # via spacy
 tokenizers==0.23.2        # via faster-whisper, transformers
-torch==2.14.1             # via curated-transformers, kokoro, spacy-curated-transformers
+torch==2.14.1 ; sys_platform == 'darwin'  # via curated-transformers, kokoro, spacy-curated-transformers
+torch==2.14.1+cpu ; sys_platform != 'darwin'  # via curated-transformers, kokoro, spacy-curated-transformers
 tqdm==4.70.1              # via faster-whisper, huggingface-hub, spacy, transformers
 transformers==5.18.0      # via kokoro
-triton==3.8.0 ; python_full_version < '3.15' and sys_platform == 'linux'  # via torch
 typer==0.27.2             # via spacy, transformers, weasel
 typing-extensions==4.16.0  # via aiohttp, aiosignal, anyio, huggingface-hub, phonemizer-fork, pydantic, pydantic-core, pyee, pyopenssl, referencing, reolink-aio, soundfile, torch, typing-inspection
 typing-inspection==0.4.4  # via pydantic, pydantic-settings
