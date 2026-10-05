@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **Contributing guide and CLA:** `CONTRIBUTING.md`, and a Contributor License Agreement
+  (`CLA.md`, with Lobo Dorado LLC) that covers every repository in the Gatekeeper-HA
+  organization. A GitHub workflow asks first-time contributors to agree on their pull
+  request and records the agreement on the `cla-signatures` branch.
+
 ## [0.2.0-rc.1] - 2026-10-04
 
 Phase 0, "make v0.1 real": Gatekeeper now actually hears visitors, tells you about every
