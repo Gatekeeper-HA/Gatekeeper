@@ -294,6 +294,11 @@ docker compose up -d --build gatekeeper
 docker compose logs -f gatekeeper
 ```
 
+## Contributing
+
+Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). Your first pull request
+asks you to agree to the [Contributor License Agreement](CLA.md).
+
 ## License
 
 AGPL-3.0 — see [LICENSE](LICENSE)
