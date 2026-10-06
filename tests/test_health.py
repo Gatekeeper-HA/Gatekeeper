@@ -39,6 +39,7 @@ def test_starts_unhealthy_until_sweeping_and_connected(health):
             "mqtt_connected": True,
             "sweep_age_seconds": 0.0,
             "visit_age_seconds": None,
+            "audio_tap": "off",
         },
     )
 

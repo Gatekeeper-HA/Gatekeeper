@@ -40,7 +40,22 @@ class Settings(BaseSettings):
     # Comma-separated Frigate zones (e.g. "porch"); a person must enter one
     # before a visit starts. Empty: anywhere in view.
     trigger_zones: str = ""
+    # How long to wait for the visitor to start answering after a prompt.
     listen_seconds: int = 4
+
+    # Listening. With the audio tap, Gatekeeper reads the camera's audio all the
+    # time and stops listening when the visitor stops talking (voice activity
+    # detection); without it, it records a fixed window per prompt.
+    audio_tap: bool = True
+    # Speech probability (0-1) above which audio counts as the visitor talking.
+    vad_threshold: float = 0.5
+    # Silence after the visitor's last word that ends their answer.
+    end_silence_ms: int = 800
+    # Cut off an answer that runs longer than this.
+    max_answer_seconds: float = 15.0
+    # "visit": one talkback connection for the whole visit. "clip": a new one
+    # per phrase (slower; for cameras that misbehave with a long connection).
+    talkback_session: Literal["visit", "clip"] = "visit"
     session_ttl_seconds: float = 120.0
     sweep_interval_seconds: float = 1.0
     # New person events this soon after a visit are merged into it, not re-greeted.
