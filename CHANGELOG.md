@@ -11,6 +11,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   organization. A GitHub workflow asks first-time contributors to agree on their pull
   request and records the agreement on the `cla-signatures` branch.
 
+### Fixed
+Found by installing the Home Assistant add-on on a slow virtual machine:
+- **Greetings and replies are no longer cut off on a slow or busy CPU.** The talkback
+  session closed a fixed time after the clip started. When the CPU couldn't send the audio in
+  real time, it closed mid-sentence. It now stays open until the clip's last frame has been
+  sent (up to 15 s late), then holds as before. A late clip logs a warning that the CPU is
+  too slow or too busy.
+- **A recording that runs over its time limit is kept, not thrown away.** ffmpeg is now asked
+  to stop, which makes it finish the WAV file, instead of being killed. What it recorded is
+  transcribed as usual.
+- **No more downloading at every start.** Kokoro's English pronunciation needs spaCy's
+  `en_core_web_sm` model, which was downloaded (12.8 MB) each time the container started. It
+  is now part of the image, pinned in `requirements.lock`.
+
 ## [0.2.0-rc.1] - 2026-10-04
 
 Phase 0, "make v0.1 real": Gatekeeper now actually hears visitors, tells you about every
