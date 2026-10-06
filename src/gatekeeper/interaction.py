@@ -335,7 +335,11 @@ class Interaction:
 
 async def _wait_until_sent(pc) -> float:
     """Wait (up to MAX_PLAYBACK_LAG_SECONDS) until every audio track on talkback
-    ``pc`` has ended, i.e. its last frame has been sent. Returns the seconds waited."""
+    ``pc`` has ended, i.e. its last frame has been sent. Returns the seconds waited.
+
+    aiortc drops an ended track from its sender, so a clip that has already
+    finished leaves nothing to wait for. (A 3 s clip's track ends 3.0 s after
+    it starts sending: no extra wait on a healthy host.)"""
     tracks = [s.track for s in pc.getSenders() if s.track] if hasattr(pc, "getSenders") else []
     start = time.monotonic()
     while any(t.readyState == "live" for t in tracks):
