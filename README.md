@@ -11,13 +11,12 @@ Frigate detects person
   MQTT event
       │
       ▼
- Gatekeeper
-  ├── Kokoro TTS synthesizes greeting
-  ├── WebRTC → go2rtc → camera speaker (plays greeting)
-  ├── ffmpeg captures visitor response via RTSP mic
-  ├── Whisper STT transcribes response
+ Gatekeeper  (always listening to the camera's mic via go2rtc: the audio tap)
+  ├── WebRTC → go2rtc → camera speaker: plays the greeting (one connection per visit)
+  ├── Voice activity detection: waits until the visitor has finished answering
+  ├── Whisper STT transcribes the answer
   ├── Classifies intent (delivery / solicitor / service / other / no response)
-  └── Plays contextual reply through camera speaker
+  └── Plays a contextual reply through the camera speaker
 ```
 
 ## Stack
@@ -113,7 +112,12 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `AUDIO_RTSP_URL` | `rtsp://go2rtc:8554/<CAMERA_NAME>` | RTSP stream for capturing visitor audio |
 | `DWELL_SECONDS` | `1` | Seconds a person must be visible before triggering |
 | `TRIGGER_ZONES` | *(none)* | Comma-separated Frigate zones (e.g. `porch`). A person must enter one before Gatekeeper greets them, and the dwell counts from entering it. Empty: anywhere in view. Doorbell presses ignore it |
-| `LISTEN_SECONDS` | `4` | How long to record the visitor's response |
+| `LISTEN_SECONDS` | `4` | How long to wait for the visitor to start answering after the greeting (or, without the audio tap, how long to record after it) |
+| `AUDIO_TAP` | `true` | Read the camera's audio all the time and stop listening when the visitor stops talking. `false`: record a fixed window per prompt |
+| `VAD_THRESHOLD` | `0.5` | Speech probability (0–1) above which audio counts as the visitor talking |
+| `END_SILENCE_MS` | `800` | Silence after the visitor's last word that ends their answer. If they start again while it's being transcribed, Gatekeeper listens on |
+| `MAX_ANSWER_SECONDS` | `15` | Cut off an answer longer than this |
+| `TALKBACK_SESSION` | `visit` | `visit`: one talkback connection per visit. `clip`: a new one per phrase (slower; for cameras that misbehave with a long connection) |
 | `SESSION_TTL_SECONDS` | `120` | Forget a Frigate event this long after its last update |
 | `SWEEP_INTERVAL_SECONDS` | `1` | How often sessions are checked for dwell and expiry |
 | `COOLDOWN_SECONDS` | `90` | After a visit, new person events this soon are merged into it instead of greeting again |
@@ -240,6 +244,8 @@ with the problems listed. The image's Docker `HEALTHCHECK` uses it, so `docker c
 shows `healthy`/`unhealthy`. Docker doesn't restart unhealthy containers by itself, so on an
 internal hang lasting `HANG_EXIT_SECONDS` Gatekeeper exits and `restart: unless-stopped`
 brings it back. An MQTT outage only reports unhealthy, since the client reconnects by itself.
+`audio_tap` is `ok`, `down` or `off`; while it's down, visits fall back to recording a fixed
+window, so it doesn't make Gatekeeper unhealthy.
 
 ## Visit log
 
@@ -255,6 +261,10 @@ Every visit adds one JSON line to `events.jsonl`:
 `talkback_failed`, `talkback_unavailable`, `timeout`, `error`, or `pressed_during_visit`.
 `trigger` is `person` or `button`. `turns` is how many times Gatekeeper listened: if the
 visitor says nothing, the no-answer reply asks again and Gatekeeper listens once more.
+`endpoint` is how listening ended: `answered` (they spoke, then fell silent), `no_input`,
+`max`, `tap_lost`, or `window` (a fixed recording, without the audio tap). `reply_latency`
+is the seconds from the end of their answer to the reply starting to play; the camera adds
+its own ~2.4 s before it's heard.
 
 ## Data
 

@@ -34,6 +34,7 @@ doorbell = [
     "reolink-aio",
 ]
 dev = [
+    "numpy",  # the audio tap and VAD work on numpy arrays; cheap, unlike torch
     "pytest>=8",
     "pytest-cov>=5",
     "ruff>=0.6",

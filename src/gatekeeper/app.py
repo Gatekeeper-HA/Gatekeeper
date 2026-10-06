@@ -11,6 +11,7 @@ import paho.mqtt.client as mqtt
 
 from gatekeeper import __version__
 from gatekeeper.audio import Synthesizer, Transcriber, presynth_all
+from gatekeeper.audio_tap import AudioTap
 from gatekeeper.button import DoorbellButton
 from gatekeeper.config import Settings
 from gatekeeper.eventlog import EventLog
@@ -142,12 +143,19 @@ def main() -> None:
         snapshot=lambda visit: frigate_snapshot(settings.frigate_api, visit),
         log_to=EventLog(settings.notification_log_file),
     )
+    tap = None
+    if settings.audio_tap:
+        # Reads the camera's audio from now on, so visits listen without connecting.
+        tap = AudioTap(settings.audio_rtsp_url)
+        health.tap_ok = tap.healthy
+        start_thread("audio-tap", tap.run_forever)
     interaction = Interaction(
         settings,
         synth=synth,
         transcriber=transcriber,
         presynth=presynth,
         event_log=EventLog(settings.event_log_file),
+        tap=tap,
         on_notify=[notifier],
         on_logged=[publisher.visit],
     )

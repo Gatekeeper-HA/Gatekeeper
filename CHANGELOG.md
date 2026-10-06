@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **The conversation engine** (Phase 1): replies come sooner after the visitor stops talking.
+  - **Audio tap:** Gatekeeper reads the camera's audio all the time (one ffmpeg, a 30 s ring
+    buffer), so listening needs no stream to be opened.
+  - **Listening until the visitor is done:** it stops when they've been silent for 0.8 s, not
+    after a fixed 4 s. If they start talking again while their answer is being transcribed,
+    it listens on and transcribes all of it. Speech is detected with Silero VAD, the model
+    faster-whisper already ships.
+  - **One talkback connection per visit**, instead of one per phrase.
+  - **New settings:** `AUDIO_TAP`, `VAD_THRESHOLD`, `END_SILENCE_MS`, `MAX_ANSWER_SECONDS`,
+    `TALKBACK_SESSION`. Without a working tap, visits record a fixed window as before.
+  - **The visit log** records how listening ended (`endpoint`) and the time from the end of
+    the answer to the reply (`reply_latency`).
+  - `scripts/replay/endpointing.py` replays recorded visits through the endpointing, for
+    tuning.
 - **Contributing guide and CLA:** `CONTRIBUTING.md`, and a Contributor License Agreement
   (`CLA.md`, with Lobo Dorado LLC) that covers every repository in the Gatekeeper-HA
   organization. A GitHub workflow asks first-time contributors to agree on their pull
