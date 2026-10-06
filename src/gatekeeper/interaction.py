@@ -34,6 +34,12 @@ TALKBACK_LATENCY_SECONDS = 2.5
 # the delay varies (3.2 s when a button press's chime plays first), closing
 # early cuts the end off, and holding it open costs nothing while recording.
 PLAYBACK_HOLD_SECONDS = 5.0
+# A clip normally finishes sending after its own duration. On a slow or busy CPU,
+# aiortc sends it slower than real time; wait up to this much longer for the last
+# frame, and warn when it's this late.
+MAX_PLAYBACK_LAG_SECONDS = 15.0
+PLAYBACK_LAG_WARN_SECONDS = 1.0
+PLAYBACK_POLL_SECONDS = 0.1
 
 # play(wav_path) -> an open connection with an async close(), or None on failure.
 PlayFn = Callable[[Path], Awaitable[Any]]
@@ -177,9 +183,23 @@ class Interaction:
             visit.response = None
             return
         try:
-            await self._sleep(wav_duration(wav) + PLAYBACK_HOLD_SECONDS)
+            await self._hold(pc, wav_duration(wav))
         finally:
             await pc.close()
+
+    async def _hold(self, pc, seconds: float) -> None:
+        """Keep talkback ``pc`` open while its clip of ``seconds`` plays, then
+        PLAYBACK_HOLD_SECONDS more for the camera to play out what it buffered.
+
+        Closing on the clock alone cut greetings off on a slow host (an HA OS VM),
+        where the clip took longer than its duration to send: wait for its last
+        frame too.
+        """
+        await self._sleep(seconds)
+        lag = await _wait_until_sent(pc)
+        if lag >= PLAYBACK_LAG_WARN_SECONDS:
+            log.warning("clip finished playing %.1f s late: the CPU is too slow or too busy", lag)
+        await self._sleep(PLAYBACK_HOLD_SECONDS)
 
     def report(self, visit: Visit) -> None:
         """Notify and log something that isn't a visit run here (e.g. a press
@@ -241,7 +261,7 @@ class Interaction:
             capture = asyncio.ensure_future(
                 self._in_thread(self._capture, s.audio_rtsp_url, clip, capture_seconds)
             )
-            await self._sleep(seconds + PLAYBACK_HOLD_SECONDS)
+            await self._hold(pc, seconds)
         finally:
             await pc.close()
 
@@ -307,7 +327,19 @@ class Interaction:
             visit.outcome = "reply_failed"
             return
         try:
-            await self._sleep(wav_duration(reply_wav) + PLAYBACK_HOLD_SECONDS)
+            await self._hold(reply_pc, wav_duration(reply_wav))
         finally:
             await reply_pc.close()
         visit.outcome = "completed"
+
+
+async def _wait_until_sent(pc) -> float:
+    """Wait (up to MAX_PLAYBACK_LAG_SECONDS) until every audio track on talkback
+    ``pc`` has ended, i.e. its last frame has been sent. Returns the seconds waited."""
+    tracks = [s.track for s in pc.getSenders() if s.track] if hasattr(pc, "getSenders") else []
+    start = time.monotonic()
+    while any(t.readyState == "live" for t in tracks):
+        if time.monotonic() - start >= MAX_PLAYBACK_LAG_SECONDS:
+            break
+        await asyncio.sleep(PLAYBACK_POLL_SECONDS)
+    return time.monotonic() - start
