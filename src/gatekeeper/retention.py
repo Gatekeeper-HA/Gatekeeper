@@ -45,6 +45,8 @@ class Retention:
         log_file = s.event_log_file
         removed = {
             "audio_in": purge(s.in_dir.glob("*.wav"), s.audio_retention_days, now),
+            # Photos kept during conversations (a warrant held up to the camera).
+            "snapshots": purge(s.snapshot_dir.glob("*.jpg"), s.audio_retention_days, now),
             # Per-visit synthesized speech; the pre-synthesized phrases stay.
             "audio_out": purge(
                 (p for p in s.out_dir.glob("*.wav") if not p.name.startswith("_presynth_")),

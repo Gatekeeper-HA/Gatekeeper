@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 
 
 def ensure_dirs(settings: Settings) -> None:
-    for d in (settings.in_dir, settings.out_dir, settings.log_dir):
+    for d in (settings.in_dir, settings.out_dir, settings.snapshot_dir, settings.log_dir):
         d.mkdir(parents=True, exist_ok=True)
 
 
@@ -113,10 +113,14 @@ def main() -> None:
 
     synth = Synthesizer(settings.kokoro_voice)
     presynth = presynth_all(
-        synth, settings.out_dir, {"greeting": settings.greeting, **settings.replies}
+        synth,
+        settings.out_dir,
+        {"greeting": settings.greeting, **settings.replies, **settings.phrases},
     )
 
-    transcriber = Transcriber(settings.whisper_model, settings.whisper_compute_type)
+    transcriber = Transcriber(
+        settings.whisper_model, settings.whisper_compute_type, settings.whisper_hotwords
+    )
     try:
         transcriber.load()
     except Exception:
@@ -156,6 +160,8 @@ def main() -> None:
         presynth=presynth,
         event_log=EventLog(settings.event_log_file),
         tap=tap,
+        # Before asking an officer to leave a second time: are they still there?
+        present=lambda: tracker.person_present(),
         on_notify=[notifier],
         on_logged=[publisher.visit],
     )

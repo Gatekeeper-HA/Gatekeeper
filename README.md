@@ -121,9 +121,11 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `SESSION_TTL_SECONDS` | `120` | Forget a Frigate event this long after its last update |
 | `SWEEP_INTERVAL_SECONDS` | `1` | How often sessions are checked for dwell and expiry |
 | `COOLDOWN_SECONDS` | `90` | After a visit, new person events this soon are merged into it instead of greeting again |
-| `VISIT_TIMEOUT_SECONDS` | `90` | Give up on a visit (greet, listen, reply) after this long |
+| `VISIT_TIMEOUT_SECONDS` | `180` | Give up on a visit (greet, listen, reply; a whole conversation) after this long |
+| `LEAVE_CHECK_SECONDS` | `20` | After asking an officer without a judge-signed warrant to leave, wait this long; if Frigate still sees someone on the porch, ask again more firmly |
 | `WHISPER_MODEL` | `tiny` | Whisper model (`tiny`, `base.en`, `small.en`, ...). On a 4-core CPU, `base.en` takes ~3.4 s per visit vs ~1.8 s for `tiny`, but hears noticeably better; the compose stack uses `base.en` |
 | `WHISPER_COMPUTE_TYPE` | `int8` | `int8` for CPU, `float32` if issues arise |
+| `WHISPER_HOTWORDS` | *(none)* | Comma-separated words and names Whisper should expect, e.g. local candidates' names |
 | `KOKORO_VOICE` | `af_heart` | TTS voice (see voices below) |
 | `GREETING` | *Hello. This property is monitored. Please state the purpose of your visit.* | What Gatekeeper says when a visitor is detected |
 | `REPLY_DELIVERY` | *Thank you. Please leave the package at the door.* | Reply to a delivery |
@@ -132,6 +134,17 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `REPLY_GENERIC` | *Thank you. Please wait while I notify the resident.* | Reply to any other answer |
 | `REPLY_NO_ANSWER` | *You are being recorded. Please state your purpose or leave the property.* | Reply to silence or a one-word answer |
 | `REPLY_PRESSED` | *The resident has already been notified.* | Said when the doorbell is pressed during a visit's cooldown |
+| `PHRASE_EMERGENCY_WAIT` | *I have alerted the resident. Please wait.* | To someone reporting an emergency |
+| `PHRASE_POLICE_ASK_REASON` | *This is an automated assistant, and this conversation is recorded. What is the reason for your visit, and do you have a warrant?* | First question to law enforcement |
+| `PHRASE_POLICE_ASK_WARRANT` | *Do you have a warrant? Please answer yes or no.* | If the first answer didn't say |
+| `PHRASE_POLICE_ASK_IDENTITY` | *Please state your agency, your name, and your badge number.* | |
+| `PHRASE_POLICE_SHOW_WARRANT` | *Please hold the warrant up to the camera. Is it signed by a judge?* | Photos are taken while they answer |
+| `PHRASE_POLICE_NOTIFYING` | *Thank you. I am notifying the resident now. Please wait.* | After a judge-signed warrant and their ID |
+| `PHRASE_POLICE_LEAVE` | *The resident does not consent to entry or a search without a warrant signed by a judge. Please leave the property.* | Otherwise |
+| `PHRASE_POLICE_LEAVE_AGAIN` | *You have been asked to leave. The resident does not consent to your presence, this conversation is recorded, and legal action will be taken if you remain.* | If they're still there `LEAVE_CHECK_SECONDS` later |
+| `PHRASE_CIVIC_ASK_IDENTITY` | *Thanks for stopping by. Could you tell me your name, and who you're with?* | First question to a candidate or canvasser |
+| `PHRASE_CIVIC_ASK_MESSAGE` | *What message would you like me to pass on to the resident?* | |
+| `PHRASE_CIVIC_THANKS` | *Thank you. I'll make sure the resident gets your message. Feel free to leave any literature at the door.* | |
 | `AUDIO_DIR` | `/audio` | Visitor clips (`in/`) and synthesized speech (`out/`) |
 | `LOG_DIR` | `/logs` | Directory for `events.jsonl` |
 | `AUDIO_RETENTION_DAYS` | `7` | Delete visitor recordings (and per-visit synthesized speech) older than this. `0` keeps them forever |
@@ -172,16 +185,54 @@ transcript (if the visitor says nothing, `REPLY_NO_ANSWER` asks again and Gateke
 once more), and classifies what the visitor said by whole words and phrases (English only).
 Categories are checked top to bottom; the first match wins.
 
-| Classification (`events.jsonl`) | Matches, for example | Reply setting |
+| Classification (`events.jsonl`) | Matches, for example | What happens |
 |----------------|----------|-------|
-| `solicitor` | selling, sales, canvassing, campaign, petition, survey, donations, church… | `REPLY_SALES` |
+| `emergency` | emergency, welfare check, 911, ambulance, fire department, on fire, smoke, gas leak, injured… | A conversation: see [Conversations](#conversations) |
+| `law_enforcement` | police, officer, sheriff, deputy, detective, trooper, warrant, FBI, homeland security, immigration… | A conversation |
+| `civic` | candidate, campaign, running for, election, vote, register to vote, senator, city council, petition, canvassing, DFL, GOP… | A conversation |
+| `solicitor` | selling, sales, survey, donations, charity, solar, church… | `REPLY_SALES` |
 | `likely_delivery` | delivery, package, parcel, FedEx, UPS, USPS, Amazon, DoorDash, Uber Eats, groceries… | `REPLY_DELIVERY` |
 | `service_visit` | repair, maintenance, technician, plumber, electrician, meter, appointment, install… | `REPLY_MAINTENANCE` |
 | `cooperative_other` | Any other answer of two or more words | `REPLY_GENERIC` |
 | `no_response` | Silence or a single word | `REPLY_NO_ANSWER` |
 
-Solicitors are checked first, so "I'm selling Amazon gift cards" is a solicitor, not a
-delivery.
+Solicitors are checked before deliveries, so "I'm selling Amazon gift cards" is a solicitor,
+not a delivery. An emergency is checked first of all, so "Police, we're doing a welfare
+check" is an emergency.
+
+## Conversations
+
+Some visitors get a short conversation instead of one reply. Every line is a setting
+(`PHRASE_*`), and every answer is in the visit log (`dialogue`, plus what was learned in
+`details`) and in the notification.
+
+- **Candidates, campaigns and canvassers** (`civic`): Gatekeeper asks who they are and who
+  they're with, then what message they'd like passed on (they can talk for up to 30 s). It
+  thanks them, promises to pass it on, and suggests leaving literature at the door. You get
+  one notification with their name and message.
+- **Emergencies** (`emergency`): you get an urgent notification (ntfy priority 5) at once,
+  and the visitor hears "I have alerted the resident. Please wait." Responders are never sent
+  away.
+- **Law enforcement** (`law_enforcement`):
+  1. You get an urgent notification at once, before Gatekeeper says anything more.
+  2. Gatekeeper says it's an automated assistant and that the conversation is recorded, then
+     asks the reason for the visit and whether they have a warrant. If that's unclear, it
+     asks yes or no. An emergency here switches to the emergency conversation.
+  3. It asks for their agency, name and badge number.
+  4. With a warrant, it asks them to hold it up to the camera and whether a judge signed it.
+     It keeps 3 full-resolution photos from the camera's main stream (via go2rtc) in
+     `audio/snapshots/` and attaches one to the notification.
+  5. **A warrant signed by a judge:** "Thank you. I am notifying the resident now."
+  6. **Otherwise:** "The resident does not consent to entry or a search without a warrant
+     signed by a judge. Please leave the property." If Frigate still sees someone on the
+     porch `LEAVE_CHECK_SECONDS` later, it says `PHRASE_POLICE_LEAVE_AGAIN`.
+  7. A final notification says how it ended, with their ID, reason and warrant.
+
+  These lines state the resident's position; they aren't legal advice. Have a lawyer review
+  them (and any change you make) for where you live.
+
+`WHISPER_HOTWORDS` helps Whisper with names it would otherwise mishear, such as local
+candidates'.
 
 ## Doorbell button
 

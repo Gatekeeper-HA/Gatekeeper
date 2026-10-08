@@ -40,6 +40,7 @@ class Session:
     merged_into: str | None = None
     trigger: str = "person"  # or "button"
     zones: frozenset[str] = frozenset()  # Frigate zones the person has entered
+    current_zones: frozenset[str] = frozenset()  # where they are now
 
 
 def spawn_thread(fn: Callable[[], None]) -> None:
@@ -89,6 +90,7 @@ class SessionTracker:
                 if self._in_trigger_zone(zones) and not self._in_trigger_zone(session.zones):
                     session.first_seen = now  # dwell counts from entering the zone
                 session.zones = zones
+                session.current_zones = frozenset(event.current_zones)
             self.maybe_start(event.id)
 
         elif event.type == "end":
@@ -127,6 +129,16 @@ class SessionTracker:
 
         self._spawn(worker)
         return True
+
+    def person_present(self) -> bool:
+        """Does Frigate still see someone (in a trigger zone, if any are set)?
+        Its "end" event drops a person a few seconds after they've left."""
+        with self._lock:
+            # "press-..." sessions are doorbell presses with no one seen yet.
+            sessions = [s for eid, s in self.sessions.items() if not eid.startswith("press-")]
+        if not self.trigger_zones:
+            return bool(sessions)
+        return any(self.trigger_zones & s.current_zones for s in sessions)
 
     def _in_trigger_zone(self, zones: frozenset[str]) -> bool:
         return not self.trigger_zones or bool(zones & self.trigger_zones)

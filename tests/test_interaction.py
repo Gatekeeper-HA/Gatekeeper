@@ -127,6 +127,8 @@ class Rig:
         lag=0.0,
         sent_delay=None,
         wav_seconds=WAV_SECONDS,
+        present=None,
+        grab_frame=None,
     ):
         self.settings = settings
         self.calls: list = []
@@ -152,6 +154,8 @@ class Rig:
             event_log=EventLog(settings.event_log_file),
             connect=self.connect,
             tap=self.tap,
+            present=present,
+            grab_frame=grab_frame,
             capture=self.capture,
             sleep=self.sleep,
             clock=lambda: 1234.5,
@@ -219,6 +223,9 @@ def test_full_visit_record(settings):
             "turns": 1,
             "endpoint": "window",
             "reply_latency": None,
+            "flow": None,
+            "details": {},
+            "dialogue": [{"asked": "greeting", "heard": "I have a package for you"}],
         }
     ]
 
