@@ -24,7 +24,7 @@ from gatekeeper.config import Settings
 from gatekeeper.eventlog import EventLog
 from gatekeeper.listen import Word, join_words, strip_greeting
 from gatekeeper.logs import event_id_var
-from gatekeeper.vad import Endpointer, TurnEnd
+from gatekeeper.vad import Endpointer, TurnEnd, speech_seconds
 
 log = logging.getLogger(__name__)
 
@@ -46,6 +46,9 @@ PLAYBACK_LAG_WARN_SECONDS = 1.0
 # (our TTS through the doorbell speaker) for speech anyway.
 ECHO_MARGIN_SECONDS = 0.5
 TAP_POLL_SECONDS = 0.05
+# An answer needs at least this much speech (by Silero) where Whisper heard it;
+# less, and Whisper made it up from noise ("Thanks for watching!").
+MIN_ANSWER_SPEECH_SECONDS = 0.25
 # Photos of a document held up to the camera (a warrant): how many, how far apart.
 FRAME_COUNT = 3
 FRAME_INTERVAL_SECONDS = 1.0
@@ -196,6 +199,7 @@ class Interaction:
         tap=None,
         present: Callable[[], bool] | None = None,
         grab_frame: Callable[[Path], Path | None] | None = None,
+        speech_check: Callable[[Path, float, float], float | None] | None = None,
         capture: CaptureFn = capture_audio_clip,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         clock: Callable[[], float] = time.time,
@@ -215,6 +219,8 @@ class Interaction:
         # Is someone still on the porch (SessionTracker.person_present)?
         self._present = present
         self._grab_frame = grab_frame or self._grab_go2rtc_frame
+        # Seconds of speech in a clip between two times (None: can't tell).
+        self._speech_check = speech_check or self._silero_speech
         self._capture = capture
         self._sleep = sleep
         self._clock = clock
@@ -234,6 +240,13 @@ class Interaction:
     async def _connect_go2rtc(self):
         session = talkback.TalkSession(self.settings.go2rtc_api, self.settings.go2rtc_talk_stream)
         return session if await session.open() else None
+
+    def _silero_speech(self, path: Path, start: float, end: float) -> float | None:
+        try:
+            return speech_seconds(path, start, end, self.settings.vad_threshold)
+        except Exception:
+            log.exception("couldn't check the answer for speech")
+            return None
 
     def _grab_go2rtc_frame(self, path: Path) -> Path | None:
         return go2rtc_frame(self.settings.go2rtc_api, self.settings.camera_name, path)
@@ -376,6 +389,16 @@ class Interaction:
             words = await self._answer_from_window(visit, playback, path, max_answer)
 
         answer, method = strip_greeting(words, prompt)
+        if answer:
+            spoken = await self._in_thread(
+                self._speech_check, path, answer[0].start - 0.3, answer[-1].end + 0.3
+            )
+            if spoken is not None and spoken < MIN_ANSWER_SPEECH_SECONDS:
+                log.info(
+                    "ignoring %r: no speech where Whisper heard it (made up from noise)",
+                    join_words(answer),
+                )
+                answer, method = [], "no speech"
         heard = join_words(answer)
         log.info("heard: %r", join_words(words))
         log.info("transcript (%s): %r", method, heard)

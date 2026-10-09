@@ -117,3 +117,25 @@ def test_streaming_vad_keeps_leftover_samples_for_the_next_feed():
     vad = StreamingVAD(FakeSession())
     assert vad.feed(np.zeros(CHUNK_SAMPLES - 1, dtype=np.int16)) == []
     assert len(vad.feed(np.zeros(1, dtype=np.int16))) == 1
+
+
+def test_speech_seconds_counts_speech_only_inside_the_span(tmp_path):
+    import wave
+
+    from gatekeeper.vad import SAMPLE_RATE, speech_seconds
+
+    audio = np.zeros(SAMPLE_RATE * 3, dtype=np.int16)
+    audio[SAMPLE_RATE : 2 * SAMPLE_RATE] = 20000  # "speech" from 1 s to 2 s
+    path = tmp_path / "a.wav"
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(SAMPLE_RATE)
+        w.writeframes(audio.tobytes())
+
+    def spoken(start, end):
+        return speech_seconds(path, start, end, vad=StreamingVAD(FakeSession()))
+
+    assert spoken(0.0, 3.0) == pytest.approx(1.0, abs=2 * CHUNK_SECONDS)
+    assert spoken(2.2, 3.0) == 0.0
+    assert spoken(0.0, 0.9) == 0.0

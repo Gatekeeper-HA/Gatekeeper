@@ -129,6 +129,7 @@ class Rig:
         wav_seconds=WAV_SECONDS,
         present=None,
         grab_frame=None,
+        speech_check=lambda path, start, end: 10.0,  # Silero heard the answer
     ):
         self.settings = settings
         self.calls: list = []
@@ -156,6 +157,7 @@ class Rig:
             tap=self.tap,
             present=present,
             grab_frame=grab_frame,
+            speech_check=speech_check,
             capture=self.capture,
             sleep=self.sleep,
             clock=lambda: 1234.5,
@@ -597,3 +599,25 @@ def test_failed_second_question_is_logged(settings):
     (record,) = rig.log_records()
     assert (record["outcome"], record["turns"], record["response"]) == ("reply_failed", 1, None)
     assert notified == ["reply_failed"]  # the notification knows why
+
+
+def test_words_whisper_made_up_from_noise_are_not_an_answer(settings):
+    # 2026-10-08: "Thanks for watching!" and "I'll be in for it" x3 from people
+    # walking past; Silero heard no speech at all in either clip.
+    checked = []
+
+    def no_speech(path, start, end):
+        checked.append((path.name, start < end))
+        return 0.0
+
+    rig = Rig(settings, answer="Thanks for watching!", answer2="", speech_check=no_speech)
+    visit = rig.interaction.run(EID)
+    assert checked[0] == (f"{EID}.wav", True)
+    assert (visit.classification, visit.transcript) == ("no_response", "")
+    assert visit.response == settings.reply_no_answer
+    assert visit.dialogue[0] == {"asked": "greeting", "heard": ""}
+
+
+def test_speech_check_that_fails_keeps_the_answer(settings):
+    rig = Rig(settings, speech_check=lambda path, start, end: None)
+    assert rig.interaction.run(EID).classification == "likely_delivery"
