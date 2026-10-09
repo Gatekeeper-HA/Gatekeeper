@@ -1,20 +1,50 @@
 """Keyword classification of the visitor's answer.
 
-Whole words and phrases only (so "ups" doesn't match "groups"). Solicitors
-are checked before deliveries, so "I'm selling Amazon gift cards" is a
-solicitor. English only: Whisper is run with language="en".
+Whole words and phrases only (so "ups" doesn't match "groups"). Categories
+are checked in order and the first match wins:
+
+1. emergency: someone reporting an emergency (never sent away);
+2. law_enforcement: police and other officers (their own conversation);
+3. civic: candidates, campaigns, canvassers (asked for their message);
+4. solicitor, before delivery, so "I'm selling Amazon gift cards" is a solicitor;
+5. delivery, then service.
+
+English only: Whisper is run with language="en".
 """
 
 from __future__ import annotations
 
 import re
 
+EMERGENCY_PHRASES = [
+    "emergency", "welfare check", "wellness check", "911", "nine one one",
+    "ambulance", "paramedic", "paramedics", "fire department", "firefighter",
+    "firefighters", "on fire", "smoke", "gas leak", "carbon monoxide",
+    "injured", "someone is hurt", "someone's hurt", "somebody is hurt", "medical",
+]  # fmt: skip
+
+# No bare "agent" (real estate agents) or "ice" (ice cream).
+LAW_ENFORCEMENT_PHRASES = [
+    "police", "policeman", "policewoman", "officer", "officers", "sheriff", "sheriff's",
+    "deputy", "detective", "trooper", "state patrol", "highway patrol", "law enforcement",
+    "marshal", "marshals", "warrant", "fbi", "dea", "atf", "special agent", "federal agent",
+    "federal agents", "homeland security", "immigration", "ice agent", "ice agents",
+    "ice officer", "ice officers", "police department",
+]  # fmt: skip
+
+CIVIC_PHRASES = [
+    "candidate", "campaign", "campaigning", "running for", "election", "elections",
+    "vote", "voting", "voter", "voters", "register to vote", "ballot", "senate",
+    "senator", "representative", "legislature", "legislator", "city council",
+    "council member", "councilmember", "mayor", "petition", "canvass", "canvassing",
+    "dfl", "gop", "democrat", "democrats", "democratic", "republican", "republicans",
+]  # fmt: skip
+
 SOLICITOR_PHRASES = [
     "sales", "salesman", "selling", "sell", "solicit", "soliciting", "solicitation",
-    "canvass", "canvassing", "campaign", "campaigning", "petition", "survey",
-    "donate", "donation", "donations", "fundraiser", "fundraising", "charity", "raffle",
-    "subscription", "magazine", "magazines", "special offer", "free estimate",
-    "solar", "candidate", "vote", "voting", "election", "church", "bible", "ministry",
+    "survey", "donate", "donation", "donations", "fundraiser", "fundraising", "charity",
+    "raffle", "subscription", "magazine", "magazines", "special offer", "free estimate",
+    "solar", "church", "bible", "ministry",
 ]  # fmt: skip
 
 DELIVERY_PHRASES = [
@@ -36,26 +66,34 @@ SERVICE_PHRASES = [
 ]  # fmt: skip
 
 
-def _pattern(phrases: list[str]) -> re.Pattern[str]:
-    # Multi-word phrases match across any run of spaces or hyphens.
+def phrase_pattern(phrases: list[str]) -> re.Pattern[str]:
+    """Whole-word match of any of ``phrases``; multi-word phrases match across any
+    run of spaces or hyphens."""
     alternatives = sorted((r"[\s-]+".join(map(re.escape, p.split())) for p in phrases), key=len)
     return re.compile(r"\b(?:" + "|".join(reversed(alternatives)) + r")\b")
 
 
-# Checked in this order; the first category with a match wins.
+# Checked in this order; the first category with a match wins. The second item
+# is the reply key (Settings.replies) or, for the first three, the conversation
+# that takes over (see dialogue.py).
 CATEGORIES = [
-    ("solicitor", "sales", _pattern(SOLICITOR_PHRASES)),
-    ("likely_delivery", "delivery", _pattern(DELIVERY_PHRASES)),
-    ("service_visit", "maintenance", _pattern(SERVICE_PHRASES)),
+    ("emergency", "emergency", phrase_pattern(EMERGENCY_PHRASES)),
+    ("law_enforcement", "law_enforcement", phrase_pattern(LAW_ENFORCEMENT_PHRASES)),
+    ("civic", "civic", phrase_pattern(CIVIC_PHRASES)),
+    ("solicitor", "sales", phrase_pattern(SOLICITOR_PHRASES)),
+    ("likely_delivery", "delivery", phrase_pattern(DELIVERY_PHRASES)),
+    ("service_visit", "maintenance", phrase_pattern(SERVICE_PHRASES)),
 ]
+# Classifications handled by a conversation of their own rather than one reply.
+CONVERSATIONS = {"emergency", "law_enforcement", "civic"}
 
 
 def classify_response(text: str) -> tuple[str, str]:
     """Return ``(classification, reply_key)`` for a transcript.
 
-    Classifications: ``likely_delivery``, ``solicitor``, ``service_visit``,
-    ``cooperative_other`` and ``no_response``. ``reply_key`` indexes
-    ``Settings.replies``.
+    Classifications: ``emergency``, ``law_enforcement``, ``civic``,
+    ``likely_delivery``, ``solicitor``, ``service_visit``, ``cooperative_other``
+    and ``no_response``.
     """
     normalized = text.lower().strip()
     if not normalized:

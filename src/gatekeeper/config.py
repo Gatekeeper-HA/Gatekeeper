@@ -14,6 +14,13 @@ from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPLY_KEYS = ("no_answer", "delivery", "sales", "maintenance", "generic", "pressed")
+# Lines of the multi-turn conversations (dialogue.py), PHRASE_<KEY> in the environment.
+PHRASE_KEYS = (
+    "emergency_wait",
+    "police_ask_reason", "police_ask_warrant", "police_ask_identity", "police_show_warrant",
+    "police_notifying", "police_leave", "police_leave_again",
+    "civic_ask_identity", "civic_ask_message", "civic_thanks",
+)  # fmt: skip
 
 
 class Settings(BaseSettings):
@@ -61,12 +68,19 @@ class Settings(BaseSettings):
     # New person events this soon after a visit are merged into it, not re-greeted.
     cooldown_seconds: float = 90.0
     # A visit (greet, listen, reply) takes ~25 s, ~45 s when the visitor only
-    # answers the second time; give up after this.
-    visit_timeout_seconds: float = 90.0
+    # answers the second time, and up to ~2 minutes for a conversation with an
+    # officer or a canvasser; give up after this.
+    visit_timeout_seconds: float = 180.0
+    # After asking an officer without a judge-signed warrant to leave, wait this
+    # long; if Frigate still sees someone on the porch, ask again more firmly.
+    leave_check_seconds: float = 20.0
 
     # Speech
     whisper_model: str = "tiny"
     whisper_compute_type: str = "int8"
+    # Words and names Whisper should expect, comma-separated (e.g. local
+    # candidates' names, which it otherwise mishears).
+    whisper_hotwords: str = ""
     kokoro_voice: str = "af_heart"
 
     # What Gatekeeper says
@@ -80,6 +94,42 @@ class Settings(BaseSettings):
     reply_generic: str = "Thank you. Please wait while I notify the resident."
     # Said when the doorbell is pressed during a visit's cooldown.
     reply_pressed: str = "The resident has already been notified."
+
+    # Conversations (dialogue.py). They state the resident's position; have a
+    # lawyer review any change to the law-enforcement lines.
+    phrase_emergency_wait: str = "I have alerted the resident. Please wait."
+    phrase_police_ask_reason: str = (
+        "This is an automated assistant, and this conversation is recorded. "
+        "What is the reason for your visit, and do you have a warrant?"
+    )
+    phrase_police_ask_warrant: str = "Do you have a warrant? Please answer yes or no."
+    phrase_police_ask_identity: str = (
+        "Please state your agency, your name, and your badge number."
+    )
+    phrase_police_show_warrant: str = (
+        "Please hold the warrant up to the camera. Is it signed by a judge?"
+    )
+    phrase_police_notifying: str = (
+        "Thank you. I am notifying the resident now. Please wait."
+    )
+    phrase_police_leave: str = (
+        "The resident does not consent to entry or a search without a warrant "
+        "signed by a judge. Please leave the property."
+    )
+    phrase_police_leave_again: str = (
+        "You have been asked to leave. The resident does not consent to your presence, "
+        "this conversation is recorded, and legal action will be taken if you remain."
+    )
+    phrase_civic_ask_identity: str = (
+        "Thanks for stopping by. Could you tell me your name, and who you're with?"
+    )
+    phrase_civic_ask_message: str = (
+        "What message would you like me to pass on to the resident?"
+    )
+    phrase_civic_thanks: str = (
+        "Thank you. I'll make sure the resident gets your message. "
+        "Feel free to leave any literature at the door."
+    )
 
     # Notifications. FRIGATE_API supplies the visitor's snapshot; an empty
     # NTFY_URL disables ntfy.
@@ -142,3 +192,13 @@ class Settings(BaseSettings):
     def replies(self) -> dict[str, str]:
         """Reply text by reply key (see ``classify.classify_response``)."""
         return {key: getattr(self, f"reply_{key}") for key in REPLY_KEYS}
+
+    @property
+    def phrases(self) -> dict[str, str]:
+        """Conversation lines by key (see ``dialogue.py``)."""
+        return {key: getattr(self, f"phrase_{key}") for key in PHRASE_KEYS}
+
+    @property
+    def snapshot_dir(self) -> Path:
+        """Photos kept during conversations (e.g. a warrant held up to the camera)."""
+        return self.audio_dir / "snapshots"

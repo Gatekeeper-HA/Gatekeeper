@@ -92,9 +92,11 @@ def wav_duration(wav_path: Path) -> float:
 
 
 class Transcriber:
-    def __init__(self, model_name: str, compute_type: str) -> None:
+    def __init__(self, model_name: str, compute_type: str, hotwords: str = "") -> None:
         self.model_name = model_name
         self.compute_type = compute_type
+        # Words and names to expect (e.g. local candidates'); passed to Whisper as hotwords.
+        self.hotwords = hotwords.strip() or None
         self._model = None
 
     def load(self) -> None:
@@ -124,6 +126,7 @@ class Transcriber:
                 vad_filter=False,
                 condition_on_previous_text=False,
                 word_timestamps=True,
+                hotwords=self.hotwords,
             )
             return [
                 Word(w.word, w.start, w.end) for seg in segments for w in (seg.words or [])
@@ -172,11 +175,26 @@ class Synthesizer:
 
 
 def presynth_all(synth: Synthesizer, out_dir: Path, texts: dict[str, str]) -> dict[str, Path]:
-    """Pre-synthesize fixed phrases at startup so playback is instant."""
+    """Pre-synthesize fixed phrases at startup so playback is instant.
+
+    A phrase whose text and voice haven't changed since it was last synthesized
+    is reused (the ``.txt`` beside each WAV records what it says): each takes
+    ~10 s on a 4-core CPU.
+    """
     done: dict[str, Path] = {}
     for key, text in texts.items():
         path = out_dir / f"_presynth_{key}.wav"
-        if synth.synthesize(text, path):
+        stamp = path.with_suffix(".txt")
+        signature = f"{synth.voice}\n{text}"
+        try:
+            cached = path.exists() and stamp.read_text(encoding="utf-8") == signature
+        except OSError:
+            cached = False
+        if cached:
+            done[key] = path
+            log.info("presynth %s: cached", key)
+        elif synth.synthesize(text, path):
+            stamp.write_text(signature, encoding="utf-8")
             done[key] = path
             log.info("presynth %s: ok", key)
         else:

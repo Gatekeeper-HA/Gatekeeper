@@ -188,3 +188,36 @@ def test_notifier_logs_every_attempt(tmp_path):
     ]  # fmt: skip
     assert rows[0]["error"] == "down" and rows[1]["error"] is None
     assert all(r["seconds"] >= 0 for r in rows)
+
+
+def test_notifier_sends_a_photo_taken_during_the_visit_instead_of_the_snapshot(tmp_path):
+    # e.g. a warrant held up to the camera, from the full-resolution stream
+    photo = tmp_path / "e1-2.jpg"
+    photo.write_bytes(b"WARRANT")
+    ok = FakeBackend("ok")
+    Notifier([ok], snapshot=lambda v: b"FRIGATE").send(
+        visit(classification="law_enforcement", flow="law_enforcement", image=photo)
+    )
+    assert ok.sent[0][1] == b"WARRANT"
+
+
+def test_compose_civic_visit_relays_who_and_their_message():
+    n = compose(visit(
+        classification="civic", flow="civic", transcript="I'm running for city council",
+        details={"identity": "Sam Lee, for council", "message": "Please vote on November 3rd"},
+        response="Thank you.",
+    ))  # fmt: skip
+    assert n.title == "Political visitor at the front door"
+    assert n.priority == 3
+    assert 'Who: "Sam Lee, for council"' in n.message
+    assert 'Message: "Please vote on November 3rd"' in n.message
+
+
+def test_compose_law_enforcement_alert_says_more_is_coming():
+    n = compose(visit(
+        classification="law_enforcement", flow="law_enforcement", transcript="Police",
+        stage="alert",
+    ))  # fmt: skip
+    assert n.title == "Law enforcement at the front door"
+    assert n.priority == 5
+    assert "More when it's done." in n.message

@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Conversations for officers, emergencies and political visitors** (Phase 1). These are
+  new classifications, checked before the others; each gets a short conversation instead of
+  one reply. Every line is a `PHRASE_*` setting.
+  - **Emergency** (welfare check, 911, fire, medical…): an urgent notification at once, and
+    "I have alerted the resident. Please wait." Never sent away.
+  - **Law enforcement:**
+    - an urgent notification at once;
+    - asks the reason and whether they have a warrant, then their agency, name and badge;
+    - with a warrant, asks them to hold it up to the camera (3 full-resolution photos from
+      go2rtc, one attached) and whether a judge signed it;
+    - a judge-signed warrant gets "notifying the resident"; otherwise, the resident doesn't
+      consent, please leave, with a firmer second request if Frigate still sees them after
+      `LEAVE_CHECK_SECONDS`.
+  - **Civic** (candidates, campaigns, canvassers): asks who they are and what message to pass
+    on, thanks them, and notifies you with both. Campaign, petition and voting words used to
+    count as a solicitor ("No solicitation. Please leave the property.").
+  - The visit log gains `flow`, `details` (what was learned) and `dialogue` (every question
+    and answer).
+  - `WHISPER_HOTWORDS` (names Whisper should expect).
+  - Pre-synthesized phrases are reused across restarts unless their text or voice changes.
+  - `VISIT_TIMEOUT_SECONDS` now defaults to 180, for the longer conversations.
 - **The conversation engine** (Phase 1): replies come sooner after the visitor stops talking.
   - **Audio tap:** Gatekeeper reads the camera's audio all the time (one ffmpeg, a 30 s ring
     buffer), so listening needs no stream to be opened.

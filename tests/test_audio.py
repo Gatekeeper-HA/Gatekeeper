@@ -88,3 +88,25 @@ def test_run_until_stops_a_process_that_overruns():
         [sys.executable, "-c", "import sys; sys.stderr.write('done')"], 30
     )
     assert (returncode, stderr, timed_out) == (0, b"done", False)
+
+
+def test_presynth_reuses_a_phrase_whose_text_and_voice_are_unchanged(tmp_path):
+    from gatekeeper.audio import presynth_all
+
+    class Synth:
+        voice = "af_heart"
+        calls = []
+
+        def synthesize(self, text, path):
+            self.calls.append(text)
+            write_wav(path, seconds=0.5)
+            return True
+
+    synth = Synth()
+    presynth_all(synth, tmp_path, {"greeting": "Hello.", "civic_thanks": "Thanks."})
+    presynth_all(synth, tmp_path, {"greeting": "Hello there.", "civic_thanks": "Thanks."})
+    synth.voice = "bm_george"
+    done = presynth_all(synth, tmp_path, {"civic_thanks": "Thanks."})
+    # First start: both; text changed: only the greeting; voice changed: again.
+    assert synth.calls == ["Hello.", "Thanks.", "Hello there.", "Thanks."]
+    assert done == {"civic_thanks": tmp_path / "_presynth_civic_thanks.wav"}

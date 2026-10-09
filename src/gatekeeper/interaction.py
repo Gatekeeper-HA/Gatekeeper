@@ -12,18 +12,19 @@ import threading
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from gatekeeper import talkback
+from gatekeeper import dialogue, talkback
 from gatekeeper.audio import Synthesizer, Transcriber, capture_audio_clip
-from gatekeeper.classify import classify_response
+from gatekeeper.camera import go2rtc_frame
+from gatekeeper.classify import CONVERSATIONS, classify_response
 from gatekeeper.config import Settings
 from gatekeeper.eventlog import EventLog
 from gatekeeper.listen import Word, join_words, strip_greeting
 from gatekeeper.logs import event_id_var
-from gatekeeper.vad import Endpointer, TurnEnd
+from gatekeeper.vad import Endpointer, TurnEnd, speech_seconds
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +46,12 @@ PLAYBACK_LAG_WARN_SECONDS = 1.0
 # (our TTS through the doorbell speaker) for speech anyway.
 ECHO_MARGIN_SECONDS = 0.5
 TAP_POLL_SECONDS = 0.05
+# An answer needs at least this much speech (by Silero) where Whisper heard it;
+# less, and Whisper made it up from noise ("Thanks for watching!").
+MIN_ANSWER_SPEECH_SECONDS = 0.25
+# Photos of a document held up to the camera (a warrant): how many, how far apart.
+FRAME_COUNT = 3
+FRAME_INTERVAL_SECONDS = 1.0
 
 # connect() -> an open talkback session (play(wav) -> talkback.Playback, async
 # close()), or None if it can't connect.
@@ -67,6 +74,10 @@ class Visit:
     or "window" (no audio tap: a fixed-length recording).
     reply_latency is the seconds from the end of the visitor's answer to the
     reply starting to play (add the camera's ~2.4 s to hear it).
+    flow is the conversation that took over (dialogue.py): "emergency",
+    "law_enforcement" or "civic"; details is what it found out (identity,
+    reason, warrant, message, decision, ...); dialogue lists every question
+    asked and what was heard.
     """
 
     event_id: str
@@ -79,9 +90,16 @@ class Visit:
     turns: int = 0
     endpoint: str | None = None
     reply_latency: float | None = None
+    flow: str | None = None
+    details: dict = field(default_factory=dict)
+    dialogue: list = field(default_factory=list)
     notified: bool = False
     # When the visitor stopped talking (time.monotonic()), if the tap heard it.
     speech_end: float | None = field(default=None, repr=False)
+    # A photo to send instead of Frigate's snapshot (a warrant held up to the camera).
+    image: Path | None = field(default=None, repr=False)
+    # "alert": an interim notification during a conversation; "final" otherwise.
+    stage: str = field(default="final", repr=False)
 
     def record(self, ts: float) -> dict:
         return {
@@ -96,6 +114,9 @@ class Visit:
             "turns": self.turns,
             "endpoint": self.endpoint,
             "reply_latency": self.reply_latency,
+            "flow": self.flow,
+            "details": self.details,
+            "dialogue": self.dialogue,
         }
 
 
@@ -176,6 +197,9 @@ class Interaction:
         event_log: EventLog,
         connect: ConnectFn | None = None,
         tap=None,
+        present: Callable[[], bool] | None = None,
+        grab_frame: Callable[[Path], Path | None] | None = None,
+        speech_check: Callable[[Path, float, float], float | None] | None = None,
         capture: CaptureFn = capture_audio_clip,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         clock: Callable[[], float] = time.time,
@@ -192,6 +216,11 @@ class Interaction:
         # The persistent audio tap (audio_tap.AudioTap), or None: record a
         # fixed window per prompt instead.
         self._tap = tap
+        # Is someone still on the porch (SessionTracker.person_present)?
+        self._present = present
+        self._grab_frame = grab_frame or self._grab_go2rtc_frame
+        # Seconds of speech in a clip between two times (None: can't tell).
+        self._speech_check = speech_check or self._silero_speech
         self._capture = capture
         self._sleep = sleep
         self._clock = clock
@@ -211,6 +240,16 @@ class Interaction:
     async def _connect_go2rtc(self):
         session = talkback.TalkSession(self.settings.go2rtc_api, self.settings.go2rtc_talk_stream)
         return session if await session.open() else None
+
+    def _silero_speech(self, path: Path, start: float, end: float) -> float | None:
+        try:
+            return speech_seconds(path, start, end, self.settings.vad_threshold)
+        except Exception:
+            log.exception("couldn't check the answer for speech")
+            return None
+
+    def _grab_go2rtc_frame(self, path: Path) -> Path | None:
+        return go2rtc_frame(self.settings.go2rtc_api, self.settings.camera_name, path)
 
     def _talk(self) -> _Talk:
         return _Talk(self._connect, self._sleep, self.settings.talkback_session == "clip")
@@ -292,6 +331,16 @@ class Interaction:
             except Exception:
                 log.exception("notify callback failed")
 
+    def _alert(self, visit: Visit) -> None:
+        """An interim notification during a conversation (e.g. "law enforcement at
+        the door" before it's over); the final one still follows."""
+        alert = replace(visit, stage="alert", details=dict(visit.details))
+        for callback in self._on_notify:
+            try:
+                callback(alert)
+            except Exception:
+                log.exception("notify callback failed")
+
     def _log_visit(self, visit: Visit) -> None:
         record = visit.record(self._clock())
         self._event_log.append(record)
@@ -320,62 +369,91 @@ class Interaction:
 
     # -- listening ---------------------------------------------------------------
 
-    async def _ask(self, visit: Visit, prompt: str, playback, clip_name: str) -> str:
-        """Listen for the visitor's answer to ``prompt`` (playing as ``playback``)
-        and classify it. Returns the reply key.
+    async def _hear(
+        self, visit: Visit, key: str, prompt: str, playback, max_answer: float | None = None
+    ) -> str:
+        """Listen for the visitor's answer to ``prompt`` (phrase ``key``, playing
+        as ``playback``) and return it.
 
         The recording includes the prompt's own echo (the doorbell's mic hears
         its speaker); it's cut out after transcription (see listen.strip_greeting).
         """
         visit.turns += 1
-        path = self.settings.in_dir / clip_name
+        suffix = "" if visit.turns == 1 else f"-{visit.turns}"
+        path = self.settings.in_dir / f"{visit.event_id}{suffix}.wav"
         if self._tap is not None and self._tap.healthy():
-            words = await self._answer_from_tap(visit, playback, path)
+            words = await self._answer_from_tap(visit, playback, path, max_answer)
         else:
             if self._tap is not None:
                 log.warning("audio tap down; recording a fixed window instead")
-            words = await self._answer_from_window(visit, playback, path)
+            words = await self._answer_from_window(visit, playback, path, max_answer)
 
         answer, method = strip_greeting(words, prompt)
-        visit.transcript = join_words(answer)
+        if answer:
+            spoken = await self._in_thread(
+                self._speech_check, path, answer[0].start - 0.3, answer[-1].end + 0.3
+            )
+            if spoken is not None and spoken < MIN_ANSWER_SPEECH_SECONDS:
+                log.info(
+                    "ignoring %r: no speech where Whisper heard it (made up from noise)",
+                    join_words(answer),
+                )
+                answer, method = [], "no speech"
+        heard = join_words(answer)
         log.info("heard: %r", join_words(words))
-        log.info("transcript (%s): %r", method, visit.transcript)
+        log.info("transcript (%s): %r", method, heard)
+        visit.dialogue.append({"asked": key, "heard": heard})
+        return heard
+
+    async def _ask(self, visit: Visit, key: str, prompt: str, playback) -> str:
+        """Hear the answer to ``prompt`` and classify it. Returns the reply key."""
+        visit.transcript = await self._hear(visit, key, prompt, playback)
         if not visit.transcript:
             visit.classification = "no_response"
             return "no_answer"
         visit.classification, reply_key = classify_response(visit.transcript)
         return reply_key
 
-    async def _answer_from_window(self, visit: Visit, playback, path: Path) -> list[Word]:
+    async def _answer_from_window(
+        self, visit: Visit, playback, path: Path, max_answer: float | None = None
+    ) -> list[Word]:
         """Record a fixed window from the prompt's start: its echo plus
-        LISTEN_SECONDS (the Phase 0 way, without the tap)."""
+        LISTEN_SECONDS, or more for a long answer (the Phase 0 way, without the tap)."""
         s = self.settings
         visit.endpoint, visit.speech_end = "window", None
-        seconds = math.ceil(playback.seconds + TALKBACK_LATENCY_SECONDS + s.listen_seconds)
+        listen = s.listen_seconds if max_answer is None else max(s.listen_seconds, max_answer / 2)
+        seconds = math.ceil(playback.seconds + TALKBACK_LATENCY_SECONDS + listen)
         clip = await self._in_thread(self._capture, s.audio_rtsp_url, path, seconds)
         log.info("capture: %s (%d bytes)", clip, clip.stat().st_size if clip else 0)
         if not clip:
             return []
         return await self._in_thread(self._transcriber.transcribe, clip)
 
-    def _endpointer(self, listen_from: float, no_input_by: float) -> Endpointer:
+    def _endpointer(
+        self, listen_from: float, no_input_by: float, max_answer: float | None = None
+    ) -> Endpointer:
         s = self.settings
         return Endpointer(
             listen_from=listen_from,
             no_input_by=no_input_by,
             threshold=s.vad_threshold,
             end_silence=s.end_silence_ms / 1000,
-            max_answer=s.max_answer_seconds,
+            max_answer=s.max_answer_seconds if max_answer is None else max_answer,
         )
 
-    async def _answer_from_tap(self, visit: Visit, playback, path: Path) -> list[Word]:
+    async def _answer_from_tap(
+        self, visit: Visit, playback, path: Path, max_answer: float | None = None
+    ) -> list[Word]:
         """Listen on the audio tap until the visitor has finished answering."""
         s = self.settings
         started = await asyncio.shield(playback.started)
         sent = await wait_sent(playback) or started + playback.seconds
         echo_end = sent + TALKBACK_LATENCY_SECONDS
         turn = await self._endpoint(
-            self._endpointer(echo_end - ECHO_MARGIN_SECONDS, echo_end + s.listen_seconds), started
+            self._endpointer(
+                echo_end - ECHO_MARGIN_SECONDS, echo_end + s.listen_seconds, max_answer
+            ),
+            started,
         )
         words: list[Word] = []
         resumed = False
@@ -452,13 +530,11 @@ class Interaction:
 
     async def _converse(self, visit: Visit, talk: _Talk) -> None:
         s = self.settings
-        event_id = visit.event_id
-
         greeting = await self._say(talk, visit, "greeting", s.greeting)
         if greeting is None:
             visit.outcome = "talkback_failed"
             return
-        reply_key = await self._ask(visit, s.greeting, greeting, f"{event_id}.wav")
+        reply_key = await self._ask(visit, "greeting", s.greeting, greeting)
 
         if reply_key == "no_answer":
             # The no-answer reply asks again ("...please state your purpose"):
@@ -469,15 +545,18 @@ class Interaction:
                 visit.outcome = "reply_failed"
                 self._notify(visit)
                 return
-            reply_key = await self._ask(
-                visit, s.replies["no_answer"], question, f"{event_id}-2.wav"
-            )
+            reply_key = await self._ask(visit, "no_answer", s.replies["no_answer"], question)
             if reply_key == "no_answer":
                 # Still silent: the question was the reply.
                 visit.response = s.replies["no_answer"]
                 self._notify(visit)
                 visit.outcome = "completed"
                 return
+
+        if visit.classification in CONVERSATIONS:
+            # Officers, emergencies, canvassers: a conversation of their own.
+            await dialogue.run(visit.classification, visit, _Turns(self, talk, visit), s)
+            return
 
         visit.response = s.replies[reply_key]
         self._notify(visit)
@@ -491,3 +570,70 @@ class Interaction:
             log.info("reply started %.2f s after the visitor stopped talking", visit.reply_latency)
         await talk.heard(reply)
         visit.outcome = "completed"
+
+
+class _Turns:
+    """What a conversation (dialogue.py) can do during one visit."""
+
+    def __init__(self, interaction: Interaction, talk: _Talk, visit: Visit) -> None:
+        self._i = interaction
+        self._talk = talk
+        self._visit = visit
+
+    async def ask(self, key: str, max_answer: float | None = None, photos: bool = False):
+        text = self._i.settings.phrases[key]
+        playback = await self._i._say(self._talk, self._visit, key, text)
+        if playback is None:
+            return None
+        # Photos while they answer, e.g. while holding a warrant up to the camera.
+        taking = asyncio.ensure_future(self._photos(playback)) if photos else None
+        try:
+            return await self._i._hear(self._visit, key, text, playback, max_answer)
+        finally:
+            if taking is not None:
+                await taking
+
+    async def say(self, key: str) -> bool:
+        playback = await self._i._say(self._talk, self._visit, key, self._i.settings.phrases[key])
+        if playback is None:
+            return False
+        await self._talk.heard(playback)
+        return True
+
+    def alert(self) -> None:
+        self._i._alert(self._visit)
+
+    def notify(self) -> None:
+        self._i._notify(self._visit)
+
+    async def wait(self, seconds: float) -> None:
+        await self._i._sleep(seconds)
+
+    def present(self) -> bool:
+        if self._i._present is None:
+            return False  # can't tell: assume they've gone rather than escalate
+        return self._i._present()
+
+    async def _photos(self, playback) -> None:
+        """FRAME_COUNT full-resolution photos, starting once the prompt has been
+        heard at the door; the middle one goes with the notification."""
+        visit, i = self._visit, self._i
+        await wait_sent(playback)
+        await i._sleep(TALKBACK_LATENCY_SECONDS)
+        i.settings.snapshot_dir.mkdir(parents=True, exist_ok=True)
+        taken = []
+        for n in range(1, FRAME_COUNT + 1):
+            path = i.settings.snapshot_dir / f"{visit.event_id}-{n}.jpg"
+            try:
+                got = await i._in_thread(i._grab_frame, path)
+            except Exception:
+                log.exception("couldn't take a photo")
+                got = None
+            if got:
+                taken.append(got)
+            if n < FRAME_COUNT:
+                await i._sleep(FRAME_INTERVAL_SECONDS)
+        log.info("took %d photo(s) of the visitor", len(taken))
+        if taken:
+            visit.image = taken[len(taken) // 2]
+            visit.details["photos"] = [p.name for p in taken]

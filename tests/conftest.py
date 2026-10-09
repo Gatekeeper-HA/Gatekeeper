@@ -26,7 +26,7 @@ def write_wav(path: Path, seconds: float = 1.0, rate: int = 16000) -> Path:
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     s = Settings(audio_dir=tmp_path / "audio", log_dir=tmp_path / "logs")
-    for d in (s.in_dir, s.out_dir, s.log_dir):
+    for d in (s.in_dir, s.out_dir, s.snapshot_dir, s.log_dir):
         d.mkdir(parents=True)
     return s
 

@@ -19,6 +19,7 @@ def test_update_uses_after_snapshot():
     event = parse_event(load_fixture("frigate/person_update.json"))
     assert event.type == "update"
     assert event.entered_zones == ("porch",)
+    assert event.current_zones == ("porch",)  # where they are now, for presence
 
 
 def test_end_event():

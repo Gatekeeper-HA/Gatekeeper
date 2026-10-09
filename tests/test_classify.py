@@ -7,6 +7,9 @@ SOLICITOR = ("solicitor", "sales")
 SERVICE = ("service_visit", "maintenance")
 OTHER = ("cooperative_other", "generic")
 NONE = ("no_response", "no_answer")
+EMERGENCY = ("emergency", "emergency")
+POLICE = ("law_enforcement", "law_enforcement")
+CIVIC = ("civic", "civic")
 
 CASES = [
     # No answer
@@ -31,10 +34,32 @@ CASES = [
     ("pizza delivery", DELIVERY),
     ("Someone needs to sign for this", DELIVERY),
     ("Delivered it to the porch", DELIVERY),
+    # Emergencies come first, even from an officer
+    ("We got a 911 call from this address", EMERGENCY),
+    ("Police, we're doing a welfare check", EMERGENCY),
+    ("Your garage is on fire!", EMERGENCY),
+    ("Fire department, is anyone injured?", EMERGENCY),
+    ("There's a gas leak on the street", EMERGENCY),
+    # Law enforcement
+    ("Police, we need to talk to you", POLICE),
+    ("Sheriff's office, open the door", POLICE),
+    ("I'm Deputy Johnson with the county", POLICE),
+    ("Officer Smith, Minneapolis Police Department", POLICE),
+    ("We have a warrant", POLICE),
+    ("Special agent with the FBI", POLICE),
+    ("We're with homeland security", POLICE),
+    ("I'm a real estate agent selling homes nearby", SOLICITOR),  # not "agent"
+    ("Do you want some ice cream?", OTHER),  # not "ice"
+    # Civic: candidates, campaigns, canvassers
+    ("Hi, I'm Jim Abeler, your senator, just came by to say hello and leave a note", CIVIC),
+    ("Just asking people to register to vote, election day is November 3rd", CIVIC),
+    ("I'm canvassing for the campaign", CIVIC),
+    ("Would you sign our petition?", CIVIC),
+    ("I'm running for city council", CIVIC),
+    ("I'm a volunteer with the DFL", CIVIC),
+    ("I'm selling election signs", CIVIC),
     # Solicitors
-    ("I'm canvassing for the campaign", SOLICITOR),
     ("we're selling solar panels", SOLICITOR),
-    ("Would you sign our petition?", SOLICITOR),
     ("I'm collecting donations for charity", SOLICITOR),
     ("Can I talk to you about our church?", SOLICITOR),
     ("We're doing a quick survey of the neighborhood", SOLICITOR),
