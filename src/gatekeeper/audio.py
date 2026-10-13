@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import wave
+from collections.abc import Callable
 from pathlib import Path
 
 from gatekeeper.listen import Word
@@ -91,21 +92,68 @@ def wav_duration(wav_path: Path) -> float:
         return 3.0
 
 
+def cuda_devices() -> int:
+    """How many NVIDIA GPUs CTranslate2 (Whisper's engine) can use."""
+    try:
+        import ctranslate2
+
+        return ctranslate2.get_cuda_device_count()
+    except Exception:
+        return 0
+
+
+def whisper_device(device: str, gpus: int) -> str:
+    """"auto" means the GPU when there is one."""
+    if device == "auto":
+        return "cuda" if gpus > 0 else "cpu"
+    return device
+
+
+def whisper_compute_type(compute_type: str, device: str) -> str:
+    """"auto" means int8 on the CPU and float16 on a GPU."""
+    if compute_type == "auto":
+        return "float16" if device == "cuda" else "int8"
+    return compute_type
+
+
 class Transcriber:
-    def __init__(self, model_name: str, compute_type: str) -> None:
+    def __init__(
+        self,
+        model_name: str,
+        compute_type: str = "auto",
+        device: str = "auto",
+        gpus: Callable[[], int] = cuda_devices,
+    ) -> None:
         self.model_name = model_name
         self.compute_type = compute_type
+        self.device = device
+        self._gpus = gpus
         self._model = None
 
     def load(self) -> None:
-        """Load the model now, so the first visit doesn't pay for it."""
-        if self._model is None:
-            from faster_whisper import WhisperModel
+        """Load the model now, so the first visit doesn't pay for it. On a GPU, also
+        run it once: missing CUDA libraries only show up then. If the GPU doesn't
+        work, Whisper runs on the CPU instead."""
+        if self._model is not None:
+            return
+        from faster_whisper import WhisperModel
 
-            log.info("loading Whisper model: %s (%s)", self.model_name, self.compute_type)
-            self._model = WhisperModel(
-                self.model_name, device="cpu", compute_type=self.compute_type
-            )
+        device = whisper_device(self.device, self._gpus() if self.device == "auto" else 0)
+        compute_type = whisper_compute_type(self.compute_type, device)
+        log.info("loading Whisper model: %s on %s (%s)", self.model_name, device, compute_type)
+        try:
+            model = WhisperModel(self.model_name, device=device, compute_type=compute_type)
+            if device == "cuda":
+                import numpy as np
+
+                list(model.transcribe(np.zeros(16000, dtype=np.float32), language="en")[0])
+        except Exception:
+            if device != "cuda":
+                raise
+            log.exception("Whisper couldn't run on the GPU; using the CPU")
+            compute_type = whisper_compute_type(self.compute_type, "cpu")
+            model = WhisperModel(self.model_name, device="cpu", compute_type=compute_type)
+        self._model = model
 
     def transcribe(self, wav_path: Path) -> list[Word]:
         """Return the words spoken in ``wav_path`` with their times in the clip.

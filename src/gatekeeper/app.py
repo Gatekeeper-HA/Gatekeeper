@@ -115,7 +115,9 @@ def main() -> None:
         synth, settings.out_dir, {"greeting": settings.greeting, **settings.replies}
     )
 
-    transcriber = Transcriber(settings.whisper_model, settings.whisper_compute_type)
+    transcriber = Transcriber(
+        settings.whisper_model, settings.whisper_compute_type, settings.whisper_device
+    )
     try:
         transcriber.load()
     except Exception:

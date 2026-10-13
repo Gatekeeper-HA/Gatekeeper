@@ -88,3 +88,64 @@ def test_run_until_stops_a_process_that_overruns():
         [sys.executable, "-c", "import sys; sys.stderr.write('done')"], 30
     )
     assert (returncode, stderr, timed_out) == (0, b"done", False)
+
+
+@pytest.mark.parametrize(
+    ("device", "gpus", "compute", "expected"),
+    [
+        ("auto", 0, "auto", ("cpu", "int8")),
+        ("auto", 1, "auto", ("cuda", "float16")),
+        ("cpu", 1, "auto", ("cpu", "int8")),
+        ("cuda", 0, "int8_float16", ("cuda", "int8_float16")),
+        ("auto", 0, "float32", ("cpu", "float32")),
+    ],
+)
+def test_whisper_device_and_compute_type(device, gpus, compute, expected):
+    from gatekeeper.audio import whisper_compute_type, whisper_device
+
+    chosen = whisper_device(device, gpus)
+    assert (chosen, whisper_compute_type(compute, chosen)) == expected
+
+
+class FakeWhisper:
+    """Stands in for faster_whisper.WhisperModel; ``broken`` devices fail to run."""
+
+    loaded = []
+    broken = set()
+
+    def __init__(self, name, device, compute_type):
+        FakeWhisper.loaded.append((name, device, compute_type))
+        self.device = device
+
+    def transcribe(self, audio, **kw):
+        if self.device in FakeWhisper.broken:
+            raise RuntimeError("Library libcudnn_ops.so.9 is not found")
+        return iter(()), None
+
+
+@pytest.fixture
+def fake_whisper(monkeypatch):
+    import sys
+    import types
+
+    FakeWhisper.loaded, FakeWhisper.broken = [], set()
+    fake = types.SimpleNamespace(WhisperModel=FakeWhisper)
+    monkeypatch.setitem(sys.modules, "faster_whisper", fake)
+    return FakeWhisper
+
+
+def test_whisper_uses_the_gpu_when_there_is_one(fake_whisper):
+    from gatekeeper.audio import Transcriber
+
+    Transcriber("large-v3-turbo", gpus=lambda: 1).load()
+    assert fake_whisper.loaded == [("large-v3-turbo", "cuda", "float16")]
+
+
+def test_whisper_falls_back_to_the_cpu_when_the_gpu_fails(fake_whisper):
+    from gatekeeper.audio import Transcriber
+
+    fake_whisper.broken = {"cuda"}  # e.g. cuDNN missing: only shows up when it runs
+    t = Transcriber("small.en", device="cuda")
+    t.load()
+    assert fake_whisper.loaded == [("small.en", "cuda", "float16"), ("small.en", "cpu", "int8")]
+    assert t._model.device == "cpu"

@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **NVIDIA GPU support (opt-in, `docker-compose.gpu.yml`):**
+  - **Frigate** runs YOLOv9 on the GPU (the `-tensorrt` image, `config.gpu.yml`) and decodes
+    video there. A test keeps `config.gpu.yml` the same as `config.yml` apart from the GPU
+    parts. `scripts/gpu/export-yolov9.sh` exports the model.
+  - **Gatekeeper's image** can be built with the CUDA libraries Whisper needs
+    (`VARIANT=cuda`, `requirements-cuda.lock`), and the override runs a larger Whisper model
+    on the GPU.
+  - **`WHISPER_DEVICE`** (`auto`: the GPU when there is one). **`WHISPER_COMPUTE_TYPE`** now
+    defaults to `auto` (`int8` on the CPU, `float16` on a GPU). If the GPU fails, Whisper
+    falls back to the CPU.
+
 ## [0.2.0] - 2026-10-12
 
 Phase 0 is done. This is 0.2.0-rc.1 unchanged, after a week on a live porch

@@ -1,0 +1,8 @@
+# CUDA libraries for the GPU image (Dockerfile VARIANT=cuda), Python 3.11, linux x86_64.
+# Regenerate after changing requirements-cuda.in:
+#   uv pip compile requirements-cuda.in --python-version 3.11 \
+#     --python-platform x86_64-manylinux_2_28 --no-header --annotation-style line \
+#     -o requirements-cuda.lock
+nvidia-cublas-cu12==12.9.2.10  # via nvidia-cudnn-cu12, -r requirements-cuda.in
+nvidia-cuda-nvrtc-cu12==12.9.86  # via nvidia-cublas-cu12
+nvidia-cudnn-cu12==9.27.0.42  # via -r requirements-cuda.in
