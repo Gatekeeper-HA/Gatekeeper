@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-12
+
+Phase 0 is done. This is 0.2.0-rc.1 unchanged, after a week on a live porch
+(2026-10-05 to 2026-10-12). Every exit criterion was met:
+- all 194 porch arrivals were greeted and all 136 visits were notified (7 daily reports),
+  the slowest in 0.42 s;
+- 0 hangs, timeouts, watchdog exits or restarts in 8 days, and Frigate's recordings kept
+  their audio throughout;
+- false triggers: at most 1 a day (a bush mistaken for a person at dawn, on 3 of 7 days);
+- the Home Assistant add-on works on a clean Home Assistant OS (2026-10-04);
+- 83% test coverage.
+
+Seen during the soak and fixed for the next release: Whisper sometimes turns noise into
+words ("Thanks for watching!"), and campaign, petition and voting words counted as a
+solicitor.
+
 ### Added
 - **Contributing guide and CLA:** `CONTRIBUTING.md`, and a Contributor License Agreement
   (`CLA.md`, with Lobo Dorado LLC) that covers every repository in the Gatekeeper-HA
