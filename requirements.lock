@@ -7,6 +7,7 @@
 #     --extra-index-url https://download.pytorch.org/whl/cpu \
 #     --index-strategy unsafe-best-match --emit-index-url -o requirements.lock
 --index-url https://pypi.org/simple
+--index-url https://pypi.org/simple
 --extra-index-url https://download.pytorch.org/whl/cpu
 
 addict==2.4.0             # via misaki
@@ -42,6 +43,7 @@ dlinfo==2.0.0             # via phonemizer-fork
 dnspython==2.8.0          # via aioice
 docopt==0.6.2             # via num2words
 dpkt==1.9.8               # via aiortsp
+en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl  # via gatekeeper (pyproject.toml)
 espeakng-loader==0.2.4    # via misaki
 faster-whisper==1.2.1     # via gatekeeper (pyproject.toml)
 filelock==4.0.9           # via huggingface-hub, torch

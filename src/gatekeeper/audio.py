@@ -19,20 +19,30 @@ log = logging.getLogger(__name__)
 # ffmpeg's RTSP socket timeout. Without it, a stream that connects but never
 # sends data hangs ffmpeg forever (-rw_timeout does not apply to RTSP in 5.1).
 RTSP_IO_TIMEOUT_US = 5_000_000
-# Backstop: kill ffmpeg if it runs this much longer than the clip.
+# Backstop: stop ffmpeg if it runs this much longer than the clip.
 CAPTURE_GRACE_SECONDS = 10
+# After asking a process to stop, kill it if it hasn't within this long.
+STOP_GRACE_SECONDS = 3
 
 
-def run_cmd(
-    args: list[str], input_bytes: bytes | None = None, timeout: float | None = None
-) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        args,
-        input=input_bytes,
-        capture_output=True,
-        check=False,
-        timeout=timeout,
+def run_until(args: list[str], timeout: float) -> tuple[int, bytes, bool]:
+    """Run ``args``; after ``timeout`` seconds ask it to stop (SIGTERM, on which
+    ffmpeg finishes writing its output file), and kill it if it hasn't stopped
+    STOP_GRACE_SECONDS later. Returns (returncode, stderr, timed_out)."""
+    proc = subprocess.Popen(
+        args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
     )
+    try:
+        _, stderr = proc.communicate(timeout=timeout)
+        return proc.returncode, stderr, False
+    except subprocess.TimeoutExpired:
+        proc.terminate()
+        try:
+            _, stderr = proc.communicate(timeout=STOP_GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            _, stderr = proc.communicate()
+        return proc.returncode, stderr, True
 
 
 def capture_audio_clip(rtsp_url: str, wav_path: Path, seconds: int) -> Path | None:
@@ -51,13 +61,14 @@ def capture_audio_clip(rtsp_url: str, wav_path: Path, seconds: int) -> Path | No
         "-y",
         str(wav_path),
     ]  # fmt: skip
-    try:
-        proc = run_cmd(cmd, timeout=seconds + CAPTURE_GRACE_SECONDS)
-    except subprocess.TimeoutExpired:
-        log.error("audio capture killed after %d s", seconds + CAPTURE_GRACE_SECONDS)
-        return None
-    if proc.returncode != 0 or not wav_path.exists():
-        log.warning("audio capture failed: %s", proc.stderr.decode("utf-8", errors="ignore"))
+    limit = seconds + CAPTURE_GRACE_SECONDS
+    returncode, stderr, timed_out = run_until(cmd, limit)
+    if timed_out:
+        # Slow to connect or to start (seen on an overloaded VM): what it did
+        # record may still hold the visitor's answer.
+        log.warning("audio capture stopped after %d s; keeping what it recorded", limit)
+    elif returncode != 0:
+        log.warning("audio capture failed: %s", stderr.decode("utf-8", errors="ignore"))
         return None
 
     try:
@@ -65,6 +76,7 @@ def capture_audio_clip(rtsp_url: str, wav_path: Path, seconds: int) -> Path | No
             log.warning("audio capture too small or empty")
             return None
     except OSError:
+        log.warning("audio capture produced no file")
         return None
 
     return wav_path

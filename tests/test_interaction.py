@@ -126,8 +126,8 @@ def test_full_visit_record(settings):
         ("play", "_presynth_delivery.wav"),
         ("close", "_presynth_delivery.wav"),
     ]
-    tail = GREETING_WAV_SECONDS + PLAYBACK_HOLD_SECONDS
-    assert rig.sleeps == [tail, tail]
+    # Each clip: its duration, then (once it has been sent) the camera's playback hold.
+    assert rig.sleeps == [GREETING_WAV_SECONDS, PLAYBACK_HOLD_SECONDS] * 2
     assert visit.outcome == "completed"
     assert rig.log_records() == [
         {
@@ -142,6 +142,80 @@ def test_full_visit_record(settings):
             "turns": 1,
         }
     ]
+
+
+class FakeTrack:
+    """An outgoing audio track that sends its last frame at ``ends_at`` (monotonic)."""
+
+    def __init__(self, ends_at, name, log):
+        self.ends_at, self.name, self.log = ends_at, name, log
+
+    @property
+    def readyState(self):  # noqa: N802 (aiortc's name)
+        if time.monotonic() < self.ends_at:
+            return "live"
+        if ("sent", self.name) not in self.log:
+            self.log.append(("sent", self.name))
+        return "ended"
+
+
+class SlowPC(FakePC):
+    """Talkback on a starved host: the clip takes ``lag`` s longer than its duration."""
+
+    def __init__(self, wav, log, lag):
+        super().__init__(wav, log)
+        sender = type("Sender", (), {})()
+        sender.track = FakeTrack(time.monotonic() + lag, wav.name, log)
+        self._senders = [sender]
+
+    def getSenders(self):  # noqa: N802 (aiortc's name)
+        return self._senders
+
+
+def test_talkback_stays_open_until_a_late_clip_has_been_sent(settings, monkeypatch, caplog):
+    # On a slow host (an HA OS VM) the greeting took longer than its duration
+    # to send and closing on the clock cut it off.
+    from gatekeeper import interaction
+
+    monkeypatch.setattr(interaction, "PLAYBACK_POLL_SECONDS", 0.005)
+    monkeypatch.setattr(interaction, "PLAYBACK_LAG_WARN_SECONDS", 0.02)
+    rig = Rig(settings)
+
+    async def slow_play(wav):
+        rig.calls.append(("play", wav.name))
+        return SlowPC(wav, rig.calls, lag=0.1)
+
+    rig.interaction._play = slow_play
+    visit = rig.interaction.run(EID)
+
+    assert visit.outcome == "completed"
+    names = [c[:2] for c in rig.calls if c[0] in ("sent", "close")]
+    assert names == [
+        ("sent", "_presynth_greeting.wav"),
+        ("close", "_presynth_greeting.wav"),
+        ("sent", "_presynth_delivery.wav"),
+        ("close", "_presynth_delivery.wav"),
+    ]
+    assert "clip finished playing" in caplog.text
+
+
+def test_talkback_gives_up_waiting_for_a_clip_that_never_finishes(settings, monkeypatch):
+    from gatekeeper import interaction
+
+    monkeypatch.setattr(interaction, "PLAYBACK_POLL_SECONDS", 0.005)
+    monkeypatch.setattr(interaction, "MAX_PLAYBACK_LAG_SECONDS", 0.05)
+    rig = Rig(settings)
+
+    async def stuck_play(wav):
+        rig.calls.append(("play", wav.name))
+        return SlowPC(wav, rig.calls, lag=3600)
+
+    rig.interaction._play = stuck_play
+    visit = rig.interaction.run(EID)
+
+    assert visit.outcome == "completed"
+    assert ("close", "_presynth_delivery.wav") in rig.calls
+    assert not any(c[0] == "sent" for c in rig.calls)
 
 
 def test_recording_starts_while_greeting_plays(settings):

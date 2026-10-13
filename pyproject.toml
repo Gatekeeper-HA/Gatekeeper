@@ -22,6 +22,9 @@ speech = [
     "kokoro",
     "numpy",
     "soundfile",
+    # Kokoro's English pronunciation (misaki) needs spaCy's small English model. It isn't
+    # on PyPI, and misaki downloads it at every container start when it's missing.
+    "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
 ]
 talkback = [
     "aiohttp",
@@ -41,6 +44,10 @@ gatekeeper = "gatekeeper.app:main"
 
 [project.urls]
 Source = "https://github.com/Gatekeeper-HA/Gatekeeper"
+
+[tool.hatch.metadata]
+# For en-core-web-sm's URL above; the package is installed from GitHub, not PyPI.
+allow-direct-references = true
 
 [tool.hatch.version]
 path = "VERSION"
