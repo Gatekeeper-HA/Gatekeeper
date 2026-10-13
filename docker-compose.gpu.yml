@@ -30,8 +30,11 @@ services:
     image: gatekeeper:local-cuda
     environment:
       WHISPER_DEVICE: "cuda"
+      # Measured on a GTX 1660 Ti with real visits (int8_float16, per answer):
+      # large-v3-turbo 1.1 s and the most accurate; small.en 0.5 s; base.en on the
+      # CPU took 4.0 s.
       WHISPER_MODEL: "large-v3-turbo"
-      WHISPER_COMPUTE_TYPE: "float16"
+      WHISPER_COMPUTE_TYPE: "int8_float16"
     deploy:
       resources:
         reservations:

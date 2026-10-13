@@ -110,9 +110,11 @@ def whisper_device(device: str, gpus: int) -> str:
 
 
 def whisper_compute_type(compute_type: str, device: str) -> str:
-    """"auto" means int8 on the CPU and float16 on a GPU."""
+    """"auto" means int8 on the CPU and int8_float16 on a GPU: 2-4x faster than float16
+    on a GTX 1660 Ti (no tensor cores) with the same transcripts, and fine on any NVIDIA
+    GPU since Pascal."""
     if compute_type == "auto":
-        return "float16" if device == "cuda" else "int8"
+        return "int8_float16" if device == "cuda" else "int8"
     return compute_type
 
 
@@ -172,6 +174,9 @@ class Transcriber:
                 vad_filter=False,
                 condition_on_previous_text=False,
                 word_timestamps=True,
+                # No re-decoding at higher temperatures when the output looks like
+                # garbage: on noise it took up to 7 s and only changed the garbage.
+                temperature=0.0,
             )
             return [
                 Word(w.word, w.start, w.end) for seg in segments for w in (seg.words or [])

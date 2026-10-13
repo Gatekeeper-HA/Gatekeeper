@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     whisper_model: str = "tiny"
     # "auto": an NVIDIA GPU (CUDA) if there is one, else the CPU.
     whisper_device: Literal["auto", "cpu", "cuda"] = "auto"
-    # "auto": int8 on the CPU, float16 on a GPU; or any CTranslate2 compute type.
+    # "auto": int8 on the CPU, int8_float16 on a GPU; or any CTranslate2 compute type.
     whisper_compute_type: str = "auto"
     kokoro_voice: str = "af_heart"
 

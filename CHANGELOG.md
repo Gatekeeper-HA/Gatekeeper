@@ -14,8 +14,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     (`VARIANT=cuda`, `requirements-cuda.lock`), and the override runs a larger Whisper model
     on the GPU.
   - **`WHISPER_DEVICE`** (`auto`: the GPU when there is one). **`WHISPER_COMPUTE_TYPE`** now
-    defaults to `auto` (`int8` on the CPU, `float16` on a GPU). If the GPU fails, Whisper
-    falls back to the CPU.
+    defaults to `auto` (`int8` on the CPU, `int8_float16` on a GPU). If the GPU fails,
+    Whisper falls back to the CPU.
+  - **Measured on the rig's GTX 1660 Ti with real visits:** `large-v3-turbo` (the override's
+    model) transcribes an answer in 1.1 s, against 4.0 s for `base.en` on the CPU, and hears
+    names and full sentences better. `int8_float16` is 2–4× faster than `float16` on that
+    card.
+
+### Changed
+- **Whisper no longer re-decodes at higher temperatures** when its output looks like
+  garbage. On noise that took up to 7 s and only produced different made-up text.
 
 ## [0.2.0] - 2026-10-12
 

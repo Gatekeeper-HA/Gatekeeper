@@ -120,7 +120,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `VISIT_TIMEOUT_SECONDS` | `90` | Give up on a visit (greet, listen, reply) after this long |
 | `WHISPER_MODEL` | `tiny` | Whisper model (`tiny`, `base.en`, `small.en`, ...). On a 4-core CPU, `base.en` takes ~3.4 s per visit vs ~1.8 s for `tiny`, but hears noticeably better; the compose stack uses `base.en` |
 | `WHISPER_DEVICE` | `auto` | `auto` runs Whisper on an NVIDIA GPU when there is one (see [GPU](#gpu-nvidia)), else on the CPU; or `cpu`, `cuda` |
-| `WHISPER_COMPUTE_TYPE` | `auto` | `auto` is `int8` on the CPU and `float16` on a GPU; or any CTranslate2 type (`float32` if issues arise) |
+| `WHISPER_COMPUTE_TYPE` | `auto` | `auto` is `int8` on the CPU and `int8_float16` on a GPU; or any CTranslate2 type (`float32` if issues arise) |
 | `KOKORO_VOICE` | `af_heart` | TTS voice (see voices below) |
 | `GREETING` | *Hello. This property is monitored. Please state the purpose of your visit.* | What Gatekeeper says when a visitor is detected |
 | `REPLY_DELIVERY` | *Thank you. Please leave the package at the door.* | Reply to a delivery |
@@ -168,7 +168,11 @@ With an NVIDIA GPU, `docker-compose.gpu.yml` moves the slow parts onto it.
 - **Frigate** detects people with YOLOv9 instead of its small default CPU model, so it makes
   fewer mistakes (a bush at dawn, for example), and decodes the video on the GPU.
 - **Whisper** uses a much larger model and transcribes a visitor's answer in a fraction of
-  the time `base.en` takes on a CPU, which is most of the wait for a reply.
+  the time `base.en` takes on a CPU, which is most of the wait for a reply. On a GTX 1660 Ti
+  with real visits, per answer:
+  - `large-v3-turbo`: 1.1 s, and the most accurate (the override's default);
+  - `small.en`: 0.5 s;
+  - `base.en` on a 4-core CPU: 4.0 s.
 
 The default image stays CPU-only.
 
@@ -190,7 +194,7 @@ The default image stays CPU-only.
 4. **Check it:**
    - Frigate's *System* page lists the `onnx` detector with an inference time of a few
      milliseconds.
-   - Gatekeeper's log says `loading Whisper model: … on cuda (float16)`.
+   - Gatekeeper's log says `loading Whisper model: … on cuda (int8_float16)`.
    - If CUDA doesn't work, Whisper falls back to the CPU and logs why.
 
 ## Visitor classification

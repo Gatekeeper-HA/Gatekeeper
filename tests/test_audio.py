@@ -94,7 +94,7 @@ def test_run_until_stops_a_process_that_overruns():
     ("device", "gpus", "compute", "expected"),
     [
         ("auto", 0, "auto", ("cpu", "int8")),
-        ("auto", 1, "auto", ("cuda", "float16")),
+        ("auto", 1, "auto", ("cuda", "int8_float16")),
         ("cpu", 1, "auto", ("cpu", "int8")),
         ("cuda", 0, "int8_float16", ("cuda", "int8_float16")),
         ("auto", 0, "float32", ("cpu", "float32")),
@@ -138,7 +138,7 @@ def test_whisper_uses_the_gpu_when_there_is_one(fake_whisper):
     from gatekeeper.audio import Transcriber
 
     Transcriber("large-v3-turbo", gpus=lambda: 1).load()
-    assert fake_whisper.loaded == [("large-v3-turbo", "cuda", "float16")]
+    assert fake_whisper.loaded == [("large-v3-turbo", "cuda", "int8_float16")]
 
 
 def test_whisper_falls_back_to_the_cpu_when_the_gpu_fails(fake_whisper):
@@ -147,5 +147,8 @@ def test_whisper_falls_back_to_the_cpu_when_the_gpu_fails(fake_whisper):
     fake_whisper.broken = {"cuda"}  # e.g. cuDNN missing: only shows up when it runs
     t = Transcriber("small.en", device="cuda")
     t.load()
-    assert fake_whisper.loaded == [("small.en", "cuda", "float16"), ("small.en", "cpu", "int8")]
+    assert fake_whisper.loaded == [
+        ("small.en", "cuda", "int8_float16"),
+        ("small.en", "cpu", "int8"),
+    ]
     assert t._model.device == "cpu"
