@@ -118,6 +118,20 @@ def whisper_compute_type(compute_type: str, device: str) -> str:
     return compute_type
 
 
+def _silent_wav(seconds: float = 1.0):
+    """A WAV of silence in memory, to run a model once."""
+    import io
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(b"\x00\x00" * int(16000 * seconds))
+    buf.seek(0)
+    return buf
+
+
 class Transcriber:
     def __init__(
         self,
@@ -146,9 +160,7 @@ class Transcriber:
         try:
             model = WhisperModel(self.model_name, device=device, compute_type=compute_type)
             if device == "cuda":
-                import numpy as np
-
-                list(model.transcribe(np.zeros(16000, dtype=np.float32), language="en")[0])
+                list(model.transcribe(_silent_wav(), language="en")[0])
         except Exception:
             if device != "cuda":
                 raise
