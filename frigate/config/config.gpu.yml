@@ -1,0 +1,101 @@
+# Frigate on an NVIDIA GPU (docker-compose.gpu.yml): config.yml plus the GPU detector
+# (YOLOv9 via ONNX on the -tensorrt image). Everything else must stay identical to
+# config.yml; tests/test_frigate_config.py checks.
+#
+# Video is decoded on the CPU, as without the GPU. GPU decoding (`hwaccel_args:
+# preset-nvidia` under the camera's ffmpeg) needs the driver's NVDEC library,
+# libnvcuvid.so.1, which Ubuntu's headless and server driver packages leave out: without
+# it Frigate gets no frames at all.
+
+mqtt:
+  enabled: true
+  host: mqtt
+  topic_prefix: frigate
+  # Set from the environment (docker-compose.yml, .env).
+  user: "{FRIGATE_MQTT_USER}"
+  password: "{FRIGATE_MQTT_PASSWORD}"
+
+detectors:
+  onnx:
+    type: onnx
+
+# YOLOv9-s at 320x320. Export it once with: scripts/gpu/export-yolov9.sh s 320
+model:
+  model_type: yolo-generic
+  width: 320
+  height: 320
+  input_tensor: nchw
+  input_dtype: float
+  path: /config/model_cache/yolov9-s-320.onnx
+  labelmap_path: /labelmap/coco-80.txt
+
+cameras:
+  front_door:
+    ffmpeg:
+      inputs:
+        # DETECT (low stream)
+        - path: rtsp://go2rtc:8554/front_door_sub
+          input_args: preset-rtsp-restream
+          roles: [detect]
+
+        # RECORD (high stream)
+        - path: rtsp://go2rtc:8554/front_door
+          input_args: preset-rtsp-restream
+          roles: [record]
+
+      output_args:
+        record: preset-record-generic-audio-aac
+
+    detect:
+      enabled: true
+      width: 640
+      height: 480
+      fps: 5
+
+    # Gatekeeper greets only people in the porch zone (TRIGGER_ZONES=porch).
+    zones:
+      porch:
+        coordinates: 0.48,0.78,1,0.78,1,1,0.48,1
+        objects:
+          - person
+
+    objects:
+      track:
+        - person
+      filters:
+        person:
+          # The street and lawn seen past the walkway: no person detection.
+          mask:
+            - 0.5,0.36,0.93,0.36,0.93,0.66,0.5,0.66
+
+    record:
+      enabled: true
+
+    snapshots:
+      enabled: true
+
+record:
+  enabled: true
+  retain:
+    days: 3
+    mode: motion
+  alerts:
+    retain:
+      days: 7
+    pre_capture: 3
+    post_capture: 7
+  detections:
+    retain:
+      days: 7
+    pre_capture: 3
+    post_capture: 7
+
+snapshots:
+  enabled: true
+  retain:
+    default: 7
+
+detect:
+  enabled: true
+
+version: 0.16-0

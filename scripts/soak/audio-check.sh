@@ -9,6 +9,8 @@ cd "$(dirname "$0")/../.."
 set -a; . ./.env; set +a
 recordings="${DATA_DIR:-./data}/frigate/storage/recordings"
 state="$HOME/.cache/gatekeeper-audio-alert"
+# ffprobe comes from Gatekeeper's own image (gatekeeper:local, or :local-cuda with the GPU).
+image=$(docker inspect -f '{{.Config.Image}}' gatekeeper)
 
 dir="$recordings/$(date -u +%Y-%m-%d/%H)/front_door"
 [ -d "$dir" ] || dir="$recordings/$(date -u -d '-1 hour' +%Y-%m-%d/%H)/front_door"
@@ -17,7 +19,7 @@ segments=$(ls -t "$dir" 2>/dev/null | sed -n '2,4p' || true)  # newest is still 
 
 silent=0
 for seg in $segments; do
-  packets=$(docker run --rm -v "$(realpath "$dir")":/r:ro gatekeeper:local \
+  packets=$(docker run --rm -v "$(realpath "$dir")":/r:ro "$image" \
     ffprobe -v error -select_streams a:0 -count_packets -show_entries stream=nb_read_packets \
     -of csv=p=0 "/r/$seg" 2>/dev/null || echo 0)
   [ "${packets:-0}" -lt 50 ] && silent=$((silent + 1))

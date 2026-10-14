@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **NVIDIA GPU support (opt-in, `docker-compose.gpu.yml`):**
+  - **Frigate** detects with YOLOv9 on the GPU (the `-tensorrt` image, `config.gpu.yml`), at
+    about 20 ms per inference on the rig's GTX 1660 Ti against 83 ms for its default CPU
+    model. A test keeps `config.gpu.yml` the same as `config.yml` apart from the GPU parts.
+    `scripts/gpu/export-yolov9.sh` exports the model. Video decoding stays on the CPU: GPU
+    decoding needs NVDEC, which headless server drivers leave out (README).
+  - **Gatekeeper's image** can be built with the CUDA libraries Whisper needs
+    (`VARIANT=cuda`, `requirements-cuda.lock`), and the override runs a larger Whisper model
+    on the GPU.
+  - **`WHISPER_DEVICE`** (`auto`: the GPU when there is one). **`WHISPER_COMPUTE_TYPE`** now
+    defaults to `auto` (`int8` on the CPU, `int8_float16` on a GPU). If the GPU fails,
+    Whisper falls back to the CPU.
+  - **Measured on the rig's GTX 1660 Ti with real visits:** `large-v3-turbo` (the override's
+    model) transcribes an answer in 1.1 s, against 4.0 s for `base.en` on the CPU, and hears
+    names and full sentences better. `int8_float16` is 2–4× faster than `float16` on that
+    card.
+
+### Changed
+- **Whisper no longer re-decodes at higher temperatures** when its output looks like
+  garbage. On noise that took up to 7 s and only produced different made-up text.
+
 ## [0.2.1] - 2026-10-13
 
 ### Fixed

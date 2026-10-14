@@ -35,6 +35,7 @@ doorbell = [
 ]
 dev = [
     "pytest>=8",
+    "pyyaml",  # tests compare the Frigate configs
     "pytest-cov>=5",
     "ruff>=0.6",
 ]
