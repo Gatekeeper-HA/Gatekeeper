@@ -80,7 +80,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     for review.
   - **`deploy.sh`** (cron, every minute) deploys each new commit on `main`, then checks that
     Gatekeeper is healthy and Frigate gets frames, and rolls back and alerts if not.
-- **Whisper logs how long each transcription took**, for the report.
+- **Whisper logs how long each transcription took**, split into reading the audio and its
+  features, and the model, with the host's CPU load; the daily report shows the medians
+  (#16: a live visit takes ~1.8 s against 1.07 s for the same clip on its own).
 - **The daily report says when a container's log starts mid-day.** A deploy that recreates
   a container loses its earlier log, so the report names the logs that only start then
   (#14).
