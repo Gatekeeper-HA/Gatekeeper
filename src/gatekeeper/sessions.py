@@ -21,7 +21,9 @@ With a ``door`` zone, someone who appears at the front door is the household
 coming out. They get ``leaving_watch_seconds`` (instead of the dwell) to walk out
 of the door zone; if they do, they aren't greeted, and person events in the next
 ``leaving_cooldown_seconds`` count as them too (Frigate sometimes splits a track).
-If they stay at the door, they're greeted. A doorbell press always greets.
+Someone who walks up within ``return_window_seconds`` of that is most likely them
+coming back in (from the car or the mailbox), and isn't greeted either. If they
+stay at the door, they're greeted. A doorbell press always greets.
 """
 
 from __future__ import annotations
@@ -69,7 +71,8 @@ class SessionTracker:
         door: Callable[[Point], bool | None] | None = None,
         leaving_watch_seconds: float = 3.0,
         leaving_cooldown_seconds: float = 15.0,
-        on_left: Callable[[str], None] = lambda event_id: None,
+        return_window_seconds: float = 120.0,
+        on_not_greeted: Callable[[str, str], None] = lambda event_id, outcome: None,
         spawn: Callable[[Callable[[], None]], None] = spawn_thread,
         clock: Callable[[], float] = time.time,
     ) -> None:
@@ -82,7 +85,9 @@ class SessionTracker:
         self.door = door
         self.leaving_watch_seconds = leaving_watch_seconds
         self.leaving_cooldown_seconds = leaving_cooldown_seconds
-        self._on_left = on_left
+        self.return_window_seconds = return_window_seconds
+        # Called with (event_id, "left" or "returned") for people not greeted.
+        self._on_not_greeted = on_not_greeted
         self._run_visit = run_visit
         self._spawn = spawn
         self._clock = clock
@@ -93,6 +98,8 @@ class SessionTracker:
         self._cooldown_until = 0.0
         self._last_left: str | None = None
         self._left_until = 0.0
+        self._left_at = 0.0
+        self._return_until = 0.0
 
     def handle_event(self, event: FrigateEvent) -> None:
         if event.camera != self.camera or event.label != "person":
@@ -152,17 +159,26 @@ class SessionTracker:
                     self._last_left,
                 )
                 return False
-            if verdict == "left":
+            if verdict in ("left", "returned"):
                 session.handled = True
-                self._last_left = event_id
-                self._left_until = now + self.leaving_cooldown_seconds
+                if verdict == "left":
+                    self._last_left, self._left_at = event_id, now
+                    self._left_until = now + self.leaving_cooldown_seconds
+                    self._return_until = now + self.return_window_seconds
             else:
                 session.in_progress = True
                 self._active_visit = event_id
 
         if verdict == "left":
             log.info("person event %s came out of the door and walked away: not greeted", event_id)
-            self._on_left(event_id)
+        if verdict == "returned":
+            log.info(
+                "person event %s came back %.0f s after someone left by the door: not greeted",
+                event_id,
+                now - self._left_at,
+            )
+        if verdict in ("left", "returned"):
+            self._on_not_greeted(event_id, verdict)
             return False
 
         trigger = session.trigger
@@ -188,19 +204,22 @@ class SessionTracker:
 
     def _door_verdict(self, session: Session, now: float) -> str:
         """For a person due a greeting: "greet"; "watch" (they appeared at the door:
-        wait to see whether they walk away); "left" (they did); or "after_left"
-        (someone just left by the door, and this is most likely them again)."""
+        wait to see whether they walk away); "left" (they did); "after_left"
+        (someone just left by the door, and this is most likely them again); or
+        "returned" (walking up soon after someone left: most likely them coming back)."""
         if self.door is None:
             return "greet"
         if now < self._left_until:
             return "after_left"
-        if session.path_start is None or not self.door(session.path_start):
-            return "greet"
-        if session.path_now is not None and self.door(session.path_now) is False:
-            return "left"
-        if now - session.created < self.leaving_watch_seconds:
-            return "watch"
-        return "greet"  # they stayed at the door
+        if session.path_start is not None and self.door(session.path_start):
+            if session.path_now is not None and self.door(session.path_now) is False:
+                return "left"
+            if now - session.created < self.leaving_watch_seconds:
+                return "watch"
+            return "greet"  # they stayed at the door
+        if now < self._return_until:
+            return "returned"
+        return "greet"
 
     def _in_trigger_zone(self, zones: frozenset[str]) -> bool:
         return not self.trigger_zones or bool(zones & self.trigger_zones)

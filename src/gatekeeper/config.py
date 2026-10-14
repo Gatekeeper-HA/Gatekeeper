@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     door_zone: str = ""
     leaving_watch_seconds: float = 3.0
     leaving_cooldown_seconds: float = 15.0
+    # Someone who walks up this soon after someone left by the door is most likely
+    # them coming back in (from the car or the mailbox): not greeted. 0 disables.
+    return_window_seconds: float = 120.0
     # How long to wait for the visitor to start answering after a prompt.
     listen_seconds: int = 4
 

@@ -76,6 +76,8 @@ MADE_UP = "no speech where Whisper heard it"  # interaction: an answer Whisper m
 LEVELS = {"WARNING": 1, "ERROR": 2, "CRITICAL": 3, "TRACEBACK": 3}
 ERROR_LEVELS = {"ERROR", "CRITICAL", "TRACEBACK"}
 MAX_LOG_KINDS = 20
+# Visit outcomes that are the household, deliberately not greeted (the door zone).
+NOT_GREETED = {"left", "returned"}
 
 
 def local(ts: float) -> str:
@@ -298,10 +300,11 @@ class Inputs:
 def build(i: Inputs) -> dict:
     since = i.now - i.hours * 3600
     host = i.host
-    # People who came out of the front door and walked away aren't greeted or
-    # notified (the door zone): counted on their own.
+    # The household coming out of the front door, or back in soon after, isn't
+    # greeted or notified (the door zone): counted on their own.
     left = [v for v in i.visits if v.get("outcome") == "left"]
-    visits = [v for v in i.visits if v.get("outcome") != "left"]
+    returned = [v for v in i.visits if v.get("outcome") == "returned"]
+    visits = [v for v in i.visits if v.get("outcome") not in NOT_GREETED]
     outcomes = collections.Counter(v.get("outcome") for v in visits)
 
     # Every visit notified, in time?
@@ -417,6 +420,7 @@ def build(i: Inputs) -> dict:
         "counts": {
             "visits": len(visits),
             "left_by_door": len(left),
+            "returned": len(returned),
             "triggers": dict(collections.Counter(v.get("trigger", "person") for v in visits)),
             "classifications": dict(
                 collections.Counter(v.get("classification") or "pressed" for v in visits)
@@ -470,17 +474,21 @@ def summary_lines(report: dict) -> list[str]:
         or "none"
     )
     triggers = counts["triggers"]
+    household = [
+        f"{n} {what}"
+        for n, what in (
+            (counts.get("left_by_door"), "came out of the door and left"),
+            (counts.get("returned"), "came back soon after"),
+        )
+        if n
+    ]
     lines = [
         f"Last {report['hours']} h, to {report['window'][1]}",
         f"Visits: {counts['visits']} (person {triggers.get('person', 0)}, "
         f"button {triggers.get('button', 0)}): {labels}",
         f"Porch arrivals: {report['arrivals']['total']}, "
         f"not greeted {len(report['arrivals']['missed'])}"
-        + (
-            f"; {counts['left_by_door']} came out of the door and left (not greeted, on purpose)"
-            if counts.get("left_by_door")
-            else ""
-        ),
+        + (f"; {', '.join(household)} (not greeted, on purpose)" if household else ""),
         f"Notified: {n['notified']}/{n['tracked']}, slowest {n['slowest_seconds']:.2f} s",
     ]
     made_up = (
