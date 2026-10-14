@@ -42,6 +42,8 @@ class Health:
         self.mqtt_connected = False
         self._last_sweep: float | None = None
         self._visit_started: float | None = None
+        # Set when the audio tap runs: is it receiving audio?
+        self.tap_ok: Callable[[], bool] | None = None
 
     def sweep_done(self) -> None:
         self._last_sweep = self._clock()
@@ -83,6 +85,8 @@ class Health:
             "mqtt_connected": self.mqtt_connected,
             "sweep_age_seconds": None if sweep_age is None else round(sweep_age, 1),
             "visit_age_seconds": None if visit_age is None else round(visit_age, 1),
+            # Informational: without the tap, visits record a fixed window instead.
+            "audio_tap": "off" if self.tap_ok is None else ("ok" if self.tap_ok() else "down"),
         }
         return not problems, details
 

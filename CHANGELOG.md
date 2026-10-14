@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **The conversation engine** (Phase 1): replies come sooner after the visitor stops talking.
+  - **Audio tap:** Gatekeeper reads the camera's audio all the time (one ffmpeg, a 30 s ring
+    buffer), so listening needs no stream to be opened.
+  - **Listening until the visitor is done:** it stops when they've been silent for 0.8 s, not
+    after a fixed 4 s. If they start talking again while their answer is being transcribed,
+    it listens on and transcribes all of it. Speech is detected with Silero VAD, the model
+    faster-whisper already ships.
+  - **One talkback connection per visit**, instead of one per phrase.
+  - **New settings:** `AUDIO_TAP`, `VAD_THRESHOLD`, `END_SILENCE_MS`, `MAX_ANSWER_SECONDS`,
+    `TALKBACK_SESSION`. Without a working tap, visits record a fixed window as before.
+  - **The visit log** records how listening ended (`endpoint`) and the time from the end of
+    the answer to the reply (`reply_latency`). The daily report shows both, and checks the
+    replies' speed (p90 under 3.5 s on a GPU, 7 s on a CPU) and that the audio tap held.
+  - `scripts/replay/endpointing.py` replays recorded visits through the endpointing, for
+    tuning.
 - **NVIDIA GPU support (opt-in, `docker-compose.gpu.yml`):**
   - **Frigate** detects with YOLOv9 on the GPU (the `-tensorrt` image, `config.gpu.yml`), at
     about 20 ms per inference on the rig's GTX 1660 Ti against 83 ms for its default CPU

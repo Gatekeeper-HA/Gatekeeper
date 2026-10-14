@@ -34,6 +34,7 @@ doorbell = [
     "reolink-aio",
 ]
 dev = [
+    "numpy",  # the audio tap and VAD work on numpy arrays; cheap, unlike torch
     "pytest>=8",
     "pyyaml",  # tests compare the Frigate configs
     "pytest-cov>=5",
