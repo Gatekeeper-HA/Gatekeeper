@@ -20,10 +20,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     the answer to the reply (`reply_latency`).
   - `scripts/replay/endpointing.py` replays recorded visits through the endpointing, for
     tuning.
-- **Contributing guide and CLA:** `CONTRIBUTING.md`, and a Contributor License Agreement
-  (`CLA.md`, with Lobo Dorado LLC) that covers every repository in the Gatekeeper-HA
-  organization. A GitHub workflow asks first-time contributors to agree on their pull
-  request and records the agreement on the `cla-signatures` branch.
+- **NVIDIA GPU support (opt-in, `docker-compose.gpu.yml`):**
+  - **Frigate** detects with YOLOv9 on the GPU (the `-tensorrt` image, `config.gpu.yml`), at
+    about 20 ms per inference on the rig's GTX 1660 Ti against 83 ms for its default CPU
+    model. A test keeps `config.gpu.yml` the same as `config.yml` apart from the GPU parts.
+    `scripts/gpu/export-yolov9.sh` exports the model. Video decoding stays on the CPU: GPU
+    decoding needs NVDEC, which headless server drivers leave out (README).
+  - **Gatekeeper's image** can be built with the CUDA libraries Whisper needs
+    (`VARIANT=cuda`, `requirements-cuda.lock`), and the override runs a larger Whisper model
+    on the GPU.
+  - **`WHISPER_DEVICE`** (`auto`: the GPU when there is one). **`WHISPER_COMPUTE_TYPE`** now
+    defaults to `auto` (`int8` on the CPU, `int8_float16` on a GPU). If the GPU fails,
+    Whisper falls back to the CPU.
+  - **Measured on the rig's GTX 1660 Ti with real visits:** `large-v3-turbo` (the override's
+    model) transcribes an answer in 1.1 s, against 4.0 s for `base.en` on the CPU, and hears
+    names and full sentences better. `int8_float16` is 2–4× faster than `float16` on that
+    card.
+
+- **Rig tooling (`scripts/rig/`, README "Running a rig"),** for a live install that takes
+  every merge:
+  - **The daily report is part of the package** (`python -m gatekeeper.report`), so it
+    always matches the deployed code, and it's tested. Besides the visits, notifications,
+    hangs and recording audio, it now checks Frigate's frames and detector speed, Whisper's
+    device and speed, Gatekeeper's and Frigate's log errors (grouped by kind, known noise
+    left out), and the day's deploys. It writes JSON and Markdown as well as the ntfy
+    summary.
+  - **`publish-report.sh`** pushes each report to a private repository with a deploy key,
+    for review.
+  - **`deploy.sh`** (cron, every minute) deploys each new commit on `main`, then checks that
+    Gatekeeper is healthy and Frigate gets frames, and rolls back and alerts if not.
+- **Whisper logs how long each transcription took**, for the report.
+
+### Changed
+- **Whisper no longer re-decodes at higher temperatures** when its output looks like
+  garbage. On noise that took up to 7 s and only produced different made-up text.
+- **`scripts/soak/` is now `scripts/rig/`.** Its alerts go straight to ntfy, so they also
+  work while Gatekeeper is down. Update the cron lines (README, "Running a rig").
+
+## [0.2.1] - 2026-10-13
 
 ### Fixed
 Found by installing the Home Assistant add-on on a slow virtual machine:
@@ -38,6 +72,28 @@ Found by installing the Home Assistant add-on on a slow virtual machine:
 - **No more downloading at every start.** Kokoro's English pronunciation needs spaCy's
   `en_core_web_sm` model, which was downloaded (12.8 MB) each time the container started. It
   is now part of the image, pinned in `requirements.lock`.
+
+## [0.2.0] - 2026-10-12
+
+Phase 0 is done. This is 0.2.0-rc.1 unchanged, after a week on a live porch
+(2026-10-05 to 2026-10-12). Every exit criterion was met:
+- all 194 porch arrivals were greeted and all 136 visits were notified (7 daily reports),
+  the slowest in 0.42 s;
+- 0 hangs, timeouts, watchdog exits or restarts in 8 days, and Frigate's recordings kept
+  their audio throughout;
+- false triggers: at most 1 a day (a bush mistaken for a person at dawn, on 3 of 7 days);
+- the Home Assistant add-on works on a clean Home Assistant OS (2026-10-04);
+- 83% test coverage.
+
+Seen during the soak and fixed for the next release: Whisper sometimes turns noise into
+words ("Thanks for watching!"), and campaign, petition and voting words counted as a
+solicitor.
+
+### Added
+- **Contributing guide and CLA:** `CONTRIBUTING.md`, and a Contributor License Agreement
+  (`CLA.md`, with Lobo Dorado LLC) that covers every repository in the Gatekeeper-HA
+  organization. A GitHub workflow asks first-time contributors to agree on their pull
+  request and records the agreement on the `cla-signatures` branch.
 
 ## [0.2.0-rc.1] - 2026-10-04
 

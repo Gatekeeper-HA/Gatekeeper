@@ -1,6 +1,7 @@
 *
 !pyproject.toml
 !requirements.lock
+!requirements-cuda.lock
 !VERSION
 !README.md
 !LICENSE

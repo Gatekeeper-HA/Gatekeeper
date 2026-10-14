@@ -123,7 +123,8 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `COOLDOWN_SECONDS` | `90` | After a visit, new person events this soon are merged into it instead of greeting again |
 | `VISIT_TIMEOUT_SECONDS` | `90` | Give up on a visit (greet, listen, reply) after this long |
 | `WHISPER_MODEL` | `tiny` | Whisper model (`tiny`, `base.en`, `small.en`, ...). On a 4-core CPU, `base.en` takes ~3.4 s per visit vs ~1.8 s for `tiny`, but hears noticeably better; the compose stack uses `base.en` |
-| `WHISPER_COMPUTE_TYPE` | `int8` | `int8` for CPU, `float32` if issues arise |
+| `WHISPER_DEVICE` | `auto` | `auto` runs Whisper on an NVIDIA GPU when there is one (see [GPU](#gpu-nvidia)), else on the CPU; or `cpu`, `cuda` |
+| `WHISPER_COMPUTE_TYPE` | `auto` | `auto` is `int8` on the CPU and `int8_float16` on a GPU; or any CTranslate2 type (`float32` if issues arise) |
 | `KOKORO_VOICE` | `af_heart` | TTS voice (see voices below) |
 | `GREETING` | *Hello. This property is monitored. Please state the purpose of your visit.* | What Gatekeeper says when a visitor is detected |
 | `REPLY_DELIVERY` | *Thank you. Please leave the package at the door.* | Reply to a delivery |
@@ -164,6 +165,47 @@ streams:
 ```
 
 The stream names must match `CAMERA_NAME` and `GO2RTC_TALK_STREAM` in docker-compose.
+
+## GPU (NVIDIA)
+
+With an NVIDIA GPU, `docker-compose.gpu.yml` moves the slow parts onto it.
+- **Frigate** detects people with YOLOv9 instead of its small default CPU model, so it makes
+  fewer mistakes (a bush at dawn, for example).
+- **Whisper** uses a much larger model and transcribes a visitor's answer in a fraction of
+  the time `base.en` takes on a CPU, which is most of the wait for a reply. On a GTX 1660 Ti
+  with real visits, per answer:
+  - `large-v3-turbo`: 1.1 s, and the most accurate (the override's default);
+  - `small.en`: 0.5 s;
+  - `base.en` on a 4-core CPU: 4.0 s.
+
+The default image stays CPU-only.
+
+1. **Install the NVIDIA driver and the
+   [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)**,
+   then run `sudo nvidia-ctk runtime configure --runtime=docker` and restart Docker. Check it
+   with `docker run --rm --gpus all ubuntu nvidia-smi`.
+2. **Export the detection model once:** `scripts/gpu/export-yolov9.sh` (a few minutes; YOLOv9-s
+   at 320×320). It writes it to `${DATA_DIR}/frigate/config/model_cache/`. YOLOv9 is GPL-3.0;
+   you export it yourself, and Gatekeeper doesn't ship it.
+3. **Turn it on** by adding this to `.env`:
+   ```
+   COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml
+   ```
+   then run `docker compose up -d --build`. The Gatekeeper image builds with the CUDA
+   libraries (`VARIANT=cuda`, about 4 GB more), and Frigate runs its `-tensorrt` image with
+   `frigate/config/config.gpu.yml`. That's `config.yml` plus the GPU detector, and a test
+   keeps the two in sync, so edit zones and masks in both.
+4. **Check it:**
+   - Frigate's *System* page lists the `onnx` detector, at about 20 ms per inference on a
+     GTX 1660 Ti (its default model takes 80 ms or more on a CPU).
+   - Gatekeeper's log says `loading Whisper model: … on cuda (int8_float16)`.
+   - If CUDA doesn't work, Whisper falls back to the CPU and logs why.
+5. **Optional, GPU video decoding:** Frigate still decodes the camera's video on the CPU. To
+   move that to the GPU too, add `hwaccel_args: preset-nvidia` under the camera's `ffmpeg`
+   in `config.gpu.yml`. It needs the driver's NVDEC library (`libnvcuvid.so.1`), which
+   Ubuntu's headless and server driver packages leave out (install
+   `libnvidia-decode-<version>` to add it). Without it, Frigate gets no frames at all: check
+   that the camera shows about 5 fps on the *System* page after restarting Frigate.
 
 ## Visitor classification
 
@@ -277,6 +319,45 @@ its own ~2.4 s before it's heard.
 | `frigate/config/` | Frigate database, model cache and secrets (`config.yml` comes from the repo) |
 | `frigate/storage/` | Frigate recordings, clips and snapshots |
 | `mosquitto/data/`, `mosquitto/log/` | MQTT broker persistence and log |
+
+## Running a rig
+
+`scripts/rig/` keeps a live install checked and up to date. The project's own rig runs it
+from cron, as a user in the `docker` group:
+
+```
+# Deploy every merge to main, within a minute or two
+* * * * * /docker/stack/scripts/rig/deploy.sh >> ~/.local/state/gatekeeper/deploy.log 2>&1
+# The daily report, and an hourly check that recordings have audio
+0 1 * * * /docker/stack/scripts/rig/daily-report.sh >> ~/.local/state/gatekeeper/rig.log 2>&1
+7 * * * * /docker/stack/scripts/rig/audio-check.sh >> ~/.local/state/gatekeeper/rig.log 2>&1
+```
+
+- **The daily report** (`daily-report.sh`; the checks are in `src/gatekeeper/report.py`)
+  looks at the last 24 hours. It checks that:
+  - every porch arrival was greeted, and every visit was notified within 3 s;
+  - there were no hangs, restarts or errors in Gatekeeper's log;
+  - recordings had audio;
+  - Frigate got camera frames and detected in time;
+  - Whisper ran on the device it should and answered fast enough;
+  - every deploy went through.
+
+  It lists every visit with what was heard and the reply, and the log's warnings and
+  errors grouped by kind. It sends the summary via ntfy and keeps the full report (JSON and
+  Markdown) in `~/.local/state/gatekeeper/reports/`.
+- **Publishing** (`publish-report.sh`): with `RIG_REPORTS_REPO` in `.env` (the SSH URL of a
+  **private** repository), each report is pushed there with a deploy key
+  (`~/.ssh/gatekeeper-reports`, or `RIG_REPORTS_KEY`). Reports hold visit times and what
+  visitors said, so never send them to a public repository. The project's reviewer reads
+  them there, files issues and opens pull requests.
+- **Auto-deploy** (`deploy.sh`) follows `main` (or `DEPLOY_BRANCH`):
+  - It builds while the old containers keep running.
+  - It restarts once no visit is in progress, and only what changed.
+  - It then checks that Gatekeeper turns healthy and Frigate gets camera frames. If not, it
+    rolls back and alerts.
+  - It only moves forward along the branch. While the checkout is on another branch (to
+    try something) or has local changes, it waits, and says so once.
+  - `touch ~/.local/state/gatekeeper/deploy-paused` pauses it.
 
 ## Development
 
