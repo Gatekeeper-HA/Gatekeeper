@@ -134,6 +134,7 @@ class FakeWhisper:
 
     loaded = []
     broken = set()
+    calls = []
 
     def __init__(self, name, device, compute_type):
         FakeWhisper.loaded.append((name, device, compute_type))
@@ -142,6 +143,7 @@ class FakeWhisper:
     def transcribe(self, audio, **kw):
         if self.device in FakeWhisper.broken:
             raise RuntimeError("Library libcudnn_ops.so.9 is not found")
+        FakeWhisper.calls.append(kw)
         return iter(()), None
 
 
@@ -150,7 +152,7 @@ def fake_whisper(monkeypatch):
     import sys
     import types
 
-    FakeWhisper.loaded, FakeWhisper.broken = [], set()
+    FakeWhisper.loaded, FakeWhisper.broken, FakeWhisper.calls = [], set(), []
     fake = types.SimpleNamespace(WhisperModel=FakeWhisper)
     monkeypatch.setitem(sys.modules, "faster_whisper", fake)
     return FakeWhisper
@@ -174,3 +176,12 @@ def test_whisper_falls_back_to_the_cpu_when_the_gpu_fails(fake_whisper):
         ("small.en", "cpu", "int8"),
     ]
     assert t._model.device == "cpu"
+
+
+def test_whisper_gets_the_hotwords_and_no_temperature_fallback(fake_whisper, tmp_path):
+    from gatekeeper.audio import Transcriber
+
+    t = Transcriber("large-v3-turbo", device="cpu", hotwords=" Abeler, Lindgren ")
+    assert t.transcribe(write_wav(tmp_path / "answer.wav")) == []
+    assert fake_whisper.calls[-1]["hotwords"] == "Abeler, Lindgren"
+    assert fake_whisper.calls[-1]["temperature"] == 0.0
