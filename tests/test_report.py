@@ -360,3 +360,26 @@ def test_people_leaving_by_the_door_are_counted_not_expected_to_be_notified():
     assert (
         "not greeted 0; 1 came out of the door and left (not greeted, on purpose)" in render_text(r)
     )
+
+
+def test_where_whisper_spends_its_time():
+    log = (
+        "### gatekeeper\n"
+        "2026-10-14 10:00:00,000 INFO    gatekeeper.audio [-] loading Whisper model: "
+        "large-v3-turbo on cuda (int8_float16)\n"
+        "2026-10-14 10:01:00,000 INFO    gatekeeper.audio [a] transcribed 9.4 s of audio in "
+        "1.84 s (features 0.31 s, model 1.53 s; load 2.4)\n"
+        "2026-10-14 10:02:00,000 INFO    gatekeeper.audio [b] transcribed 5.0 s of audio in "
+        "1.10 s (features 0.08 s, model 1.02 s; load 0.6)\n"
+        "2026-10-14 10:03:00,000 INFO    gatekeeper.audio [c] transcribed 4.0 s of audio in "
+        "1.05 s\n"  # before the split was logged
+    )
+    w = build(inputs(log_text=log))["whisper"]
+    assert w["transcriptions"] == 3
+    assert (w["median_model_seconds"], w["median_features_seconds"], w["median_load"]) == (
+        1.02,
+        0.08,
+        0.6,
+    )
+    text = render_text(build(inputs(log_text=log)))
+    assert "median 1.1 s (p90 1.8 s; model 1.0 s, features 0.1 s, CPU load 0.6)" in text

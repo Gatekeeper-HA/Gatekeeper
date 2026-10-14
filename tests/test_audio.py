@@ -185,3 +185,14 @@ def test_whisper_gets_the_hotwords_and_no_temperature_fallback(fake_whisper, tmp
     assert t.transcribe(write_wav(tmp_path / "answer.wav")) == []
     assert fake_whisper.calls[-1]["hotwords"] == "Abeler, Lindgren"
     assert fake_whisper.calls[-1]["temperature"] == 0.0
+
+
+def test_transcription_time_is_logged_as_the_report_reads_it(fake_whisper, tmp_path, caplog):
+    from gatekeeper.audio import Transcriber
+    from gatekeeper.report import TRANSCRIBED
+
+    caplog.set_level("INFO", logger="gatekeeper.audio")
+    Transcriber("large-v3-turbo", device="cpu").transcribe(write_wav(tmp_path / "a.wav"))
+    (line,) = [r.getMessage() for r in caplog.records if r.getMessage().startswith("transcribed")]
+    m = TRANSCRIBED.search(line)
+    assert m and m["model"] is not None and m["features"] is not None and m["load"] is not None

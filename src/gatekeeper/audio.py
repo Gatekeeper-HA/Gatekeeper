@@ -7,6 +7,7 @@ without them (install the ``speech`` extra for the real thing).
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 import time
 import wave
@@ -196,19 +197,36 @@ class Transcriber:
                 # garbage: on noise it took up to 7 s and only changed the garbage.
                 temperature=0.0,
             )
+            # transcribe() reads the audio and computes its features before it
+            # returns; the model (encoder, decoder, word timing) runs as the
+            # segments are read.
+            prepared = time.monotonic()
             words = [
                 Word(w.word, w.start, w.end) for seg in segments for w in (seg.words or [])
             ]
+            done = time.monotonic()
             # The daily report reads this line (gatekeeper.report).
             log.info(
-                "transcribed %.1f s of audio in %.2f s",
+                "transcribed %.1f s of audio in %.2f s (features %.2f s, model %.2f s; load %.1f)",
                 getattr(info, "duration", 0.0),
-                time.monotonic() - started,
+                done - started,
+                prepared - started,
+                done - prepared,
+                load_average(),
             )
             return words
         except Exception:
             log.exception("transcription error")
             return []
+
+
+def load_average() -> float:
+    """The host's 1-minute load average (how busy the CPUs are), or -1 where
+    there's none (Windows)."""
+    try:
+        return os.getloadavg()[0]
+    except (AttributeError, OSError):
+        return -1.0
 
 
 def kokoro_lang_code(voice: str) -> str:

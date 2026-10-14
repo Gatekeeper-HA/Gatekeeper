@@ -70,7 +70,10 @@ WHISPER_LOAD = re.compile(
     r"loading Whisper model: (?P<model>\S+) on (?P<device>\w+) \((?P<compute_type>\w+)\)"
 )
 WHISPER_FALLBACK = "Whisper couldn't run on the GPU"
-TRANSCRIBED = re.compile(r"transcribed (?P<audio>[\d.]+) s of audio in (?P<seconds>[\d.]+) s")
+TRANSCRIBED = re.compile(
+    r"transcribed (?P<audio>[\d.]+) s of audio in (?P<seconds>[\d.]+) s"
+    r"(?: \(features (?P<features>[\d.]+) s, model (?P<model>[\d.]+) s; load (?P<load>-?[\d.]+)\))?"
+)
 MADE_UP = "no speech where Whisper heard it"  # interaction: an answer Whisper made up
 
 LEVELS = {"WARNING": 1, "ERROR": 2, "CRITICAL": 3, "TRACEBACK": 3}
@@ -222,6 +225,7 @@ def whisper_info(lines: Iterable[str]) -> dict:
     many answers were ignored as made up from noise."""
     info: dict = {"model": None, "device": None, "compute_type": None, "fallback": False}
     turns = []
+    split: dict[str, list[float]] = {"features": [], "model": [], "load": []}
     made_up = 0
     for line in lines:
         if m := WHISPER_LOAD.search(line):
@@ -230,6 +234,9 @@ def whisper_info(lines: Iterable[str]) -> dict:
             info["fallback"] = True
         elif m := TRANSCRIBED.search(line):
             turns.append((float(m["audio"]), float(m["seconds"])))
+            if m["model"]:
+                for key in split:
+                    split[key].append(float(m[key]))
         elif MADE_UP in line:
             made_up += 1
     info["made_up_ignored"] = made_up
@@ -242,6 +249,12 @@ def whisper_info(lines: Iterable[str]) -> dict:
         info["p90_seconds"] = round(percentile(seconds, 0.9), 2)
         info["max_seconds"] = round(max(seconds), 2)
         info["median_audio_seconds"] = round(percentile([a for a, _ in turns], 0.5), 1)
+    if split["model"]:
+        # Where the time goes (Gatekeeper#16): reading the audio and its features, the
+        # model itself, and how busy the host's CPUs were.
+        info["median_features_seconds"] = round(percentile(split["features"], 0.5), 2)
+        info["median_model_seconds"] = round(percentile(split["model"], 0.5), 2)
+        info["median_load"] = round(percentile(split["load"], 0.5), 1)
     return info
 
 
@@ -489,7 +502,14 @@ def summary_lines(report: dict) -> list[str]:
     if w["transcriptions"]:
         lines.append(
             f"Whisper: {w['model']} on {w['device']}, {w['transcriptions']} answers, "
-            f"median {w['median_seconds']:.1f} s (p90 {w['p90_seconds']:.1f} s){made_up}"
+            f"median {w['median_seconds']:.1f} s (p90 {w['p90_seconds']:.1f} s"
+            + (
+                f"; model {w['median_model_seconds']:.1f} s, features "
+                f"{w['median_features_seconds']:.1f} s, CPU load {w['median_load']:.1f}"
+                if "median_model_seconds" in w
+                else ""
+            )
+            + f"){made_up}"
         )
     elif w["model"]:
         lines.append(f"Whisper: {w['model']} on {w['device']}, no answers{made_up}")
