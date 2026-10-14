@@ -35,6 +35,9 @@ HOURS = 24
 NOTIFY_SECONDS = 3.0  # from the visit's classification to the notification sent
 DETECTOR_MS = 100.0  # Frigate's inference time
 TRANSCRIBE_P90_SECONDS = {"cuda": 3.0, "cpu": 8.0}  # per answer, by Whisper's device
+# From the end of the visitor's answer to the reply starting (the conversation engine's
+# reply_latency): end-of-speech silence, Whisper, and queueing the reply.
+REPLY_P90_SECONDS = {"cuda": 3.5, "cpu": 7.0}
 MIN_CAMERA_FPS = 1.0
 FRIGATE_ERRORS = 50  # one camera dropout logs about 20 error lines
 MAX_SKIPPED_SHARE = 0.1  # of the camera's frames that detection drops
@@ -227,6 +230,21 @@ def whisper_info(lines: Iterable[str]) -> dict:
     return info
 
 
+def reply_info(visits: list[dict]) -> dict:
+    """How listening ended, and how soon replies started after the answer (the
+    conversation engine's ``endpoint`` and ``reply_latency`` visit fields)."""
+    seconds = [v["reply_latency"] for v in visits if v.get("reply_latency") is not None]
+    info: dict = {
+        "count": len(seconds),
+        "endpoints": dict(collections.Counter(v["endpoint"] for v in visits if v.get("endpoint"))),
+    }
+    if seconds:
+        info["median_seconds"] = round(percentile(seconds, 0.5), 2)
+        info["p90_seconds"] = round(percentile(seconds, 0.9), 2)
+        info["max_seconds"] = round(max(seconds), 2)
+    return info
+
+
 def frigate_info(stats: dict | None, camera: str) -> dict | None:
     if not stats:
         return None
@@ -338,6 +356,17 @@ def build(i: Inputs) -> dict:
             whisper["p90_seconds"] <= limit,
             f"Whisper p90 {whisper['p90_seconds']:.1f} s per answer",
         )
+    replies = reply_info(visits)
+    if replies["count"]:
+        limit = REPLY_P90_SECONDS["cuda" if whisper["device"] == "cuda" else "cpu"]
+        check(
+            "reply_speed",
+            replies["p90_seconds"] <= limit,
+            f"replies p90 {replies['p90_seconds']:.1f} s after the answer",
+        )
+    if replies["endpoints"]:
+        lost = replies["endpoints"].get("tap_lost", 0)
+        check("audio_tap", not lost, f"the audio tap was lost during {lost} visit(s)")
     failed_deploys = [d for d in deploys if d.get("result") not in ("deployed", "moved")]
     check("deploys", not failed_deploys, f"{len(failed_deploys)} failed deploy(s)")
 
@@ -385,6 +414,7 @@ def build(i: Inputs) -> dict:
         },
         "recording_audio": {"silent_hours": silent},
         "whisper": whisper,
+        "replies": replies,
         "frigate": frigate,
         "deploys": deploys,
         "logs": logs,
@@ -428,6 +458,14 @@ def summary_lines(report: dict) -> list[str]:
         )
     elif w["model"]:
         lines.append(f"Whisper: {w['model']} on {w['device']}, no answers")
+    r = report.get("replies") or {"count": 0, "endpoints": {}}
+    if r["count"]:
+        lines.append(
+            f"Replies: {r['count']}, median {r['median_seconds']:.1f} s after the answer "
+            f"(p90 {r['p90_seconds']:.1f} s; the camera adds ~2.4 s)"
+        )
+    if r["endpoints"]:
+        lines.append("Listening ended: " + ", ".join(f"{k} {v}" for k, v in r["endpoints"].items()))
     if f:
         detectors = ", ".join(f"{k} {v:.0f} ms" for k, v in f["detectors"].items() if v)
         lines.append(f"Frigate: {detectors or 'no detector'}, camera {f['camera_fps']} fps")
@@ -478,13 +516,14 @@ def render_markdown(report: dict) -> str:
     out += ["", "## Visits", ""]
     if report["visits"]:
         out += [
-            "| Start | Trigger | Outcome | Classification | Heard | Reply |",
-            "|---|---|---|---|---|---|",
+            "| Start | Trigger | Outcome | Classification | Heard | Reply | Ended | Reply after |",
+            "|---|---|---|---|---|---|---|---|",
         ]
         out += [
             f"| {v['start']} | {_cell(v.get('trigger'))} | {_cell(v.get('outcome'))} | "
             f"{_cell(v.get('classification'))} | {_cell(v.get('transcript'))} | "
-            f"{_cell(v.get('response'))} |"
+            f"{_cell(v.get('response'))} | {_cell(v.get('endpoint'))} | "
+            f"{_cell(v.get('reply_latency'))} |"
             for v in report["visits"]
         ]
     else:

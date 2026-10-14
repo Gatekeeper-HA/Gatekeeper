@@ -261,3 +261,39 @@ def test_collect_reads_the_logs_and_asks_frigate(settings):
     assert r["arrivals"] == {"total": 1, "missed": []}
     assert failing(r) == {}
     assert "labels=person" in asked[0] and asked[1].endswith("/api/stats")
+
+
+def test_reply_times_and_how_listening_ended():
+    answered = [
+        visit(NOW - 3600 + k, NOW - 3500 + k, endpoint="answered", reply_latency=s)
+        for k, s in enumerate((1.6, 1.9, 2.2))
+    ]
+    lost = visit(NOW - 1000, NOW - 990, endpoint="tap_lost")
+    visits = [*answered, lost]
+    r = build(inputs(visits=visits, window_visits=visits))
+
+    assert r["replies"] == {
+        "count": 3,
+        "endpoints": {"answered": 3, "tap_lost": 1},
+        "median_seconds": 1.9,
+        "p90_seconds": 2.2,
+        "max_seconds": 2.2,
+    }
+    assert "reply_speed" not in failing(r)
+    assert failing(r)["audio_tap"] == "the audio tap was lost during 1 visit(s)"
+    text = render_text(r)
+    assert "Replies: 3, median 1.9 s after the answer (p90 2.2 s" in text
+    assert "Listening ended: answered 3, tap_lost 1" in text
+    assert "| answered | 1.6 |" in render_markdown(r)
+
+
+def test_slow_replies_fail_on_the_gpu():
+    slow = visit(NOW - 3600, NOW - 3500, endpoint="answered", reply_latency=4.0)
+    r = build(inputs(visits=[slow], window_visits=[slow]))
+    assert failing(r)["reply_speed"] == "replies p90 4.0 s after the answer"
+
+
+def test_visits_without_the_engine_have_no_reply_checks():
+    r = build(inputs())
+    assert r["replies"] == {"count": 0, "endpoints": {}}
+    assert not {"reply_speed", "audio_tap"} & {c["name"] for c in r["checks"]}

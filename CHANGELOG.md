@@ -17,7 +17,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - **New settings:** `AUDIO_TAP`, `VAD_THRESHOLD`, `END_SILENCE_MS`, `MAX_ANSWER_SECONDS`,
     `TALKBACK_SESSION`. Without a working tap, visits record a fixed window as before.
   - **The visit log** records how listening ended (`endpoint`) and the time from the end of
-    the answer to the reply (`reply_latency`).
+    the answer to the reply (`reply_latency`). The daily report shows both, and checks the
+    replies' speed (p90 under 3.5 s on a GPU, 7 s on a CPU) and that the audio tap held.
   - `scripts/replay/endpointing.py` replays recorded visits through the endpointing, for
     tuning.
 - **NVIDIA GPU support (opt-in, `docker-compose.gpu.yml`):**
