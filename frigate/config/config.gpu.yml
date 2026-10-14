@@ -1,6 +1,11 @@
 # Frigate on an NVIDIA GPU (docker-compose.gpu.yml): config.yml plus the GPU detector
-# (YOLOv9 via ONNX on the -tensorrt image) and hardware video decoding. Everything else
-# must stay identical to config.yml; tests/test_frigate_config.py checks.
+# (YOLOv9 via ONNX on the -tensorrt image). Everything else must stay identical to
+# config.yml; tests/test_frigate_config.py checks.
+#
+# Video is decoded on the CPU, as without the GPU. GPU decoding (`hwaccel_args:
+# preset-nvidia` under the camera's ffmpeg) needs the driver's NVDEC library,
+# libnvcuvid.so.1, which Ubuntu's headless and server driver packages leave out: without
+# it Frigate gets no frames at all.
 
 mqtt:
   enabled: true
@@ -27,8 +32,6 @@ model:
 cameras:
   front_door:
     ffmpeg:
-      # NVDEC: the GPU decodes the camera's video.
-      hwaccel_args: preset-nvidia
       inputs:
         # DETECT (low stream)
         - path: rtsp://go2rtc:8554/front_door_sub

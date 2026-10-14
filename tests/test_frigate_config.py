@@ -19,8 +19,6 @@ def test_gpu_config_is_the_cpu_config_plus_the_gpu_detector():
     model = gpu.pop("model")
     assert model["model_type"] == "yolo-generic"
     assert model["path"].startswith("/config/model_cache/")
-    for camera in gpu["cameras"].values():
-        assert camera["ffmpeg"].pop("hwaccel_args") == "preset-nvidia"
 
     assert gpu == cpu
 
