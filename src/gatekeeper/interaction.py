@@ -24,7 +24,7 @@ from gatekeeper.config import Settings
 from gatekeeper.eventlog import EventLog
 from gatekeeper.listen import Word, join_words, strip_greeting
 from gatekeeper.logs import event_id_var
-from gatekeeper.vad import Endpointer, TurnEnd, speech_seconds
+from gatekeeper.vad import CHUNK_SECONDS, Endpointer, TurnEnd, speech_seconds
 
 log = logging.getLogger(__name__)
 
@@ -463,10 +463,9 @@ class Interaction:
         started = await asyncio.shield(playback.started)
         sent = await wait_sent(playback) or started + playback.seconds
         echo_end = sent + TALKBACK_LATENCY_SECONDS
+        listen_from = echo_end - ECHO_MARGIN_SECONDS
         turn = await self._endpoint(
-            self._endpointer(
-                echo_end - ECHO_MARGIN_SECONDS, echo_end + s.listen_seconds, max_answer
-            ),
+            self._endpointer(listen_from, echo_end + s.listen_seconds, max_answer),
             started,
         )
         words: list[Word] = []
@@ -483,6 +482,12 @@ class Interaction:
             )
             if clip is None:
                 break
+            if turn.reason == "no_input" and not self._spoke_over(started, listen_from):
+                # Nobody spoke: anything Whisper made of the clip would fail the speech
+                # check (MIN_ANSWER_SPEECH_SECONDS) anyway, and skipping it asks again
+                # ~1.5 s sooner. An answer said over the prompt is still transcribed.
+                log.info("no speech: not transcribed")
+                break
             stt = asyncio.ensure_future(self._in_thread(self._transcriber.transcribe, clip))
             if turn.reason != "answered" or resumed:
                 words = await stt
@@ -498,6 +503,16 @@ class Interaction:
         visit.endpoint = turn.reason
         visit.speech_end = turn.speech_end
         return words
+
+    def _spoke_over(self, t0: float, t1: float) -> bool:
+        """Did the tap hear speech between ``t0`` and ``t1`` (while the prompt played,
+        before listening began)? The prompt's own echo rarely counts as speech."""
+        speech = sum(
+            CHUNK_SECONDS
+            for t, p in self._tap.probs_after(t0)
+            if t <= t1 and p >= self.settings.vad_threshold
+        )
+        return speech >= MIN_ANSWER_SPEECH_SECONDS
 
     async def _endpoint(self, ep: Endpointer, after: float) -> TurnEnd:
         """Feed the tap's speech probabilities (from ``after``) to ``ep`` until it ends the turn."""

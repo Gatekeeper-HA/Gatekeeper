@@ -636,3 +636,26 @@ def test_the_household_by_the_door_is_only_logged(settings, outcome):
     assert record["outcome"] == outcome
     assert record["trigger"] == "person"
     assert record["classification"] is None and record["response"] is None
+
+
+def test_silent_turns_are_not_transcribed(settings):
+    rig = Rig(settings, answer="", answer2="", speech=[])
+    rig.interaction.run(EID)
+    (record,) = rig.log_records()
+    assert (record["endpoint"], record["turns"], record["classification"]) == (
+        "no_input",
+        2,
+        "no_response",
+    )
+    assert rig.interaction._transcriber.calls == 0  # asked again without waiting on Whisper
+
+
+def test_an_answer_said_over_the_greeting_is_still_heard(settings):
+    # They answered while the greeting played and stopped before it ended, so the
+    # listening that starts after its echo hears nothing.
+    rig = Rig(settings, speech=[(T0 + 3.0, ECHO_END - 1.0)])
+    rig.interaction.run(EID)
+    (record,) = rig.log_records()
+    assert record["transcript"] == "I have a package for you"
+    assert record["classification"] == "likely_delivery"
+    assert rig.interaction._transcriber.calls == 1

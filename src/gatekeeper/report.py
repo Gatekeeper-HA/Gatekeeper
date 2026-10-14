@@ -75,6 +75,7 @@ TRANSCRIBED = re.compile(
     r"(?: \(features (?P<features>[\d.]+) s, model (?P<model>[\d.]+) s; load (?P<load>-?[\d.]+)\))?"
 )
 MADE_UP = "no speech where Whisper heard it"  # interaction: an answer Whisper made up
+NOT_TRANSCRIBED = "no speech: not transcribed"  # interaction: a silent turn
 
 LEVELS = {"WARNING": 1, "ERROR": 2, "CRITICAL": 3, "TRACEBACK": 3}
 ERROR_LEVELS = {"ERROR", "CRITICAL", "TRACEBACK"}
@@ -228,7 +229,7 @@ def whisper_info(lines: Iterable[str]) -> dict:
     info: dict = {"model": None, "device": None, "compute_type": None, "fallback": False}
     turns = []
     split: dict[str, list[float]] = {"features": [], "model": [], "load": []}
-    made_up = 0
+    made_up = silent = 0
     for line in lines:
         if m := WHISPER_LOAD.search(line):
             info.update(m.groupdict(), fallback=False)
@@ -241,7 +242,10 @@ def whisper_info(lines: Iterable[str]) -> dict:
                     split[key].append(float(m[key]))
         elif MADE_UP in line:
             made_up += 1
+        elif NOT_TRANSCRIBED in line:
+            silent += 1
     info["made_up_ignored"] = made_up
+    info["silent_turns_skipped"] = silent
     if info["fallback"]:
         info["device"] = "cpu"
     seconds = [s for _, s in turns]
@@ -506,6 +510,10 @@ def summary_lines(report: dict) -> list[str]:
     ]
     made_up = (
         f", {w['made_up_ignored']} made-up answer(s) ignored" if w.get("made_up_ignored") else ""
+    ) + (
+        f", {w['silent_turns_skipped']} silent turn(s) not transcribed"
+        if w.get("silent_turns_skipped")
+        else ""
     )
     if w["transcriptions"]:
         lines.append(
