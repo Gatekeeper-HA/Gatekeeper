@@ -166,7 +166,7 @@ The stream names must match `CAMERA_NAME` and `GO2RTC_TALK_STREAM` in docker-com
 
 With an NVIDIA GPU, `docker-compose.gpu.yml` moves the slow parts onto it.
 - **Frigate** detects people with YOLOv9 instead of its small default CPU model, so it makes
-  fewer mistakes (a bush at dawn, for example), and decodes the video on the GPU.
+  fewer mistakes (a bush at dawn, for example).
 - **Whisper** uses a much larger model and transcribes a visitor's answer in a fraction of
   the time `base.en` takes on a CPU, which is most of the wait for a reply. On a GTX 1660 Ti
   with real visits, per answer:
@@ -188,14 +188,20 @@ The default image stays CPU-only.
    COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml
    ```
    then run `docker compose up -d --build`. The Gatekeeper image builds with the CUDA
-   libraries (`VARIANT=cuda`, about 1 GB more), and Frigate runs its `-tensorrt` image with
+   libraries (`VARIANT=cuda`, about 4 GB more), and Frigate runs its `-tensorrt` image with
    `frigate/config/config.gpu.yml`. That's `config.yml` plus the GPU detector, and a test
    keeps the two in sync, so edit zones and masks in both.
 4. **Check it:**
-   - Frigate's *System* page lists the `onnx` detector with an inference time of a few
-     milliseconds.
+   - Frigate's *System* page lists the `onnx` detector, at about 20 ms per inference on a
+     GTX 1660 Ti (its default model takes 80 ms or more on a CPU).
    - Gatekeeper's log says `loading Whisper model: … on cuda (int8_float16)`.
    - If CUDA doesn't work, Whisper falls back to the CPU and logs why.
+5. **Optional, GPU video decoding:** Frigate still decodes the camera's video on the CPU. To
+   move that to the GPU too, add `hwaccel_args: preset-nvidia` under the camera's `ffmpeg`
+   in `config.gpu.yml`. It needs the driver's NVDEC library (`libnvcuvid.so.1`), which
+   Ubuntu's headless and server driver packages leave out (install
+   `libnvidia-decode-<version>` to add it). Without it, Frigate gets no frames at all: check
+   that the camera shows about 5 fps on the *System* page after restarting Frigate.
 
 ## Visitor classification
 

@@ -4,7 +4,8 @@
 # Use it on top of docker-compose.yml, e.g. permanently with this line in .env:
 #   COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml
 #
-# - Frigate runs its object detection (YOLOv9) and video decoding on the GPU.
+# - Frigate runs its object detection (YOLOv9) on the GPU. Video is still decoded on the
+#   CPU (see config.gpu.yml).
 # - Gatekeeper runs Whisper on the GPU, so a bigger, more accurate model answers in a
 #   fraction of the time base.en takes on a CPU.
 

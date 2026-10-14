@@ -7,9 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 - **NVIDIA GPU support (opt-in, `docker-compose.gpu.yml`):**
-  - **Frigate** runs YOLOv9 on the GPU (the `-tensorrt` image, `config.gpu.yml`) and decodes
-    video there. A test keeps `config.gpu.yml` the same as `config.yml` apart from the GPU
-    parts. `scripts/gpu/export-yolov9.sh` exports the model.
+  - **Frigate** detects with YOLOv9 on the GPU (the `-tensorrt` image, `config.gpu.yml`), at
+    about 20 ms per inference on the rig's GTX 1660 Ti against 83 ms for its default CPU
+    model. A test keeps `config.gpu.yml` the same as `config.yml` apart from the GPU parts.
+    `scripts/gpu/export-yolov9.sh` exports the model. Video decoding stays on the CPU: GPU
+    decoding needs NVDEC, which headless server drivers leave out (README).
   - **Gatekeeper's image** can be built with the CUDA libraries Whisper needs
     (`VARIANT=cuda`, `requirements-cuda.lock`), and the override runs a larger Whisper model
     on the GPU.
