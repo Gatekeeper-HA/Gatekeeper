@@ -25,6 +25,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Whisper no longer re-decodes at higher temperatures** when its output looks like
   garbage. On noise that took up to 7 s and only produced different made-up text.
 
+## [0.2.1] - 2026-10-13
+
+### Fixed
+Found by installing the Home Assistant add-on on a slow virtual machine:
+- **Greetings and replies are no longer cut off on a slow or busy CPU.** The talkback
+  session closed a fixed time after the clip started. When the CPU couldn't send the audio in
+  real time, it closed mid-sentence. It now stays open until the clip's last frame has been
+  sent (up to 15 s late), then holds as before. A late clip logs a warning that the CPU is
+  too slow or too busy.
+- **A recording that runs over its time limit is kept, not thrown away.** ffmpeg is now asked
+  to stop, which makes it finish the WAV file, instead of being killed. What it recorded is
+  transcribed as usual.
+- **No more downloading at every start.** Kokoro's English pronunciation needs spaCy's
+  `en_core_web_sm` model, which was downloaded (12.8 MB) each time the container started. It
+  is now part of the image, pinned in `requirements.lock`.
+
 ## [0.2.0] - 2026-10-12
 
 Phase 0 is done. This is 0.2.0-rc.1 unchanged, after a week on a live porch
@@ -46,20 +62,6 @@ solicitor.
   (`CLA.md`, with Lobo Dorado LLC) that covers every repository in the Gatekeeper-HA
   organization. A GitHub workflow asks first-time contributors to agree on their pull
   request and records the agreement on the `cla-signatures` branch.
-
-### Fixed
-Found by installing the Home Assistant add-on on a slow virtual machine:
-- **Greetings and replies are no longer cut off on a slow or busy CPU.** The talkback
-  session closed a fixed time after the clip started. When the CPU couldn't send the audio in
-  real time, it closed mid-sentence. It now stays open until the clip's last frame has been
-  sent (up to 15 s late), then holds as before. A late clip logs a warning that the CPU is
-  too slow or too busy.
-- **A recording that runs over its time limit is kept, not thrown away.** ffmpeg is now asked
-  to stop, which makes it finish the WAV file, instead of being killed. What it recorded is
-  transcribed as usual.
-- **No more downloading at every start.** Kokoro's English pronunciation needs spaCy's
-  `en_core_web_sm` model, which was downloaded (12.8 MB) each time the container started. It
-  is now part of the image, pinned in `requirements.lock`.
 
 ## [0.2.0-rc.1] - 2026-10-04
 
