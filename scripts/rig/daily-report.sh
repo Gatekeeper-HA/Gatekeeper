@@ -58,8 +58,11 @@ done
 
 # Deploys in the last 24 h (deploy.sh).
 since=$(( $(date +%s) - 86400 ))
-deploys=$(jq -sc --argjson since "$since" '[.[] | select(.ts >= $since)]' \
-  "$state/deploys.jsonl" 2>/dev/null || echo '[]')
+deploys='[]'
+if [ -s "$state/deploys.jsonl" ]; then  # jq prints [] and fails on a missing file
+  deploys=$(jq -sc --argjson since "$since" '[.[] | select(.ts >= $since)]' \
+    "$state/deploys.jsonl")
+fi
 
 host=$(jq -nc --argjson hang_exits "$hang_exits" --argjson restarts "$restarts" \
   --argjson silent "$silent" --arg started "$started" --arg health "$health" \
@@ -80,6 +83,7 @@ if {
     --notify > "$out.json" 2> "$out.err"; then
   docker exec -i gatekeeper python -m gatekeeper.report --render markdown < "$out.json" > "$out.md"
   docker exec -i gatekeeper python -m gatekeeper.report --render text < "$out.json"
+  rm -f "$out.err"
 else
   # The report itself broke: say so, and publish the error for the reviewer.
   cat "$out.err"
