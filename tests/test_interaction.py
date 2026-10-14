@@ -71,7 +71,9 @@ class FakeTap:
         k = math.floor(t / CHUNK_SECONDS + 1e-9) + 1
         while k * CHUNK_SECONDS <= min(self.rig.now, self.up_until):
             ct = k * CHUNK_SECONDS
-            out.append((ct, 0.9 if any(a <= ct <= b for a, b in self.speech) else 0.02))
+            # (start, end) is clear speech; (start, end, p) speech at probability p.
+            p = next((s[2] if len(s) > 2 else 0.9 for s in self.speech if s[0] <= ct <= s[1]), 0.02)
+            out.append((ct, p))
             k += 1
         return out
 
@@ -659,3 +661,21 @@ def test_an_answer_said_over_the_greeting_is_still_heard(settings):
     assert record["transcript"] == "I have a package for you"
     assert record["classification"] == "likely_delivery"
     assert rig.interaction._transcriber.calls == 1
+
+
+def test_weak_speech_over_noise_is_still_transcribed(settings):
+    # The first officer test, with a lawnmower next door: Silero scored the answer
+    # at 0.40-0.61, too weak to start an answer (0.5), so listening ended no_input.
+    # Whisper heard it; the clip must still go to Whisper.
+    rig = Rig(settings, speech=[(ECHO_END + 1.0, ECHO_END + 2.5, 0.42)])
+    rig.interaction.run(EID)
+    record = rig.log_records()[0]
+    assert record["endpoint"] == "no_input"
+    assert rig.interaction._transcriber.calls >= 1
+    assert record["transcript"] == "I have a package for you"
+
+
+def test_mower_noise_alone_is_not_transcribed(settings):
+    rig = Rig(settings, answer="", answer2="", speech=[(T0, ECHO_END + 10, 0.14)])
+    rig.interaction.run(EID)
+    assert rig.interaction._transcriber.calls == 0

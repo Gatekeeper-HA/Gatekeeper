@@ -49,6 +49,8 @@ TAP_POLL_SECONDS = 0.05
 # An answer needs at least this much speech (by Silero) where Whisper heard it;
 # less, and Whisper made it up from noise ("Thanks for watching!").
 MIN_ANSWER_SPEECH_SECONDS = 0.25
+# A turn with less than this of even weak speech isn't transcribed (Interaction._any_speech).
+ANY_SPEECH_SECONDS = 0.1
 # Photos of a document held up to the camera (a warrant): how many, how far apart.
 FRAME_COUNT = 3
 FRAME_INTERVAL_SECONDS = 1.0
@@ -482,10 +484,12 @@ class Interaction:
             )
             if clip is None:
                 break
-            if turn.reason == "no_input" and not self._spoke_over(started, listen_from):
-                # Nobody spoke: anything Whisper made of the clip would fail the speech
-                # check (MIN_ANSWER_SPEECH_SECONDS) anyway, and skipping it asks again
-                # ~1.5 s sooner. An answer said over the prompt is still transcribed.
+            if turn.reason == "no_input" and not self._any_speech(started, turn.at):
+                # Not even a hint of speech in the whole clip: anything Whisper made of
+                # it would fail the speech check (MIN_ANSWER_SPEECH_SECONDS) anyway, and
+                # skipping it asks again ~1.5 s sooner. Speech too weak to start an
+                # answer (a voice over a lawnmower) or said over the prompt is still
+                # transcribed.
                 log.info("no speech: not transcribed")
                 break
             stt = asyncio.ensure_future(self._in_thread(self._transcriber.transcribe, clip))
@@ -504,15 +508,14 @@ class Interaction:
         visit.speech_end = turn.speech_end
         return words
 
-    def _spoke_over(self, t0: float, t1: float) -> bool:
-        """Did the tap hear speech between ``t0`` and ``t1`` (while the prompt played,
-        before listening began)? The prompt's own echo rarely counts as speech."""
-        speech = sum(
-            CHUNK_SECONDS
-            for t, p in self._tap.probs_after(t0)
-            if t <= t1 and p >= self.settings.vad_threshold
-        )
-        return speech >= MIN_ANSWER_SPEECH_SECONDS
+    def _any_speech(self, t0: float, t1: float) -> bool:
+        """Did the tap hear any hint of speech between ``t0`` and ``t1``: 0.1 s above
+        the level where speech ends (``VAD_THRESHOLD`` - 0.15)? Noise alone stays well
+        below it: a lawnmower next door scored up to 0.14, the officer talking over it
+        0.40-0.61. The prompt's own echo rarely counts."""
+        level = max(self.settings.vad_threshold - 0.15, 0.01)
+        speech = sum(CHUNK_SECONDS for t, p in self._tap.probs_after(t0) if t <= t1 and p >= level)
+        return speech >= ANY_SPEECH_SECONDS
 
     async def _endpoint(self, ep: Endpointer, after: float) -> TurnEnd:
         """Feed the tap's speech probabilities (from ``after``) to ``ep`` until it ends the turn."""
