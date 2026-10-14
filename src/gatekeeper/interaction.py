@@ -45,6 +45,9 @@ PLAYBACK_LAG_WARN_SECONDS = 1.0
 # end: the latency estimate is approximate, and Silero rarely mistakes the echo
 # (our TTS through the doorbell speaker) for speech anyway.
 ECHO_MARGIN_SECONDS = 0.5
+# Words Whisper places this long after the prompt's estimated echo end are the
+# visitor's, even if they repeat the prompt (its timestamps are approximate).
+ECHO_UNTIL_SLACK_SECONDS = 0.5
 TAP_POLL_SECONDS = 0.05
 # An answer needs at least this much speech (by Silero) where Whisper heard it;
 # less, and Whisper made it up from noise ("Thanks for watching!").
@@ -396,13 +399,13 @@ class Interaction:
         suffix = "" if visit.turns == 1 else f"-{visit.turns}"
         path = self.settings.in_dir / f"{visit.event_id}{suffix}.wav"
         if self._tap is not None and self._tap.healthy():
-            words = await self._answer_from_tap(visit, playback, path, max_answer)
+            words, echo_until = await self._answer_from_tap(visit, playback, path, max_answer)
         else:
             if self._tap is not None:
                 log.warning("audio tap down; recording a fixed window instead")
-            words = await self._answer_from_window(visit, playback, path, max_answer)
+            words, echo_until = await self._answer_from_window(visit, playback, path, max_answer)
 
-        answer, method = strip_greeting(words, prompt)
+        answer, method = strip_greeting(words, prompt, echo_until)
         if answer:
             spoken = await self._in_thread(
                 self._speech_check, path, answer[0].start - 0.3, answer[-1].end + 0.3
@@ -430,9 +433,11 @@ class Interaction:
 
     async def _answer_from_window(
         self, visit: Visit, playback, path: Path, max_answer: float | None = None
-    ) -> list[Word]:
+    ) -> tuple[list[Word], float | None]:
         """Record a fixed window from the prompt's start: its echo plus
-        LISTEN_SECONDS, or more for a long answer (the Phase 0 way, without the tap)."""
+        LISTEN_SECONDS, or more for a long answer (the Phase 0 way, without the tap).
+        The recording's start relative to the prompt isn't known, so neither is
+        when the echo ends in it."""
         s = self.settings
         visit.endpoint, visit.speech_end = "window", None
         listen = s.listen_seconds if max_answer is None else max(s.listen_seconds, max_answer / 2)
@@ -440,8 +445,8 @@ class Interaction:
         clip = await self._in_thread(self._capture, s.audio_rtsp_url, path, seconds)
         log.info("capture: %s (%d bytes)", clip, clip.stat().st_size if clip else 0)
         if not clip:
-            return []
-        return await self._in_thread(self._transcriber.transcribe, clip)
+            return [], None
+        return await self._in_thread(self._transcriber.transcribe, clip), None
 
     def _endpointer(
         self, listen_from: float, no_input_by: float, max_answer: float | None = None
@@ -457,8 +462,9 @@ class Interaction:
 
     async def _answer_from_tap(
         self, visit: Visit, playback, path: Path, max_answer: float | None = None
-    ) -> list[Word]:
-        """Listen on the audio tap until the visitor has finished answering."""
+    ) -> tuple[list[Word], float | None]:
+        """Listen on the audio tap until the visitor has finished answering. Returns
+        the words and when the prompt's echo ended in the clip."""
         s = self.settings
         started = await asyncio.shield(playback.started)
         sent = await wait_sent(playback) or started + playback.seconds
@@ -497,7 +503,8 @@ class Interaction:
             turn, resumed = more, True
         visit.endpoint = turn.reason
         visit.speech_end = turn.speech_end
-        return words
+        # The clip starts when the prompt started playing.
+        return words, echo_end - started + ECHO_UNTIL_SLACK_SECONDS
 
     async def _endpoint(self, ep: Endpointer, after: float) -> TurnEnd:
         """Feed the tap's speech probabilities (from ``after``) to ``ep`` until it ends the turn."""

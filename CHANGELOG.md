@@ -98,6 +98,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   work while Gatekeeper is down. Update the cron lines (README, "Running a rig").
 
 ### Fixed
+- **An answer that repeats the question isn't cut as its echo any more.** "Do you have a
+  warrant?" "I do not have a warrant." was dropped as the prompt's own echo (an
+  officer test, with a lawnmower next door). With the audio tap, words after the
+  echo's end are always the visitor's.
 - **Answers Whisper made up from noise are ignored** ("Thanks for watching!", "Please click
   the link in the description below"). An answer only counts if Silero VAD hears at least
   0.25 s of speech where Whisper put its words; otherwise the visit is treated as no answer.

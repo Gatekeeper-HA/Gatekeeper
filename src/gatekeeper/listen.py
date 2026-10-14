@@ -38,16 +38,30 @@ def _norm(text: str) -> str:
     return re.sub(r"[^\w']+", "", text.lower())
 
 
-def strip_greeting(words: list[Word], greeting: str) -> tuple[list[Word], str]:
-    """Return ``(answer_words, method)``; method is "matched" or "unmatched"."""
+def strip_greeting(
+    words: list[Word], greeting: str, echo_until: float | None = None
+) -> tuple[list[Word], str]:
+    """Return ``(answer_words, method)``; method is "matched" or "unmatched".
+
+    With ``echo_until`` (when the greeting's echo is known to have ended, in clip
+    seconds), words starting after it are always the visitor's, even when they repeat
+    the greeting's last words: "Do you have a warrant?" "I do not have a warrant."
+    """
+    later: list[Word] = []
+    if echo_until is not None:
+        later = [w for w in words if w.start >= echo_until]
+        words = [w for w in words if w.start < echo_until]
+    rest, method = _strip(words, greeting)
+    return rest + later, method
+
+
+def _strip(words: list[Word], greeting: str) -> tuple[list[Word], str]:
     spoken = [_norm(w.text) for w in words]
     expected = [n for n in (_norm(w) for w in greeting.split()) if n]
 
     matcher = difflib.SequenceMatcher(a=spoken, b=expected, autojunk=False)
     blocks = [b for b in matcher.get_matching_blocks() if b.size]
-    strong = [
-        b for b in blocks if b.size >= 3 or (b.size >= 2 and b.b + b.size == len(expected))
-    ]
+    strong = [b for b in blocks if b.size >= 3 or (b.size >= 2 and b.b + b.size == len(expected))]
     if strong or sum(b.size for b in blocks) >= max(2, len(expected) // 2):
         # Cut after the last run of 2+ greeting words: a lone matching word
         # further on is more likely the visitor's ("please") than the greeting's.
