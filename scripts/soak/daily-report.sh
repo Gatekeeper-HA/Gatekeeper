@@ -14,6 +14,8 @@ recordings="${DATA_DIR:-./data}/frigate/storage/recordings"
 hang_exits=$(docker logs --since 24h gatekeeper 2>&1 | grep -c "internal hang" || true)
 started=$(docker inspect -f '{{.State.StartedAt}}' gatekeeper | cut -c1-16)
 health=$(docker inspect -f '{{.State.Health.Status}}' gatekeeper)
+# ffprobe comes from Gatekeeper's own image (gatekeeper:local, or :local-cuda with the GPU).
+image=$(docker inspect -f '{{.Config.Image}}' gatekeeper)
 
 # Restarts since the last report: Docker's RestartCount is per container (a deploy
 # recreates it and starts again from 0), so compare with what the last run saw.
@@ -32,7 +34,7 @@ for h in $(seq 0 23); do
   dir="$recordings/$(date -u -d "-$h hour" +%Y-%m-%d/%H)/front_door"
   first=$(ls "$dir" 2>/dev/null | head -1 || true)
   [ -z "$first" ] && continue
-  packets=$(docker run --rm -v "$(realpath "$dir")":/r:ro gatekeeper:local \
+  packets=$(docker run --rm -v "$(realpath "$dir")":/r:ro "$image" \
     ffprobe -v error -select_streams a:0 -count_packets -show_entries stream=nb_read_packets \
     -of csv=p=0 "/r/$first" 2>/dev/null || echo 0)
   if [ "${packets:-0}" -lt 50 ]; then
