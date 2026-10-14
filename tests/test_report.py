@@ -184,6 +184,25 @@ def test_problems_fail_their_checks_and_make_the_title():
     assert "gatekeeper log: 2 error(s), e.g. BrokenPipeError" in render_text(r)
 
 
+def test_logs_that_start_after_a_deploy_say_so():
+    recreated = report.datetime.datetime.fromtimestamp(NOW - 600, report.datetime.UTC)
+    host = {
+        **HOST,
+        "created": {
+            "gatekeeper": recreated.strftime("%Y-%m-%dT%H:%M:%S.123456789Z"),
+            "frigate": "2026-01-01T00:00:00Z",  # before the window: its log covers the day
+        },
+    }
+    r = build(inputs(host=host))
+
+    assert r["logs"]["since"] == {"gatekeeper": report.local(NOW - 600)}
+    assert (
+        f"Logs only since the container was recreated: gatekeeper from {report.local(NOW - 600)}"
+    ) in render_text(r)
+    assert "Logs only since" not in render_text(build(inputs()))
+    assert build(inputs(host={**HOST, "created": {"frigate": ""}}))["logs"]["since"] == {}
+
+
 def test_detection_that_drops_frames_fails():
     stats = {"detectors": {}, "cameras": {"front_door": {"camera_fps": 5.0, "skipped_fps": 2.0}}}
     assert failing(build(inputs(stats=stats)))["detection_keeps_up"] == (

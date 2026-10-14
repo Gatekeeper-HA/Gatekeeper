@@ -3,7 +3,8 @@ checked against what Gatekeeper should do.
 
 It runs inside the gatekeeper container (``python -m gatekeeper.report``), so the report
 always comes from the code that's deployed. ``scripts/rig/daily-report.sh`` passes in what
-only the host can see (restarts, recording audio, deploys) as JSON in ``REPORT_HOST``,
+only the host can see (restarts, recording audio, deploys, when each container was
+created) as JSON in ``REPORT_HOST``,
 and the containers' logs on stdin. The report is printed as JSON; ``--render text`` or
 ``--render markdown`` turns that JSON into the notification or the published page.
 
@@ -87,6 +88,14 @@ def visit_start(visit: dict) -> float:
         return float(visit["event_id"].removeprefix("press-").split("-")[0])
     except (KeyError, ValueError):
         return visit.get("ts", 0.0)
+
+
+def utc_timestamp(iso: str) -> float | None:
+    """A UTC time from ``docker inspect`` (``2026-10-14T01:36``, maybe with seconds)."""
+    try:
+        return datetime.datetime.fromisoformat(iso[:19]).replace(tzinfo=datetime.UTC).timestamp()
+    except (TypeError, ValueError):
+        return None
 
 
 def percentile(values: list[float], share: float) -> float:
@@ -309,6 +318,12 @@ def build(i: Inputs) -> dict:
     whisper = whisper_info(sources.get("whisper", []) + sources.get("gatekeeper", []))
     frigate = frigate_info(i.stats, i.camera)
     deploys = host.get("deploys", [])
+    # A recreated container (a deploy) starts a new log: what came before is gone.
+    logs["since"] = {
+        name: local(ts)
+        for name, created in host.get("created", {}).items()
+        if (ts := utc_timestamp(created)) and ts > since
+    }
     hangs = outcomes.get("timeout", 0) + host.get("hang_exits", 0) + host.get("restarts", 0)
 
     checks: list[dict] = []
@@ -491,6 +506,12 @@ def summary_lines(report: dict) -> list[str]:
                 f"{source} log: {s['errors']} error(s), e.g. "
                 f"{(first['exception'] or first['message'])[:80]}"
             )
+    if since := report["logs"].get("since"):
+        lines.append(
+            "Logs only since the container was recreated: "
+            + ", ".join(f"{name} from {t}" for name, t in since.items())
+            + " (errors and Whisper's times before then aren't counted)"
+        )
     if report["deploys"]:
         lines.append(
             "Deploys: "
