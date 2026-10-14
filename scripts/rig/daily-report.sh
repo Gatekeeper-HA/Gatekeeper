@@ -68,9 +68,11 @@ host=$(jq -nc --argjson hang_exits "$hang_exits" --argjson restarts "$restarts" 
   --argjson silent "$silent" --arg started "$started" --arg health "$health" \
   --arg commit "$(git rev-parse HEAD)" --arg subject "$(git log -1 --format=%s)" \
   --arg image "$image" --argjson deploys "$deploys" \
+  --arg gk_created "$created" \
+  --arg frigate_created "$(docker inspect -f '{{.Created}}' frigate 2>/dev/null || true)" \
   '{hang_exits: $hang_exits, restarts: $restarts, silent_audio_hours: $silent,
     started: $started, health: $health, commit: $commit, subject: $subject, image: $image,
-    deploys: $deploys}')
+    deploys: $deploys, created: {gatekeeper: $gk_created, frigate: $frigate_created}}')
 
 if {
   echo "### whisper"

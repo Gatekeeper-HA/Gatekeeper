@@ -333,7 +333,8 @@ from cron, as a user in the `docker` group:
   - every deploy went through.
 
   It lists every visit with what was heard and the reply, and the log's warnings and
-  errors grouped by kind. It sends the summary via ntfy and keeps the full report (JSON and
+  errors grouped by kind (a container recreated by a deploy only has its log since then, and
+  the report says so). It sends the summary via ntfy and keeps the full report (JSON and
   Markdown) in `~/.local/state/gatekeeper/reports/`.
 - **Publishing** (`publish-report.sh`): with `RIG_REPORTS_REPO` in `.env` (the SSH URL of a
   **private** repository), each report is pushed there with a deploy key
