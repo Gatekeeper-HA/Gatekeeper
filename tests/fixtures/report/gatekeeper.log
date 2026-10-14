@@ -1,0 +1,19 @@
+2026-10-13 19:32:22,661 WARNING huggingface_hub.utils._http [-] Warning: You are sending unauthenticated requests to the HF Hub.
+/usr/local/lib/python3.11/site-packages/torch/nn/modules/rnn.py:1011: UserWarning: dropout option adds dropout after all but last recurrent layer
+  super().__init__("LSTM", *args, **kwargs)
+2026-10-13 19:33:31,255 INFO    gatekeeper.audio [-] loading Whisper model: large-v3-turbo on cuda (int8_float16)
+2026-10-13 19:46:39,352 INFO    gatekeeper.audio [1791938780.279764-b58z6l] transcribed 12.0 s of audio in 1.82 s
+2026-10-13 19:50:00,000 WARNING gatekeeper.talkback [1791938780.279764-b58z6l] clip ended 3.2 s late
+2026-10-13 20:00:00,000 ERROR   gatekeeper.audio [1791938790.100000-abc123] transcription error
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/gatekeeper/audio.py", line 190, in transcribe
+    segments, info = self._model.transcribe(
+RuntimeError: CUDA failed with error out of memory
+----------------------------------------
+Exception occurred during processing of request from ('127.0.0.1', 41234)
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/socketserver.py", line 691, in process_request_thread
+  File "/usr/local/lib/python3.11/site-packages/gatekeeper/health.py", line 125, in do_GET
+    self.wfile.write(body)
+BrokenPipeError: [Errno 32] Broken pipe
+----------------------------------------

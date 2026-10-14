@@ -119,7 +119,10 @@ def main() -> None:
     )
 
     transcriber = Transcriber(
-        settings.whisper_model, settings.whisper_compute_type, settings.whisper_hotwords
+        settings.whisper_model,
+        settings.whisper_compute_type,
+        settings.whisper_device,
+        settings.whisper_hotwords,
     )
     try:
         transcriber.load()

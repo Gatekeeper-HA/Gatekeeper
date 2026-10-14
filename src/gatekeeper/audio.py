@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import time
 import wave
+from collections.abc import Callable
 from pathlib import Path
 
 from gatekeeper.listen import Word
@@ -91,23 +93,85 @@ def wav_duration(wav_path: Path) -> float:
         return 3.0
 
 
+def cuda_devices() -> int:
+    """How many NVIDIA GPUs CTranslate2 (Whisper's engine) can use."""
+    try:
+        import ctranslate2
+
+        return ctranslate2.get_cuda_device_count()
+    except Exception:
+        return 0
+
+
+def whisper_device(device: str, gpus: int) -> str:
+    """"auto" means the GPU when there is one."""
+    if device == "auto":
+        return "cuda" if gpus > 0 else "cpu"
+    return device
+
+
+def whisper_compute_type(compute_type: str, device: str) -> str:
+    """"auto" means int8 on the CPU and int8_float16 on a GPU: 2-4x faster than float16
+    on a GTX 1660 Ti (no tensor cores) with the same transcripts, and fine on any NVIDIA
+    GPU since Pascal."""
+    if compute_type == "auto":
+        return "int8_float16" if device == "cuda" else "int8"
+    return compute_type
+
+
+def _silent_wav(seconds: float = 1.0):
+    """A WAV of silence in memory, to run a model once."""
+    import io
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(b"\x00\x00" * int(16000 * seconds))
+    buf.seek(0)
+    return buf
+
+
 class Transcriber:
-    def __init__(self, model_name: str, compute_type: str, hotwords: str = "") -> None:
+    def __init__(
+        self,
+        model_name: str,
+        compute_type: str = "auto",
+        device: str = "auto",
+        hotwords: str = "",
+        gpus: Callable[[], int] = cuda_devices,
+    ) -> None:
         self.model_name = model_name
         self.compute_type = compute_type
+        self.device = device
         # Words and names to expect (e.g. local candidates'); passed to Whisper as hotwords.
         self.hotwords = hotwords.strip() or None
+        self._gpus = gpus
         self._model = None
 
     def load(self) -> None:
-        """Load the model now, so the first visit doesn't pay for it."""
-        if self._model is None:
-            from faster_whisper import WhisperModel
+        """Load the model now, so the first visit doesn't pay for it. On a GPU, also
+        run it once: missing CUDA libraries only show up then. If the GPU doesn't
+        work, Whisper runs on the CPU instead."""
+        if self._model is not None:
+            return
+        from faster_whisper import WhisperModel
 
-            log.info("loading Whisper model: %s (%s)", self.model_name, self.compute_type)
-            self._model = WhisperModel(
-                self.model_name, device="cpu", compute_type=self.compute_type
-            )
+        device = whisper_device(self.device, self._gpus() if self.device == "auto" else 0)
+        compute_type = whisper_compute_type(self.compute_type, device)
+        log.info("loading Whisper model: %s on %s (%s)", self.model_name, device, compute_type)
+        try:
+            model = WhisperModel(self.model_name, device=device, compute_type=compute_type)
+            if device == "cuda":
+                list(model.transcribe(_silent_wav(), language="en")[0])
+        except Exception:
+            if device != "cuda":
+                raise
+            log.exception("Whisper couldn't run on the GPU; using the CPU")
+            compute_type = whisper_compute_type(self.compute_type, "cpu")
+            model = WhisperModel(self.model_name, device="cpu", compute_type=compute_type)
+        self._model = model
 
     def transcribe(self, wav_path: Path) -> list[Word]:
         """Return the words spoken in ``wav_path`` with their times in the clip.
@@ -118,8 +182,9 @@ class Transcriber:
         Whisper's no-speech/log-prob thresholds still suppress text on silence.
         """
         self.load()
+        started = time.monotonic()
         try:
-            segments, _info = self._model.transcribe(
+            segments, info = self._model.transcribe(
                 str(wav_path),
                 beam_size=1,
                 language="en",
@@ -127,10 +192,20 @@ class Transcriber:
                 condition_on_previous_text=False,
                 word_timestamps=True,
                 hotwords=self.hotwords,
+                # No re-decoding at higher temperatures when the output looks like
+                # garbage: on noise it took up to 7 s and only changed the garbage.
+                temperature=0.0,
             )
-            return [
+            words = [
                 Word(w.word, w.start, w.end) for seg in segments for w in (seg.words or [])
             ]
+            # The daily report reads this line (gatekeeper.report).
+            log.info(
+                "transcribed %.1f s of audio in %.2f s",
+                getattr(info, "duration", 0.0),
+                time.monotonic() - started,
+            )
+            return words
         except Exception:
             log.exception("transcription error")
             return []

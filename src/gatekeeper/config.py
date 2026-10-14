@@ -77,7 +77,10 @@ class Settings(BaseSettings):
 
     # Speech
     whisper_model: str = "tiny"
-    whisper_compute_type: str = "int8"
+    # "auto": an NVIDIA GPU (CUDA) if there is one, else the CPU.
+    whisper_device: Literal["auto", "cpu", "cuda"] = "auto"
+    # "auto": int8 on the CPU, int8_float16 on a GPU; or any CTranslate2 compute type.
+    whisper_compute_type: str = "auto"
     # Words and names Whisper should expect, comma-separated (e.g. local
     # candidates' names, which it otherwise mishears).
     whisper_hotwords: str = ""

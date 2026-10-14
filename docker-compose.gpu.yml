@@ -1,0 +1,45 @@
+# NVIDIA GPU, opt-in (README, "GPU (NVIDIA)"). Needs the NVIDIA driver and the NVIDIA
+# Container Toolkit on the host, and YOLOv9 exported once (scripts/gpu/export-yolov9.sh).
+#
+# Use it on top of docker-compose.yml, e.g. permanently with this line in .env:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml
+#
+# - Frigate runs its object detection (YOLOv9) on the GPU. Video is still decoded on the
+#   CPU (see config.gpu.yml).
+# - Gatekeeper runs Whisper on the GPU, so a bigger, more accurate model answers in a
+#   fraction of the time base.en takes on a CPU.
+
+services:
+  frigate:
+    image: ghcr.io/blakeblackshear/frigate:0.16.4-tensorrt
+    volumes:
+      # Replaces config.yml's mount: the same config plus the GPU detector.
+      - ./frigate/config/config.gpu.yml:/config/config.yml
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  gatekeeper:
+    build:
+      context: .
+      args:
+        VARIANT: cuda
+    image: gatekeeper:local-cuda
+    environment:
+      WHISPER_DEVICE: "cuda"
+      # Measured on a GTX 1660 Ti with real visits (int8_float16, per answer):
+      # large-v3-turbo 1.1 s and the most accurate; small.en 0.5 s; base.en on the
+      # CPU took 4.0 s.
+      WHISPER_MODEL: "large-v3-turbo"
+      WHISPER_COMPUTE_TYPE: "int8_float16"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

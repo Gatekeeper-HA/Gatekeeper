@@ -1,0 +1,4 @@
+# CUDA runtime for faster-whisper (CTranslate2 4.x: CUDA 12 + cuDNN 9) in the GPU image
+# (Dockerfile VARIANT=cuda). torch stays CPU-only: only Whisper runs on the GPU.
+nvidia-cublas-cu12
+nvidia-cudnn-cu12==9.*
