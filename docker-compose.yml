@@ -160,6 +160,9 @@ services:
       DWELL_SECONDS: "1"
       # Only greet people who enter Frigate's porch zone (frigate/config/config.yml).
       TRIGGER_ZONES: "porch"
+      # Don't greet the household coming out: people who appear in Frigate's door
+      # zone and walk out of it.
+      DOOR_ZONE: "door"
       LISTEN_SECONDS: "4"
       WHISPER_MODEL: "base.en"
       WHISPER_COMPUTE_TYPE: "int8"

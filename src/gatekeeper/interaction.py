@@ -64,8 +64,10 @@ class Visit:
     """What happened at the door; written to events.jsonl once per visit.
 
     outcome is one of: completed, reply_failed, talkback_busy,
-    talkback_failed, talkback_unavailable, timeout, error, or
-    pressed_during_visit (a doorbell press while a visit ran or just ended).
+    talkback_failed, talkback_unavailable, timeout, error,
+    pressed_during_visit (a doorbell press while a visit ran or just ended), or
+    left (someone came out of the front door and walked away: not greeted, not
+    notified).
     trigger is "person" (Frigate detection) or "button" (doorbell press).
     turns is how many times Gatekeeper listened: 2 when the first answer was
     silence and the no-answer reply asked again.
@@ -341,11 +343,22 @@ class Interaction:
             except Exception:
                 log.exception("notify callback failed")
 
-    def _log_visit(self, visit: Visit) -> None:
+    def log_left(self, event_id: str) -> None:
+        """Someone came out of the front door and walked away (``SessionTracker``'s
+        door zone). Only logged: no greeting, no notification, and Home Assistant's
+        last visitor stays the last real one."""
+        token = event_id_var.set(event_id)
+        try:
+            visit = Visit(event_id, self.settings.camera_name, outcome="left")
+            self._log_visit(visit, publish=False)
+        finally:
+            event_id_var.reset(token)
+
+    def _log_visit(self, visit: Visit, publish: bool = True) -> None:
         record = visit.record(self._clock())
         self._event_log.append(record)
         log.info("visit: %s", json.dumps(record, ensure_ascii=False))
-        for callback in self._on_logged:
+        for callback in self._on_logged if publish else ():
             try:
                 callback(record)
             except Exception:

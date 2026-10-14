@@ -298,7 +298,10 @@ class Inputs:
 def build(i: Inputs) -> dict:
     since = i.now - i.hours * 3600
     host = i.host
-    visits = i.visits
+    # People who came out of the front door and walked away aren't greeted or
+    # notified (the door zone): counted on their own.
+    left = [v for v in i.visits if v.get("outcome") == "left"]
+    visits = [v for v in i.visits if v.get("outcome") != "left"]
     outcomes = collections.Counter(v.get("outcome") for v in visits)
 
     # Every visit notified, in time?
@@ -409,10 +412,11 @@ def build(i: Inputs) -> dict:
         "checks": checks,
         "visits": [
             {"start": local(visit_start(v)), **{k: val for k, val in v.items() if k != "ts"}}
-            for v in visits
+            for v in i.visits
         ],
         "counts": {
             "visits": len(visits),
+            "left_by_door": len(left),
             "triggers": dict(collections.Counter(v.get("trigger", "person") for v in visits)),
             "classifications": dict(
                 collections.Counter(v.get("classification") or "pressed" for v in visits)
@@ -471,7 +475,12 @@ def summary_lines(report: dict) -> list[str]:
         f"Visits: {counts['visits']} (person {triggers.get('person', 0)}, "
         f"button {triggers.get('button', 0)}): {labels}",
         f"Porch arrivals: {report['arrivals']['total']}, "
-        f"not greeted {len(report['arrivals']['missed'])}",
+        f"not greeted {len(report['arrivals']['missed'])}"
+        + (
+            f"; {counts['left_by_door']} came out of the door and left (not greeted, on purpose)"
+            if counts.get("left_by_door")
+            else ""
+        ),
         f"Notified: {n['notified']}/{n['tracked']}, slowest {n['slowest_seconds']:.2f} s",
     ]
     made_up = (

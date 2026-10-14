@@ -112,6 +112,9 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `AUDIO_RTSP_URL` | `rtsp://go2rtc:8554/<CAMERA_NAME>` | RTSP stream for capturing visitor audio |
 | `DWELL_SECONDS` | `1` | Seconds a person must be visible before triggering |
 | `TRIGGER_ZONES` | *(none)* | Comma-separated Frigate zones (e.g. `porch`). A person must enter one before Gatekeeper greets them, and the dwell counts from entering it. Empty: anywhere in view. Doorbell presses ignore it |
+| `DOOR_ZONE` | *(none)* | A Frigate zone at the front door (e.g. `door`). Someone who appears there is the household coming out: if they walk out of it within `LEAVING_WATCH_SECONDS` they aren't greeted or notified, only logged (`outcome: left`). Someone who stays at the door is greeted, and a doorbell press always greets. The compose stack draws one next to the doorbell |
+| `LEAVING_WATCH_SECONDS` | `3` | How long someone who appears in the door zone has to walk out of it. On the rig, 90% of the people leaving did within 2.9 s |
+| `LEAVING_COOLDOWN_SECONDS` | `15` | After someone leaves by the door, person events this soon count as them too (Frigate sometimes splits one person's track) |
 | `LISTEN_SECONDS` | `4` | How long to wait for the visitor to start answering after the greeting (or, without the audio tap, how long to record after it) |
 | `AUDIO_TAP` | `true` | Read the camera's audio all the time and stop listening when the visitor stops talking. `false`: record a fixed window per prompt |
 | `VAD_THRESHOLD` | `0.5` | Speech probability (0–1) above which audio counts as the visitor talking |
@@ -351,7 +354,8 @@ Every visit adds one JSON line to `events.jsonl`:
 ```
 
 `outcome` is `completed`, `reply_failed`, `talkback_busy` (another visit was in progress),
-`talkback_failed`, `talkback_unavailable`, `timeout`, `error`, or `pressed_during_visit`.
+`talkback_failed`, `talkback_unavailable`, `timeout`, `error`, `pressed_during_visit`, or
+`left` (someone came out of the front door and walked away; see `DOOR_ZONE`).
 `trigger` is `person` or `button`. `turns` is how many times Gatekeeper listened: if the
 visitor says nothing, the no-answer reply asks again and Gatekeeper listens once more.
 `endpoint` is how listening ended: `answered` (they spoke, then fell silent), `no_input`,

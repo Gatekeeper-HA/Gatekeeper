@@ -47,6 +47,14 @@ class Settings(BaseSettings):
     # Comma-separated Frigate zones (e.g. "porch"); a person must enter one
     # before a visit starts. Empty: anywhere in view.
     trigger_zones: str = ""
+    # A Frigate zone at the front door (e.g. "door"). Someone who appears there is
+    # the household coming out: if they walk out of it within
+    # leaving_watch_seconds they aren't greeted, nor are person events in the
+    # leaving_cooldown_seconds after (Frigate can split one person's track).
+    # Empty: greet everyone.
+    door_zone: str = ""
+    leaving_watch_seconds: float = 3.0
+    leaving_cooldown_seconds: float = 15.0
     # How long to wait for the visitor to start answering after a prompt.
     listen_seconds: int = 4
 

@@ -35,6 +35,13 @@ cameras:
         coordinates: 0.48,0.78,1,0.78,1,1,0.48,1
         objects:
           - person
+      # The front door, at the bottom right next to the doorbell. Someone who
+      # appears here is coming out of the house, so Gatekeeper doesn't greet them
+      # if they walk away (DOOR_ZONE=door).
+      door:
+        coordinates: 0.7,0.85,1,0.85,1,1,0.7,1
+        objects:
+          - person
 
     objects:
       track:
