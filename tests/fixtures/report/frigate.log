@@ -1,0 +1,4 @@
+2026-10-14 00:35:01.074828403  [2026-10-13 19:35:01] ffmpeg.front_door.detect       ERROR   : [h264 @ 0x6283f52d2140] Cannot load libnvcuvid.so.1
+2026-10-14 00:35:11.074828403  [2026-10-13 19:35:11] ffmpeg.front_door.detect       ERROR   : [h264 @ 0x5b4f1b4e2280] Cannot load libnvcuvid.so.1
+2026-10-14 00:36:00.000000000  [2026-10-13 19:36:00] frigate.record.maintainer      WARNING : Too many unprocessed recording segments in cache for front_door.
+2026-10-14 00:37:00.000000000  [2026-10-13 19:37:00] frigate.util.services          WARNING : Did not detect hwaccel, using a GPU for accelerated video decoding is highly recommended

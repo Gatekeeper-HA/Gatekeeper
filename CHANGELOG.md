@@ -23,9 +23,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     names and full sentences better. `int8_float16` is 2–4× faster than `float16` on that
     card.
 
+- **Rig tooling (`scripts/rig/`, README "Running a rig"),** for a live install that takes
+  every merge:
+  - **The daily report is part of the package** (`python -m gatekeeper.report`), so it
+    always matches the deployed code, and it's tested. Besides the visits, notifications,
+    hangs and recording audio, it now checks Frigate's frames and detector speed, Whisper's
+    device and speed, Gatekeeper's and Frigate's log errors (grouped by kind, known noise
+    left out), and the day's deploys. It writes JSON and Markdown as well as the ntfy
+    summary.
+  - **`publish-report.sh`** pushes each report to a private repository with a deploy key,
+    for review.
+  - **`deploy.sh`** (cron, every minute) deploys each new commit on `main`, then checks that
+    Gatekeeper is healthy and Frigate gets frames, and rolls back and alerts if not.
+- **Whisper logs how long each transcription took**, for the report.
+
 ### Changed
 - **Whisper no longer re-decodes at higher temperatures** when its output looks like
   garbage. On noise that took up to 7 s and only produced different made-up text.
+- **`scripts/soak/` is now `scripts/rig/`.** Its alerts go straight to ntfy, so they also
+  work while Gatekeeper is down. Update the cron lines (README, "Running a rig").
 
 ## [0.2.1] - 2026-10-13
 

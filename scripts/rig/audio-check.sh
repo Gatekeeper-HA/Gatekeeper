@@ -3,20 +3,18 @@
 # watchdog restarted its ffmpeg, recordings stayed silent until Frigate was restarted
 # (`docker compose restart frigate`). Alerts at most every 6 h. Run hourly from cron:
 #
-#   7 * * * * /docker/stack/scripts/soak/audio-check.sh >> /tmp/gatekeeper-soak.log 2>&1
+#   7 * * * * /docker/stack/scripts/rig/audio-check.sh >> ~/.local/state/gatekeeper/rig.log 2>&1
 set -euo pipefail
-cd "$(dirname "$0")/../.."
-set -a; . ./.env; set +a
+. "$(dirname "$0")/lib.sh"
 recordings="${DATA_DIR:-./data}/frigate/storage/recordings"
-state="$HOME/.cache/gatekeeper-audio-alert"
-# ffprobe comes from Gatekeeper's own image (gatekeeper:local, or :local-cuda with the GPU).
-image=$(docker inspect -f '{{.Config.Image}}' gatekeeper)
+alerted="$state/audio-alert"
 
 dir="$recordings/$(date -u +%Y-%m-%d/%H)/front_door"
 [ -d "$dir" ] || dir="$recordings/$(date -u -d '-1 hour' +%Y-%m-%d/%H)/front_door"
 segments=$(ls -t "$dir" 2>/dev/null | sed -n '2,4p' || true)  # newest is still being written
 [ -z "$segments" ] && exit 0
 
+image=$(gatekeeper_image)
 silent=0
 for seg in $segments; do
   packets=$(docker run --rm -v "$(realpath "$dir")":/r:ro "$image" \
@@ -26,20 +24,11 @@ for seg in $segments; do
 done
 [ "$silent" -lt "$(wc -w <<<"$segments")" ] && exit 0
 
-if [ -f "$state" ] && [ $(( $(date +%s) - $(stat -c %Y "$state") )) -lt 21600 ]; then
+if [ -f "$alerted" ] && [ $(( $(date +%s) - $(stat -c %Y "$alerted") )) -lt 21600 ]; then
   exit 0
 fi
-mkdir -p "$(dirname "$state")" && touch "$state"
-echo "$(date): recordings silent, alerting"
-docker exec gatekeeper python -c '
-from gatekeeper.app import build_notify_backends
-from gatekeeper.config import Settings
-from gatekeeper.notify import Notification
-n = Notification(
-    "Frigate recordings have no audio",
-    "The newest recording segments are silent. Restart Frigate on the rig:\n"
-    "cd /docker/stack && docker compose restart frigate",
-    ["warning"], 4)
-for b in build_notify_backends(Settings()):
-    b.send(n, None)
-'
+touch "$alerted"
+echo "$(date -Is) recordings silent, alerting"
+notify "Frigate recordings have no audio" \
+  "The newest recording segments are silent. Restart Frigate on the rig:
+cd $stack && docker compose restart frigate" 4 warning
