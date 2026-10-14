@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import time
 import wave
 from collections.abc import Callable
 from pathlib import Path
@@ -178,8 +179,9 @@ class Transcriber:
         Whisper's no-speech/log-prob thresholds still suppress text on silence.
         """
         self.load()
+        started = time.monotonic()
         try:
-            segments, _info = self._model.transcribe(
+            segments, info = self._model.transcribe(
                 str(wav_path),
                 beam_size=1,
                 language="en",
@@ -190,9 +192,16 @@ class Transcriber:
                 # garbage: on noise it took up to 7 s and only changed the garbage.
                 temperature=0.0,
             )
-            return [
+            words = [
                 Word(w.word, w.start, w.end) for seg in segments for w in (seg.words or [])
             ]
+            # The daily report reads this line (gatekeeper.report).
+            log.info(
+                "transcribed %.1f s of audio in %.2f s",
+                getattr(info, "duration", 0.0),
+                time.monotonic() - started,
+            )
+            return words
         except Exception:
             log.exception("transcription error")
             return []

@@ -310,6 +310,45 @@ visitor says nothing, the no-answer reply asks again and Gatekeeper listens once
 | `frigate/storage/` | Frigate recordings, clips and snapshots |
 | `mosquitto/data/`, `mosquitto/log/` | MQTT broker persistence and log |
 
+## Running a rig
+
+`scripts/rig/` keeps a live install checked and up to date. The project's own rig runs it
+from cron, as a user in the `docker` group:
+
+```
+# Deploy every merge to main, within a minute or two
+* * * * * /docker/stack/scripts/rig/deploy.sh >> ~/.local/state/gatekeeper/deploy.log 2>&1
+# The daily report, and an hourly check that recordings have audio
+0 1 * * * /docker/stack/scripts/rig/daily-report.sh >> ~/.local/state/gatekeeper/rig.log 2>&1
+7 * * * * /docker/stack/scripts/rig/audio-check.sh >> ~/.local/state/gatekeeper/rig.log 2>&1
+```
+
+- **The daily report** (`daily-report.sh`; the checks are in `src/gatekeeper/report.py`)
+  looks at the last 24 hours. It checks that:
+  - every porch arrival was greeted, and every visit was notified within 3 s;
+  - there were no hangs, restarts or errors in Gatekeeper's log;
+  - recordings had audio;
+  - Frigate got camera frames and detected in time;
+  - Whisper ran on the device it should and answered fast enough;
+  - every deploy went through.
+
+  It lists every visit with what was heard and the reply, and the log's warnings and
+  errors grouped by kind. It sends the summary via ntfy and keeps the full report (JSON and
+  Markdown) in `~/.local/state/gatekeeper/reports/`.
+- **Publishing** (`publish-report.sh`): with `RIG_REPORTS_REPO` in `.env` (the SSH URL of a
+  **private** repository), each report is pushed there with a deploy key
+  (`~/.ssh/gatekeeper-reports`, or `RIG_REPORTS_KEY`). Reports hold visit times and what
+  visitors said, so never send them to a public repository. The project's reviewer reads
+  them there, files issues and opens pull requests.
+- **Auto-deploy** (`deploy.sh`) follows `main` (or `DEPLOY_BRANCH`):
+  - It builds while the old containers keep running.
+  - It restarts once no visit is in progress, and only what changed.
+  - It then checks that Gatekeeper turns healthy and Frigate gets camera frames. If not, it
+    rolls back and alerts.
+  - It only moves forward along the branch. While the checkout is on another branch (to
+    try something) or has local changes, it waits, and says so once.
+  - `touch ~/.local/state/gatekeeper/deploy-paused` pauses it.
+
 ## Development
 
 The app is the `gatekeeper` Python package in `src/gatekeeper/`. The Home Assistant add-on
