@@ -115,3 +115,37 @@ def test_zone_loads_in_the_background_and_retries():
     assert waits == [60, 60]
     assert zone.contains((0.9, 0.95)) is True
     assert zone.contains((0.5, 0.95)) is False
+
+
+def test_zone_loading_stays_quiet_while_frigate_restarts(caplog):
+    # A deploy restarts Frigate together with Gatekeeper: not reaching it for a
+    # while is normal, not a warning for the daily report.
+    config = {
+        "cameras": {"front_door": {"zones": {"door": {"coordinates": "0.7,0.85,1,0.85,1,1,0.7,1"}}}}
+    }
+    now = [0.0]
+    answers = [OSError("refused")] * 3 + [config]
+
+    def load():
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    def sleep(seconds):
+        now[0] += seconds
+
+    caplog.set_level("INFO", logger="gatekeeper.frigate")
+    Zone("door", "front_door", load).load_until_known(sleep=sleep, clock=lambda: now[0])
+    assert [r.levelname for r in caplog.records if "couldn't read" in r.getMessage()] == [
+        "INFO",
+        "INFO",
+        "INFO",
+    ]
+
+    # Still unreachable after 5 minutes: that's worth a warning.
+    caplog.clear()
+    now[0], answers[:] = 0.0, [OSError("refused")] * 40 + [config]
+    Zone("door", "front_door", load).load_until_known(sleep=sleep, clock=lambda: now[0])
+    levels = [r.levelname for r in caplog.records if "couldn't read" in r.getMessage()]
+    assert levels[:30] == ["INFO"] * 30 and set(levels[30:]) == {"WARNING"}

@@ -124,11 +124,11 @@ class Zone:
         self._load = load
         self._polygon: list[Point] | None = None
 
-    def load(self) -> bool:
+    def load(self, level: int = logging.WARNING) -> bool:
         try:
             polygon = zone_polygon(self._load(), self.camera, self.name)
         except Exception as e:
-            log.warning("couldn't read Frigate's config for zone %r: %s", self.name, e)
+            log.log(level, "couldn't read Frigate's config for zone %r: %s", self.name, e)
             return False
         if polygon is None:
             log.warning("Frigate has no zone %r on camera %s", self.name, self.camera)
@@ -138,9 +138,16 @@ class Zone:
         return True
 
     def load_until_known(
-        self, retry_seconds: float = 60.0, sleep: Callable[[float], None] = time.sleep
+        self,
+        retry_seconds: float = 10.0,
+        quiet_seconds: float = 300.0,
+        sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        while not self.load():
+        """Retry until Frigate answers. A deploy restarts Frigate together with us, so
+        not reaching it is only worth a warning after ``quiet_seconds``."""
+        start = clock()
+        while not self.load(logging.INFO if clock() - start < quiet_seconds else logging.WARNING):
             sleep(retry_seconds)
 
     def contains(self, point: Point) -> bool | None:
