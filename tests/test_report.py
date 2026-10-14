@@ -340,6 +340,19 @@ def test_tailored_conversations_and_made_up_answers_are_counted():
     assert "Whisper: large-v3-turbo on cuda, no answers, 1 made-up answer(s) ignored" in text
 
 
+def test_the_household_coming_back_is_counted_too():
+    leaving = visit(NOW - 1800, NOW - 1797, outcome="left")
+    back = visit(NOW - 1750, NOW - 1748, outcome="returned")
+    r = build(inputs(visits=[leaving, back], window_visits=[leaving, back], notifications=[]))
+    assert "visits_notified" not in failing(r)
+    assert (r["counts"]["visits"], r["counts"]["left_by_door"], r["counts"]["returned"]) == (
+        0,
+        1,
+        1,
+    )
+    assert "1 came out of the door and left, 1 came back soon after" in render_text(r)
+
+
 def test_people_leaving_by_the_door_are_counted_not_expected_to_be_notified():
     greeted = visit(NOW - 3600, NOW - 3570, classification="likely_delivery")
     leaving = visit(NOW - 1800, NOW - 1797, outcome="left")
@@ -360,16 +373,3 @@ def test_people_leaving_by_the_door_are_counted_not_expected_to_be_notified():
     assert (
         "not greeted 0; 1 came out of the door and left (not greeted, on purpose)" in render_text(r)
     )
-
-
-def test_the_household_coming_back_is_counted_too():
-    leaving = visit(NOW - 1800, NOW - 1797, outcome="left")
-    back = visit(NOW - 1750, NOW - 1748, outcome="returned")
-    r = build(inputs(visits=[leaving, back], window_visits=[leaving, back], notifications=[]))
-    assert "visits_notified" not in failing(r)
-    assert (r["counts"]["visits"], r["counts"]["left_by_door"], r["counts"]["returned"]) == (
-        0,
-        1,
-        1,
-    )
-    assert "1 came out of the door and left, 1 came back soon after" in render_text(r)
