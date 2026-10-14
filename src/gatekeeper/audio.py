@@ -139,11 +139,14 @@ class Transcriber:
         model_name: str,
         compute_type: str = "auto",
         device: str = "auto",
+        hotwords: str = "",
         gpus: Callable[[], int] = cuda_devices,
     ) -> None:
         self.model_name = model_name
         self.compute_type = compute_type
         self.device = device
+        # Words and names to expect (e.g. local candidates'); passed to Whisper as hotwords.
+        self.hotwords = hotwords.strip() or None
         self._gpus = gpus
         self._model = None
 
@@ -188,6 +191,7 @@ class Transcriber:
                 vad_filter=False,
                 condition_on_previous_text=False,
                 word_timestamps=True,
+                hotwords=self.hotwords,
                 # No re-decoding at higher temperatures when the output looks like
                 # garbage: on noise it took up to 7 s and only changed the garbage.
                 temperature=0.0,
@@ -246,11 +250,26 @@ class Synthesizer:
 
 
 def presynth_all(synth: Synthesizer, out_dir: Path, texts: dict[str, str]) -> dict[str, Path]:
-    """Pre-synthesize fixed phrases at startup so playback is instant."""
+    """Pre-synthesize fixed phrases at startup so playback is instant.
+
+    A phrase whose text and voice haven't changed since it was last synthesized
+    is reused (the ``.txt`` beside each WAV records what it says): each takes
+    ~10 s on a 4-core CPU.
+    """
     done: dict[str, Path] = {}
     for key, text in texts.items():
         path = out_dir / f"_presynth_{key}.wav"
-        if synth.synthesize(text, path):
+        stamp = path.with_suffix(".txt")
+        signature = f"{synth.voice}\n{text}"
+        try:
+            cached = path.exists() and stamp.read_text(encoding="utf-8") == signature
+        except OSError:
+            cached = False
+        if cached:
+            done[key] = path
+            log.info("presynth %s: cached", key)
+        elif synth.synthesize(text, path):
+            stamp.write_text(signature, encoding="utf-8")
             done[key] = path
             log.info("presynth %s: ok", key)
         else:

@@ -71,6 +71,7 @@ WHISPER_LOAD = re.compile(
 )
 WHISPER_FALLBACK = "Whisper couldn't run on the GPU"
 TRANSCRIBED = re.compile(r"transcribed (?P<audio>[\d.]+) s of audio in (?P<seconds>[\d.]+) s")
+MADE_UP = "no speech where Whisper heard it"  # interaction: an answer Whisper made up
 
 LEVELS = {"WARNING": 1, "ERROR": 2, "CRITICAL": 3, "TRACEBACK": 3}
 ERROR_LEVELS = {"ERROR", "CRITICAL", "TRACEBACK"}
@@ -217,9 +218,11 @@ def summarize_logs(text: str) -> dict:
 
 
 def whisper_info(lines: Iterable[str]) -> dict:
-    """Whisper's model and device (from its last load) and each transcription's time."""
+    """Whisper's model and device (from its last load), each transcription's time, and how
+    many answers were ignored as made up from noise."""
     info: dict = {"model": None, "device": None, "compute_type": None, "fallback": False}
     turns = []
+    made_up = 0
     for line in lines:
         if m := WHISPER_LOAD.search(line):
             info.update(m.groupdict(), fallback=False)
@@ -227,6 +230,9 @@ def whisper_info(lines: Iterable[str]) -> dict:
             info["fallback"] = True
         elif m := TRANSCRIBED.search(line):
             turns.append((float(m["audio"]), float(m["seconds"])))
+        elif MADE_UP in line:
+            made_up += 1
+    info["made_up_ignored"] = made_up
     if info["fallback"]:
         info["device"] = "cpu"
     seconds = [s for _, s in turns]
@@ -240,12 +246,14 @@ def whisper_info(lines: Iterable[str]) -> dict:
 
 
 def reply_info(visits: list[dict]) -> dict:
-    """How listening ended, and how soon replies started after the answer (the
-    conversation engine's ``endpoint`` and ``reply_latency`` visit fields)."""
+    """How listening ended, how soon replies started after the answer (the conversation
+    engine's ``endpoint`` and ``reply_latency`` visit fields), and the tailored
+    conversations held (``flow``: emergency, law_enforcement, civic)."""
     seconds = [v["reply_latency"] for v in visits if v.get("reply_latency") is not None]
     info: dict = {
         "count": len(seconds),
         "endpoints": dict(collections.Counter(v["endpoint"] for v in visits if v.get("endpoint"))),
+        "conversations": dict(collections.Counter(v["flow"] for v in visits if v.get("flow"))),
     }
     if seconds:
         info["median_seconds"] = round(percentile(seconds, 0.5), 2)
@@ -466,14 +474,21 @@ def summary_lines(report: dict) -> list[str]:
         f"not greeted {len(report['arrivals']['missed'])}",
         f"Notified: {n['notified']}/{n['tracked']}, slowest {n['slowest_seconds']:.2f} s",
     ]
+    made_up = (
+        f", {w['made_up_ignored']} made-up answer(s) ignored" if w.get("made_up_ignored") else ""
+    )
     if w["transcriptions"]:
         lines.append(
             f"Whisper: {w['model']} on {w['device']}, {w['transcriptions']} answers, "
-            f"median {w['median_seconds']:.1f} s (p90 {w['p90_seconds']:.1f} s)"
+            f"median {w['median_seconds']:.1f} s (p90 {w['p90_seconds']:.1f} s){made_up}"
         )
     elif w["model"]:
-        lines.append(f"Whisper: {w['model']} on {w['device']}, no answers")
+        lines.append(f"Whisper: {w['model']} on {w['device']}, no answers{made_up}")
     r = report.get("replies") or {"count": 0, "endpoints": {}}
+    if r.get("conversations"):
+        lines.append(
+            "Conversations: " + ", ".join(f"{k} {v}" for k, v in r["conversations"].items())
+        )
     if r["count"]:
         lines.append(
             f"Replies: {r['count']}, median {r['median_seconds']:.1f} s after the answer "

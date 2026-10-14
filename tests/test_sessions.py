@@ -265,3 +265,32 @@ def test_press_ignores_zones(clock):
     h.tracker.handle_event(zoned("A", type_="new"))
     assert h.tracker.press() == ("started", "A")
     assert len(h.workers) == 1
+
+
+# Is someone still on the porch? (Used before warning an officer a second time.)
+
+
+def test_person_present_until_frigate_ends_their_event(clock):
+    h = Harness(clock, dwell=0)
+    assert not h.tracker.person_present()
+    h.tracker.handle_event(zoned("A", type_="new"))
+    assert h.tracker.person_present()
+    h.tracker.handle_event(zoned("A", type_="end"))
+    assert not h.tracker.person_present()
+
+
+def test_person_present_only_counts_people_in_a_trigger_zone_now(clock):
+    h = Harness(clock, dwell=0)
+    h.tracker.trigger_zones = frozenset({"porch"})
+    on_porch = FrigateEvent("new", "A", "front_door", "person", ("porch",), ("porch",))
+    h.tracker.handle_event(on_porch)
+    assert h.tracker.person_present()
+    walked_off = FrigateEvent("update", "A", "front_door", "person", ("porch",), ("walkway",))
+    h.tracker.handle_event(walked_off)
+    assert not h.tracker.person_present()
+
+
+def test_a_press_alone_is_not_someone_seen(clock):
+    h = Harness(clock, dwell=0)
+    h.tracker.press()
+    assert not h.tracker.person_present()

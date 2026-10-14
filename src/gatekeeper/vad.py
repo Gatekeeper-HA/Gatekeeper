@@ -154,3 +154,18 @@ class Endpointer:
             self._speech_start if answered else None,
             self._speech_end if answered else None,
         )
+
+
+def speech_seconds(
+    path, start: float, end: float, threshold: float = 0.5, vad: StreamingVAD | None = None
+) -> float:
+    """Seconds of speech Silero hears between ``start`` and ``end`` of a 16 kHz
+    mono WAV. Whisper can "hear" words in noise or silence ("Thanks for
+    watching!"); Silero rarely does, so this confirms an answer was spoken."""
+    import wave
+
+    with wave.open(str(path), "rb") as w:
+        samples = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
+    probs = (vad or StreamingVAD()).feed(samples)
+    first, last = max(0, int(start / CHUNK_SECONDS)), int(end / CHUNK_SECONDS) + 1
+    return sum(p >= threshold for p in probs[first:last]) * CHUNK_SECONDS

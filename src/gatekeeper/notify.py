@@ -34,6 +34,16 @@ STYLES = {
     "service_visit": ("Service visit at the {place}", ["wrench"], 4),
     "cooperative_other": ("Visitor at the {place}", ["wave"], 4),
     "no_response": ("Someone at the {place}", ["bust_in_silhouette"], 3),
+    "emergency": ("Emergency at the {place}", ["rotating_light"], 5),
+    "law_enforcement": ("Law enforcement at the {place}", ["police_car"], 5),
+    "civic": ("Political visitor at the {place}", ["ballot_box"], 3),
+}
+
+# How a conversation with law enforcement ended (dialogue.py) -> title.
+POLICE_TITLES = {
+    "notified": "Law enforcement with a judge-signed warrant at the {place}",
+    "asked_to_leave": "Law enforcement asked to leave the {place}",
+    "asked_to_leave_twice": "Law enforcement didn't leave the {place}",
 }
 
 OUTCOME_TEXT = {
@@ -73,18 +83,64 @@ def compose(visit: Visit) -> Notification:
         )
     title, tags, priority = STYLES.get(visit.classification, STYLES["cooperative_other"])
     said = f'Said: "{visit.transcript}"' if visit.transcript else "No answer."
+    if visit.trigger == "button":
+        tags = ["bell", *tags]
+
+    if visit.stage == "alert":
+        # Sent as soon as a conversation starts; the full story follows.
+        return Notification(
+            title=title.format(place=place),
+            message=f"{said}\nGatekeeper is asking for their reason, warrant and ID. "
+            "More when it's done.",
+            tags=list(tags),
+            priority=priority,
+        )
+
+    if visit.flow == "law_enforcement":
+        title = POLICE_TITLES.get(visit.details.get("decision"), title)
     if visit.response:
         replied = f"Replied: {visit.response}"
     else:
         replied = f"Couldn't reply: {OUTCOME_TEXT.get(visit.outcome, visit.outcome)}."
-    if visit.trigger == "button":
-        tags = ["bell", *tags]
+    lines = [said, *_conversation_lines(visit), replied]
     return Notification(
         title=title.format(place=place),
-        message=f"{said}\n{replied}",
+        message="\n".join(lines),
         tags=list(tags),
         priority=priority,
     )
+
+
+NOT_SAID = "(didn't say)"
+
+
+def _conversation_lines(visit: Visit) -> list[str]:
+    """What a conversation (dialogue.py) found out, for the notification."""
+    d = visit.details
+    if visit.flow == "civic":
+        return [
+            f'Who: "{d.get("identity") or NOT_SAID}"',
+            f'Message: "{d.get("message") or "(none)"}"',
+        ]
+    if visit.flow != "law_enforcement":
+        return []
+    lines = []
+    if "reason" in d:
+        lines.append(f'Reason: "{d["reason"] or NOT_SAID}"')
+    if "identity" in d:
+        lines.append(f'Identified as: "{d["identity"] or NOT_SAID}"')
+    if "warrant" in d:
+        if not d["warrant"]:
+            lines.append("Warrant: none.")
+        elif d.get("judge_signed"):
+            lines.append("Warrant: yes, signed by a judge, they say.")
+        else:
+            lines.append("Warrant: yes, but not signed by a judge (or they didn't say).")
+    if d.get("photos"):
+        lines.append(f"Photos of what they held up: {len(d['photos'])} (one attached).")
+    if "left" in d:
+        lines.append("Left when asked." if d["left"] else "Still there after being asked twice.")
+    return lines
 
 
 class Backend(Protocol):
@@ -178,7 +234,14 @@ class Notifier:
     def send(self, visit: Visit) -> None:
         started = self._clock()
         notification = compose(visit)
-        image = self._snapshot(visit)
+        image = None
+        if visit.image is not None:  # e.g. a warrant held up to the camera
+            try:
+                image = visit.image.read_bytes()
+            except OSError as e:
+                log.warning("couldn't read %s: %s", visit.image, e)
+        if image is None:
+            image = self._snapshot(visit)
         for backend in self.backends:
             error = None
             try:

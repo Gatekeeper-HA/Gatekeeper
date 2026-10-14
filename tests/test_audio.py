@@ -90,6 +90,28 @@ def test_run_until_stops_a_process_that_overruns():
     assert (returncode, stderr, timed_out) == (0, b"done", False)
 
 
+def test_presynth_reuses_a_phrase_whose_text_and_voice_are_unchanged(tmp_path):
+    from gatekeeper.audio import presynth_all
+
+    class Synth:
+        voice = "af_heart"
+        calls = []
+
+        def synthesize(self, text, path):
+            self.calls.append(text)
+            write_wav(path, seconds=0.5)
+            return True
+
+    synth = Synth()
+    presynth_all(synth, tmp_path, {"greeting": "Hello.", "civic_thanks": "Thanks."})
+    presynth_all(synth, tmp_path, {"greeting": "Hello there.", "civic_thanks": "Thanks."})
+    synth.voice = "bm_george"
+    done = presynth_all(synth, tmp_path, {"civic_thanks": "Thanks."})
+    # First start: both; text changed: only the greeting; voice changed: again.
+    assert synth.calls == ["Hello.", "Thanks.", "Hello there.", "Thanks."]
+    assert done == {"civic_thanks": tmp_path / "_presynth_civic_thanks.wav"}
+
+
 @pytest.mark.parametrize(
     ("device", "gpus", "compute", "expected"),
     [
@@ -112,6 +134,7 @@ class FakeWhisper:
 
     loaded = []
     broken = set()
+    calls = []
 
     def __init__(self, name, device, compute_type):
         FakeWhisper.loaded.append((name, device, compute_type))
@@ -120,6 +143,7 @@ class FakeWhisper:
     def transcribe(self, audio, **kw):
         if self.device in FakeWhisper.broken:
             raise RuntimeError("Library libcudnn_ops.so.9 is not found")
+        FakeWhisper.calls.append(kw)
         return iter(()), None
 
 
@@ -128,7 +152,7 @@ def fake_whisper(monkeypatch):
     import sys
     import types
 
-    FakeWhisper.loaded, FakeWhisper.broken = [], set()
+    FakeWhisper.loaded, FakeWhisper.broken, FakeWhisper.calls = [], set(), []
     fake = types.SimpleNamespace(WhisperModel=FakeWhisper)
     monkeypatch.setitem(sys.modules, "faster_whisper", fake)
     return FakeWhisper
@@ -152,3 +176,12 @@ def test_whisper_falls_back_to_the_cpu_when_the_gpu_fails(fake_whisper):
         ("small.en", "cpu", "int8"),
     ]
     assert t._model.device == "cpu"
+
+
+def test_whisper_gets_the_hotwords_and_no_temperature_fallback(fake_whisper, tmp_path):
+    from gatekeeper.audio import Transcriber
+
+    t = Transcriber("large-v3-turbo", device="cpu", hotwords=" Abeler, Lindgren ")
+    assert t.transcribe(write_wav(tmp_path / "answer.wav")) == []
+    assert fake_whisper.calls[-1]["hotwords"] == "Abeler, Lindgren"
+    assert fake_whisper.calls[-1]["temperature"] == 0.0

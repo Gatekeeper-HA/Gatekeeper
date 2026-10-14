@@ -13,6 +13,7 @@ class FrigateEvent:
     camera: str | None
     label: str | None
     entered_zones: tuple[str, ...] = ()
+    current_zones: tuple[str, ...] = ()  # where the person is now
 
 
 def parse_event(raw: bytes) -> FrigateEvent | None:
@@ -38,4 +39,5 @@ def parse_event(raw: bytes) -> FrigateEvent | None:
         camera=event.get("camera"),
         label=event.get("label"),
         entered_zones=tuple(event.get("entered_zones") or ()),
+        current_zones=tuple(event.get("current_zones") or ()),
     )

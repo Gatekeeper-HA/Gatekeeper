@@ -24,9 +24,13 @@ def test_removes_old_audio_and_logs_but_keeps_presynth(settings):
     old_notifications = touch(settings.log_dir / "notifications-2026-08-01.jsonl", 31)
     current = touch(settings.event_log_file, 40)  # only daily files are purged
 
+    settings.snapshot_dir.mkdir(exist_ok=True)
+    old_photo = touch(settings.snapshot_dir / "e1-warrant-1.jpg", 8)
+    new_photo = touch(settings.snapshot_dir / "e2-warrant-1.jpg", 1)
     removed = Retention(settings, clock=lambda: NOW).run_once()
 
-    assert removed == {"audio_in": 1, "audio_out": 1, "event_logs": 2}
+    assert removed == {"audio_in": 1, "snapshots": 1, "audio_out": 1, "event_logs": 2}
+    assert not old_photo.exists() and new_photo.exists()
     assert not old_in.exists() and not old_reply.exists() and not old_log.exists()
     assert not old_notifications.exists()
     assert new_in.exists() and presynth.exists() and new_log.exists() and current.exists()
@@ -38,7 +42,7 @@ def test_zero_days_keeps_everything(settings):
     old = touch(settings.in_dir / "old.wav", 1000)
     old_log = touch(settings.log_dir / "events-2020-01-01.jsonl", 1000)
     assert Retention(settings, clock=lambda: NOW).run_once() == {
-        "audio_in": 0, "audio_out": 0, "event_logs": 0,
+        "audio_in": 0, "snapshots": 0, "audio_out": 0, "event_logs": 0,
     }  # fmt: skip
     assert old.exists() and old_log.exists()
 
