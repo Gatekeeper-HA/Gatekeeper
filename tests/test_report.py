@@ -275,6 +275,7 @@ def test_reply_times_and_how_listening_ended():
     assert r["replies"] == {
         "count": 3,
         "endpoints": {"answered": 3, "tap_lost": 1},
+        "conversations": {},
         "median_seconds": 1.9,
         "p90_seconds": 2.2,
         "max_seconds": 2.2,
@@ -295,5 +296,26 @@ def test_slow_replies_fail_on_the_gpu():
 
 def test_visits_without_the_engine_have_no_reply_checks():
     r = build(inputs())
-    assert r["replies"] == {"count": 0, "endpoints": {}}
+    assert r["replies"] == {"count": 0, "endpoints": {}, "conversations": {}}
     assert not {"reply_speed", "audio_tap"} & {c["name"] for c in r["checks"]}
+
+
+def test_tailored_conversations_and_made_up_answers_are_counted():
+    civic = visit(NOW - 3600, NOW - 3500, classification="civic", flow="civic")
+    officer = visit(
+        NOW - 2000, NOW - 1900, classification="law_enforcement", flow="law_enforcement"
+    )
+    log = (
+        "### gatekeeper\n"
+        "2026-10-13 19:33:31,255 INFO    gatekeeper.audio [-] loading Whisper model: "
+        "large-v3-turbo on cuda (int8_float16)\n"
+        "2026-10-13 19:46:39,352 INFO    gatekeeper.interaction [1.0-abc] ignoring 'Thanks for "
+        "watching!': no speech where Whisper heard it (made up from noise)\n"
+    )
+    r = build(inputs(visits=[civic, officer], window_visits=[civic, officer], log_text=log))
+
+    assert r["replies"]["conversations"] == {"civic": 1, "law_enforcement": 1}
+    assert r["whisper"]["made_up_ignored"] == 1
+    text = render_text(r)
+    assert "Conversations: civic 1, law_enforcement 1" in text
+    assert "Whisper: large-v3-turbo on cuda, no answers, 1 made-up answer(s) ignored" in text

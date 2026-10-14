@@ -27,6 +27,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - `WHISPER_HOTWORDS` (names Whisper should expect).
   - Pre-synthesized phrases are reused across restarts unless their text or voice changes.
   - `VISIT_TIMEOUT_SECONDS` now defaults to 180, for the longer conversations.
+  - The daily report counts these conversations by kind.
 - **The conversation engine** (Phase 1): replies come sooner after the visitor stops talking.
   - **Audio tap:** Gatekeeper reads the camera's audio all the time (one ffmpeg, a 30 s ring
     buffer), so listening needs no stream to be opened.
@@ -78,6 +79,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   garbage. On noise that took up to 7 s and only produced different made-up text.
 - **`scripts/soak/` is now `scripts/rig/`.** Its alerts go straight to ntfy, so they also
   work while Gatekeeper is down. Update the cron lines (README, "Running a rig").
+
+### Fixed
+- **Answers Whisper made up from noise are ignored** ("Thanks for watching!", "Please click
+  the link in the description below"). An answer only counts if Silero VAD hears at least
+  0.25 s of speech where Whisper put its words; otherwise the visit is treated as no answer.
+  The daily report counts the answers ignored.
 
 ## [0.2.1] - 2026-10-13
 
