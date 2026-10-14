@@ -621,3 +621,17 @@ def test_words_whisper_made_up_from_noise_are_not_an_answer(settings):
 def test_speech_check_that_fails_keeps_the_answer(settings):
     rig = Rig(settings, speech_check=lambda path, start, end: None)
     assert rig.interaction.run(EID).classification == "likely_delivery"
+
+
+def test_someone_leaving_by_the_door_is_only_logged(settings):
+    rig = Rig(settings)
+    notified, published = [], []
+    rig.interaction._on_notify = [notified.append]
+    rig.interaction._on_logged = [published.append]
+    rig.interaction.log_left("1791944783.070551-door")
+    assert rig.calls == [] and notified == [] and published == []
+    (record,) = rig.log_records()
+    assert record["event_id"] == "1791944783.070551-door"
+    assert record["outcome"] == "left"
+    assert record["trigger"] == "person"
+    assert record["classification"] is None and record["response"] is None

@@ -338,3 +338,25 @@ def test_tailored_conversations_and_made_up_answers_are_counted():
     text = render_text(r)
     assert "Conversations: civic 1, law_enforcement 1" in text
     assert "Whisper: large-v3-turbo on cuda, no answers, 1 made-up answer(s) ignored" in text
+
+
+def test_people_leaving_by_the_door_are_counted_not_expected_to_be_notified():
+    greeted = visit(NOW - 3600, NOW - 3570, classification="likely_delivery")
+    leaving = visit(NOW - 1800, NOW - 1797, outcome="left")
+    r = build(
+        inputs(
+            visits=[greeted, leaving],
+            window_visits=[greeted, leaving],
+            arrivals=[{"start_time": NOW - 3601}, {"start_time": NOW - 1800}],
+            notifications=[
+                {"ts": NOW - 3570, "event_id": greeted["event_id"], "ok": True, "seconds": 0.8}
+            ],
+        )
+    )
+    assert failing(r) == {}  # both arrivals covered; only the greeted visit notified
+    assert r["counts"]["visits"] == 1 and r["counts"]["left_by_door"] == 1
+    assert r["counts"]["classifications"] == {"likely_delivery": 1}
+    assert len(r["visits"]) == 2  # the reviewer still sees both
+    assert (
+        "not greeted 0; 1 came out of the door and left (not greeted, on purpose)" in render_text(r)
+    )

@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **The household coming out of the front door isn't greeted** (`DOOR_ZONE`, Phase 1).
+  Someone who appears in Frigate's door zone and walks out of it within
+  `LEAVING_WATCH_SECONDS` (3) is logged as `left`: no greeting, no notification. On the
+  rig, 71 of 202 porch detections in 9 days were people coming out, and 56 of them were
+  greeted. Visitors appear on the walkway, someone who stays at the door is greeted, and a
+  doorbell press always greets. Person events in the next `LEAVING_COOLDOWN_SECONDS` (15)
+  count as the same person. The compose stack adds a `door` zone, and the daily report
+  counts the people who left this way.
 - **Conversations for officers, emergencies and political visitors** (Phase 1). These are
   new classifications, checked before the others; each gets a short conversation instead of
   one reply. Every line is a `PHRASE_*` setting.

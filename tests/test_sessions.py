@@ -1,7 +1,7 @@
 import pytest
 
 from conftest import load_fixture
-from gatekeeper.frigate import FrigateEvent, parse_event
+from gatekeeper.frigate import FrigateEvent, inside, parse_event
 from gatekeeper.sessions import SessionTracker
 
 EID = "1727712000.123456-abc123"
@@ -294,3 +294,123 @@ def test_a_press_alone_is_not_someone_seen(clock):
     h = Harness(clock, dwell=0)
     h.tracker.press()
     assert not h.tracker.person_present()
+
+
+# The household coming out of the front door (DOOR_ZONE).
+
+DOOR = [(0.7, 0.85), (1.0, 0.85), (1.0, 1.0), (0.7, 1.0)]
+
+
+def walk(event_id, *path, type_="update"):
+    """A person event on the porch with Frigate's path so far."""
+    return FrigateEvent(type_, event_id, "front_door", "person", ("porch",), ("porch",), path)
+
+
+class DoorHarness:
+    def __init__(self, clock, door=lambda point: inside(DOOR, point)):
+        self.started: list[tuple[str, str]] = []
+        self.left: list[str] = []
+        self.workers = []
+        self.tracker = SessionTracker(
+            camera="front_door",
+            dwell_seconds=1.0,
+            ttl_seconds=120.0,
+            trigger_zones=["porch"],
+            door=door,
+            leaving_watch_seconds=3.0,
+            leaving_cooldown_seconds=15.0,
+            on_left=self.left.append,
+            run_visit=lambda event_id, trigger: self.started.append((event_id, trigger)),
+            spawn=self.workers.append,
+            clock=clock,
+        )
+
+    def run_workers(self):
+        while self.workers:
+            self.workers.pop(0)()
+
+
+def test_someone_coming_out_of_the_door_and_walking_away_is_not_greeted(clock):
+    h = DoorHarness(clock)
+    h.tracker.handle_event(walk("A", (0.85, 0.99), type_="new"))
+    clock.advance(1.2)  # past the dwell, still at the door: wait and see
+    h.tracker.handle_event(walk("A", (0.85, 0.99), (0.78, 0.95)))
+    h.tracker.sweep()
+    assert h.workers == [] and h.left == []
+    clock.advance(0.6)
+    h.tracker.handle_event(walk("A", (0.85, 0.99), (0.78, 0.95), (0.62, 0.88)))
+    assert h.workers == []
+    assert h.left == ["A"]
+    assert h.tracker.sessions["A"].handled
+
+
+def test_a_split_track_right_after_is_them_too(clock):
+    h = DoorHarness(clock)
+    h.tracker.handle_event(walk("A", (0.85, 0.99), type_="new"))
+    clock.advance(1.5)
+    h.tracker.handle_event(walk("A", (0.85, 0.99), (0.6, 0.88)))
+    assert h.left == ["A"]
+
+    # Frigate loses them and starts a new event further down the path.
+    h.tracker.handle_event(walk("B", (0.58, 0.86), type_="new"))
+    clock.advance(1.5)
+    h.tracker.sweep()
+    assert h.workers == []
+    assert h.tracker.sessions["B"].merged_into == "A"
+
+    # After the cooldown, someone new on the porch is greeted as usual.
+    clock.advance(15)
+    h.tracker.handle_event(walk("C", (0.6, 0.9), type_="new"))
+    clock.advance(1.0)
+    h.tracker.sweep()
+    h.run_workers()
+    assert h.started == [("C", "person")]
+
+
+def test_someone_who_stays_at_the_door_is_greeted_after_the_watch(clock):
+    h = DoorHarness(clock)
+    h.tracker.handle_event(walk("A", (0.9, 0.99), type_="new"))
+    clock.advance(2.0)
+    h.tracker.handle_event(walk("A", (0.9, 0.99), (0.82, 0.97)))
+    h.tracker.sweep()
+    assert h.workers == []
+    clock.advance(1.0)  # 3 s at the door
+    h.tracker.sweep()
+    h.run_workers()
+    assert h.started == [("A", "person")]
+    assert h.left == []
+
+
+def test_visitors_from_the_walkway_are_greeted_without_waiting(clock):
+    h = DoorHarness(clock)
+    h.tracker.handle_event(walk("A", (0.45, 0.6), type_="new"))
+    clock.advance(1.0)
+    h.tracker.handle_event(walk("A", (0.45, 0.6), (0.6, 0.9)))
+    h.run_workers()
+    assert h.started == [("A", "person")]
+
+
+def test_a_press_always_greets(clock):
+    h = DoorHarness(clock)
+    h.tracker.handle_event(walk("A", (0.85, 0.99), type_="new"))
+    assert h.tracker.press() == ("started", "A")
+    h.run_workers()
+    assert h.started == [("A", "button")]
+
+    # Also right after someone left by the door.
+    h2 = DoorHarness(clock)
+    h2.tracker.handle_event(walk("B", (0.85, 0.99), type_="new"))
+    clock.advance(1.5)
+    h2.tracker.handle_event(walk("B", (0.85, 0.99), (0.6, 0.88)))
+    assert h2.left == ["B"]
+    action, visit = h2.tracker.press()
+    assert action == "started" and visit.startswith("press-")
+
+
+def test_without_a_known_door_zone_everyone_is_greeted(clock):
+    h = DoorHarness(clock, door=lambda point: None)  # Frigate's config not read yet
+    h.tracker.handle_event(walk("A", (0.85, 0.99), type_="new"))
+    clock.advance(1.0)
+    h.tracker.sweep()
+    h.run_workers()
+    assert h.started == [("A", "person")]

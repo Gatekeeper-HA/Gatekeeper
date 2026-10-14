@@ -15,7 +15,7 @@ from gatekeeper.audio_tap import AudioTap
 from gatekeeper.button import DoorbellButton
 from gatekeeper.config import Settings
 from gatekeeper.eventlog import EventLog
-from gatekeeper.frigate import FrigateEvent, parse_event
+from gatekeeper.frigate import FrigateEvent, Zone, fetch_config, parse_event
 from gatekeeper.health import Health, serve
 from gatekeeper.interaction import Interaction, Visit
 from gatekeeper.logs import setup_logging
@@ -178,12 +178,23 @@ def main() -> None:
             publisher.conversation(False)
             health.visit_finished()
 
+    door = None
+    if settings.door_zone:
+        # Someone appearing here is the household coming out (SessionTracker).
+        door = Zone(
+            settings.door_zone, settings.camera_name, lambda: fetch_config(settings.frigate_api)
+        )
+        start_thread("door-zone", door.load_until_known)
     tracker = SessionTracker(
         camera=settings.camera_name,
         dwell_seconds=settings.dwell_seconds,
         ttl_seconds=settings.session_ttl_seconds,
         cooldown_seconds=settings.cooldown_seconds,
         trigger_zones=settings.trigger_zone_list,
+        door=door.contains if door else None,
+        leaving_watch_seconds=settings.leaving_watch_seconds,
+        leaving_cooldown_seconds=settings.leaving_cooldown_seconds,
+        on_left=interaction.log_left,
         run_visit=run_visit,
     )
     start_thread(

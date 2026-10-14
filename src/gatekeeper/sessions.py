@@ -16,6 +16,12 @@ dwell time counts from that entry.
 A doorbell press starts the waiting visit at once (skipping the dwell), or a
 new one if Frigate hasn't seen anyone yet; during a visit or its cooldown it is
 reported back as merged so the caller can still notify.
+
+With a ``door`` zone, someone who appears at the front door is the household
+coming out. They get ``leaving_watch_seconds`` (instead of the dwell) to walk out
+of the door zone; if they do, they aren't greeted, and person events in the next
+``leaving_cooldown_seconds`` count as them too (Frigate sometimes splits a track).
+If they stay at the door, they're greeted. A doorbell press always greets.
 """
 
 from __future__ import annotations
@@ -26,7 +32,7 @@ import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
-from gatekeeper.frigate import FrigateEvent
+from gatekeeper.frigate import FrigateEvent, Point
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +47,9 @@ class Session:
     trigger: str = "person"  # or "button"
     zones: frozenset[str] = frozenset()  # Frigate zones the person has entered
     current_zones: frozenset[str] = frozenset()  # where they are now
+    created: float = 0.0  # when Frigate first reported the person
+    path_start: Point | None = None  # where they appeared
+    path_now: Point | None = None  # where they are now
 
 
 def spawn_thread(fn: Callable[[], None]) -> None:
@@ -57,6 +66,10 @@ class SessionTracker:
         run_visit: Callable[[str, str], None],
         cooldown_seconds: float = 0.0,
         trigger_zones: Iterable[str] = (),
+        door: Callable[[Point], bool | None] | None = None,
+        leaving_watch_seconds: float = 3.0,
+        leaving_cooldown_seconds: float = 15.0,
+        on_left: Callable[[str], None] = lambda event_id: None,
         spawn: Callable[[Callable[[], None]], None] = spawn_thread,
         clock: Callable[[], float] = time.time,
     ) -> None:
@@ -65,6 +78,11 @@ class SessionTracker:
         self.ttl_seconds = ttl_seconds
         self.cooldown_seconds = cooldown_seconds
         self.trigger_zones = frozenset(trigger_zones)
+        # Is a point in the door zone? None while the zone is unknown.
+        self.door = door
+        self.leaving_watch_seconds = leaving_watch_seconds
+        self.leaving_cooldown_seconds = leaving_cooldown_seconds
+        self._on_left = on_left
         self._run_visit = run_visit
         self._spawn = spawn
         self._clock = clock
@@ -73,6 +91,8 @@ class SessionTracker:
         self._active_visit: str | None = None
         self._last_visit: str | None = None
         self._cooldown_until = 0.0
+        self._last_left: str | None = None
+        self._left_until = 0.0
 
     def handle_event(self, event: FrigateEvent) -> None:
         if event.camera != self.camera or event.label != "person":
@@ -83,9 +103,13 @@ class SessionTracker:
             with self._lock:
                 session = self.sessions.get(event.id)
                 if session is None:
-                    session = self.sessions[event.id] = Session(first_seen=now, last_seen=now)
+                    session = self.sessions[event.id] = Session(
+                        first_seen=now, last_seen=now, created=now
+                    )
                 else:
                     session.last_seen = now
+                if event.path:  # the whole path so far, in every message
+                    session.path_start, session.path_now = event.path[0], event.path[-1]
                 zones = session.zones | frozenset(event.entered_zones)
                 if self._in_trigger_zone(zones) and not self._in_trigger_zone(session.zones):
                     session.first_seen = now  # dwell counts from entering the zone
@@ -116,8 +140,30 @@ class SessionTracker:
                 session.merged_into = merge_into
                 log.info("person event %s merged into visit %s", event_id, merge_into)
                 return False
-            session.in_progress = True
-            self._active_visit = event_id
+            verdict = self._door_verdict(session, now) if session.trigger == "person" else "greet"
+            if verdict == "watch":
+                return False
+            if verdict == "after_left":
+                session.handled = True
+                session.merged_into = self._last_left
+                log.info(
+                    "person event %s merged into %s, who just left by the door",
+                    event_id,
+                    self._last_left,
+                )
+                return False
+            if verdict == "left":
+                session.handled = True
+                self._last_left = event_id
+                self._left_until = now + self.leaving_cooldown_seconds
+            else:
+                session.in_progress = True
+                self._active_visit = event_id
+
+        if verdict == "left":
+            log.info("person event %s came out of the door and walked away: not greeted", event_id)
+            self._on_left(event_id)
+            return False
 
         trigger = session.trigger
 
@@ -139,6 +185,22 @@ class SessionTracker:
         if not self.trigger_zones:
             return bool(sessions)
         return any(self.trigger_zones & s.current_zones for s in sessions)
+
+    def _door_verdict(self, session: Session, now: float) -> str:
+        """For a person due a greeting: "greet"; "watch" (they appeared at the door:
+        wait to see whether they walk away); "left" (they did); or "after_left"
+        (someone just left by the door, and this is most likely them again)."""
+        if self.door is None:
+            return "greet"
+        if now < self._left_until:
+            return "after_left"
+        if session.path_start is None or not self.door(session.path_start):
+            return "greet"
+        if session.path_now is not None and self.door(session.path_now) is False:
+            return "left"
+        if now - session.created < self.leaving_watch_seconds:
+            return "watch"
+        return "greet"  # they stayed at the door
 
     def _in_trigger_zone(self, zones: frozenset[str]) -> bool:
         return not self.trigger_zones or bool(zones & self.trigger_zones)
