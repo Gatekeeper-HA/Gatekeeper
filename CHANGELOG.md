@@ -14,6 +14,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   doorbell press always greets. Person events in the next `LEAVING_COOLDOWN_SECONDS` (15)
   count as the same person. The compose stack adds a `door` zone, and the daily report
   counts the people who left this way.
+  - **Nor are they greeted when they come back in soon after** (`RETURN_WINDOW_SECONDS`,
+    120): someone walking up within 2 minutes of someone leaving is logged as
+    `returned`. On the rig's first night with the door zone, 4 of the 6 people who left
+    were back at the door 27–80 s later, and each was greeted with no answer.
 - **Conversations for officers, emergencies and political visitors** (Phase 1). These are
   new classifications, checked before the others; each gets a short conversation instead of
   one reply. Every line is a `PHRASE_*` setting.

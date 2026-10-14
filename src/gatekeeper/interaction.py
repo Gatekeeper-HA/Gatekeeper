@@ -65,9 +65,10 @@ class Visit:
 
     outcome is one of: completed, reply_failed, talkback_busy,
     talkback_failed, talkback_unavailable, timeout, error,
-    pressed_during_visit (a doorbell press while a visit ran or just ended), or
-    left (someone came out of the front door and walked away: not greeted, not
-    notified).
+    pressed_during_visit (a doorbell press while a visit ran or just ended),
+    left (someone came out of the front door and walked away), or returned
+    (someone walked up soon after that: most likely them coming back in). Neither
+    is greeted or notified.
     trigger is "person" (Frigate detection) or "button" (doorbell press).
     turns is how many times Gatekeeper listened: 2 when the first answer was
     silence and the no-answer reply asked again.
@@ -343,13 +344,13 @@ class Interaction:
             except Exception:
                 log.exception("notify callback failed")
 
-    def log_left(self, event_id: str) -> None:
-        """Someone came out of the front door and walked away (``SessionTracker``'s
-        door zone). Only logged: no greeting, no notification, and Home Assistant's
-        last visitor stays the last real one."""
+    def log_not_greeted(self, event_id: str, outcome: str) -> None:
+        """The household coming out of the front door ("left") or back in soon after
+        ("returned"), from ``SessionTracker``'s door zone. Only logged: no greeting,
+        no notification, and Home Assistant's last visitor stays the last real one."""
         token = event_id_var.set(event_id)
         try:
-            visit = Visit(event_id, self.settings.camera_name, outcome="left")
+            visit = Visit(event_id, self.settings.camera_name, outcome=outcome)
             self._log_visit(visit, publish=False)
         finally:
             event_id_var.reset(token)

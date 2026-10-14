@@ -194,7 +194,8 @@ def main() -> None:
         door=door.contains if door else None,
         leaving_watch_seconds=settings.leaving_watch_seconds,
         leaving_cooldown_seconds=settings.leaving_cooldown_seconds,
-        on_left=interaction.log_left,
+        return_window_seconds=settings.return_window_seconds,
+        on_not_greeted=interaction.log_not_greeted,
         run_visit=run_visit,
     )
     start_thread(

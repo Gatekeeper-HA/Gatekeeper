@@ -623,15 +623,16 @@ def test_speech_check_that_fails_keeps_the_answer(settings):
     assert rig.interaction.run(EID).classification == "likely_delivery"
 
 
-def test_someone_leaving_by_the_door_is_only_logged(settings):
+@pytest.mark.parametrize("outcome", ["left", "returned"])
+def test_the_household_by_the_door_is_only_logged(settings, outcome):
     rig = Rig(settings)
     notified, published = [], []
     rig.interaction._on_notify = [notified.append]
     rig.interaction._on_logged = [published.append]
-    rig.interaction.log_left("1791944783.070551-door")
+    rig.interaction.log_not_greeted("1791944783.070551-door", outcome)
     assert rig.calls == [] and notified == [] and published == []
     (record,) = rig.log_records()
     assert record["event_id"] == "1791944783.070551-door"
-    assert record["outcome"] == "left"
+    assert record["outcome"] == outcome
     assert record["trigger"] == "person"
     assert record["classification"] is None and record["response"] is None

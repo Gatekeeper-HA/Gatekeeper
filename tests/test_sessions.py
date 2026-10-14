@@ -309,7 +309,7 @@ def walk(event_id, *path, type_="update"):
 class DoorHarness:
     def __init__(self, clock, door=lambda point: inside(DOOR, point)):
         self.started: list[tuple[str, str]] = []
-        self.left: list[str] = []
+        self.not_greeted: list[tuple[str, str]] = []
         self.workers = []
         self.tracker = SessionTracker(
             camera="front_door",
@@ -319,11 +319,16 @@ class DoorHarness:
             door=door,
             leaving_watch_seconds=3.0,
             leaving_cooldown_seconds=15.0,
-            on_left=self.left.append,
+            return_window_seconds=120.0,
+            on_not_greeted=lambda event_id, outcome: self.not_greeted.append((event_id, outcome)),
             run_visit=lambda event_id, trigger: self.started.append((event_id, trigger)),
             spawn=self.workers.append,
             clock=clock,
         )
+
+    @property
+    def left(self):
+        return [e for e, outcome in self.not_greeted if outcome == "left"]
 
     def run_workers(self):
         while self.workers:
@@ -358,9 +363,9 @@ def test_a_split_track_right_after_is_them_too(clock):
     assert h.workers == []
     assert h.tracker.sessions["B"].merged_into == "A"
 
-    # After the cooldown, someone new on the porch is greeted as usual.
-    clock.advance(15)
-    h.tracker.handle_event(walk("C", (0.6, 0.9), type_="new"))
+    # After the return window, someone new on the porch is greeted as usual.
+    clock.advance(120)
+    h.tracker.handle_event(walk("C", (0.45, 0.6), (0.6, 0.9), type_="new"))
     clock.advance(1.0)
     h.tracker.sweep()
     h.run_workers()
@@ -414,3 +419,45 @@ def test_without_a_known_door_zone_everyone_is_greeted(clock):
     h.tracker.sweep()
     h.run_workers()
     assert h.started == [("A", "person")]
+
+
+def test_someone_walking_up_soon_after_is_them_coming_back(clock):
+    h = DoorHarness(clock)
+    h.tracker.handle_event(walk("A", (0.9, 0.98), type_="new"))
+    clock.advance(1.5)
+    h.tracker.handle_event(walk("A", (0.9, 0.98), (0.55, 0.86)))  # out to the car
+    clock.advance(45)
+    h.tracker.handle_event(walk("B", (0.54, 0.86), type_="new"))  # and back to the door
+    clock.advance(1.0)
+    h.tracker.handle_event(walk("B", (0.54, 0.86), (0.77, 1.0)))
+    h.tracker.sweep()
+    assert h.workers == []
+    assert h.not_greeted == [("A", "left"), ("B", "returned")]
+
+
+def test_someone_else_coming_out_during_the_window_is_judged_as_before(clock):
+    h = DoorHarness(clock)
+    h.tracker.handle_event(walk("A", (0.9, 0.98), type_="new"))
+    clock.advance(1.5)
+    h.tracker.handle_event(walk("A", (0.9, 0.98), (0.55, 0.86)))
+    clock.advance(30)
+    h.tracker.handle_event(walk("B", (0.88, 0.99), type_="new"))  # at the door, stays
+    clock.advance(3.0)
+    h.tracker.sweep()
+    h.run_workers()
+    assert h.started == [("B", "person")]
+    assert h.not_greeted == [("A", "left")]
+
+
+def test_no_return_window_when_it_is_zero(clock):
+    h = DoorHarness(clock)
+    h.tracker.return_window_seconds = 0
+    h.tracker.handle_event(walk("A", (0.9, 0.98), type_="new"))
+    clock.advance(1.5)
+    h.tracker.handle_event(walk("A", (0.9, 0.98), (0.55, 0.86)))
+    clock.advance(30)
+    h.tracker.handle_event(walk("B", (0.54, 0.86), type_="new"))
+    clock.advance(1.0)
+    h.tracker.sweep()
+    h.run_workers()
+    assert h.started == [("B", "person")]
