@@ -82,6 +82,9 @@ ERROR_LEVELS = {"ERROR", "CRITICAL", "TRACEBACK"}
 MAX_LOG_KINDS = 20
 # Visit outcomes that are the household, deliberately not greeted (the door zone).
 NOT_GREETED = {"left", "returned"}
+# How long after someone left by the door the next person to walk up is listed
+# (return_gaps): the data for tuning RETURN_WINDOW_SECONDS.
+RETURN_GAP_SECONDS = 30 * 60
 
 
 def local(ts: float) -> str:
@@ -94,6 +97,24 @@ def visit_start(visit: dict) -> float:
         return float(visit["event_id"].removeprefix("press-").split("-")[0])
     except (KeyError, ValueError):
         return visit.get("ts", 0.0)
+
+
+def return_gaps(visits: list[dict], within: float = RETURN_GAP_SECONDS) -> list[dict]:
+    """For each person who left by the door, the next person to walk up within
+    ``within``: how many seconds after (between their Frigate events' starts),
+    and whether they were greeted or taken to be the household coming back in
+    (``returned``). Doorbell presses always greet, so they don't count."""
+    gaps = []
+    left_at = None
+    for v in sorted(visits, key=visit_start):
+        if v.get("outcome") == "left":
+            left_at = visit_start(v)
+        elif left_at is not None and v.get("trigger", "person") == "person":
+            seconds = visit_start(v) - left_at
+            if seconds <= within:
+                gaps.append({"seconds": round(seconds), "greeted": v.get("outcome") != "returned"})
+            left_at = None
+    return gaps
 
 
 def utc_timestamp(iso: str) -> float | None:
@@ -438,6 +459,7 @@ def build(i: Inputs) -> dict:
             "visits": len(visits),
             "left_by_door": len(left),
             "returned": len(returned),
+            "return_gaps": return_gaps(i.visits),
             "triggers": dict(collections.Counter(v.get("trigger", "person") for v in visits)),
             "classifications": dict(
                 collections.Counter(v.get("classification") or "pressed" for v in visits)
@@ -508,6 +530,14 @@ def summary_lines(report: dict) -> list[str]:
         + (f"; {', '.join(household)} (not greeted, on purpose)" if household else ""),
         f"Notified: {n['notified']}/{n['tracked']}, slowest {n['slowest_seconds']:.2f} s",
     ]
+    if counts.get("return_gaps"):
+        lines.append(
+            "Next arrival after someone left by the door: "
+            + ", ".join(
+                f"{g['seconds']} s ({'greeted' if g['greeted'] else 'not greeted'})"
+                for g in counts["return_gaps"]
+            )
+        )
     made_up = (
         f", {w['made_up_ignored']} made-up answer(s) ignored" if w.get("made_up_ignored") else ""
     ) + (
