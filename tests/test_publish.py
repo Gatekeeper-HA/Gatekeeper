@@ -73,3 +73,25 @@ def test_visit_and_conversation_state():
     assert json.loads(payload) == record
     assert "señor" in payload  # UTF-8, not \\u escapes
     assert client.published[2][:2] == ("gatekeeper/front_door/state", "idle")
+
+
+def test_quick_reply_buttons_are_discovered():
+    client = FakeClient()
+    Publisher(
+        client,
+        camera="front_door",
+        discovery_prefix="homeassistant",
+        version="0.4.0",
+        quick_replies=("coming", "no_thanks"),
+    ).announce()
+    configs = {
+        topic: json.loads(payload)
+        for topic, payload, *_ in client.published
+        if topic.startswith("homeassistant/button/")
+    }
+    coming = configs["homeassistant/button/gatekeeper_front_door/quick_reply_coming/config"]
+    assert coming["name"] == "Say: I'm coming"
+    assert coming["command_topic"] == "gatekeeper/front_door/quick_reply"
+    assert coming["payload_press"] == "coming"
+    assert coming["availability_topic"] == STATUS_TOPIC
+    assert len(configs) == 2

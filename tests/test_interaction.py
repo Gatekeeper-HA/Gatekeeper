@@ -679,3 +679,65 @@ def test_mower_noise_alone_is_not_transcribed(settings):
     rig = Rig(settings, answer="", answer2="", speech=[(T0, ECHO_END + 10, 0.14)])
     rig.interaction.run(EID)
     assert rig.interaction._transcriber.calls == 0
+
+
+# Quick replies from the notification (quick_reply.py).
+
+
+def test_quick_reply_is_said_and_logged_not_published(settings):
+    rig = Rig(settings, presynth_keys=("quick_coming",), present=lambda: True)
+    published = []
+    rig.interaction._on_logged = [published.append]
+    visit = rig.interaction.quick_reply(EID, "coming", 41.06, 259.0)
+
+    assert [c for c in rig.calls if c[0] == "play"] == [("play", "_presynth_quick_coming.wav")]
+    assert visit.response == settings.quick_reply_coming
+    (record,) = rig.log_records()
+    assert (record["event_id"], record["outcome"], record["trigger"]) == (
+        EID,
+        "quick_reply",
+        "quick_reply",
+    )
+    assert record["details"] == {
+        "reply": "coming",
+        "after_seconds": 41.1,
+        "present": True,
+        "result": "said",
+    }
+    assert published == []  # Home Assistant's last visitor stays the visit
+
+
+def test_quick_reply_too_late_is_only_logged(settings):
+    rig = Rig(settings)
+    visit = rig.interaction.quick_reply(EID, "later", None, 0.0)
+    assert rig.calls == []
+    assert visit.response is None
+    assert visit.details == {"reply": "later", "after_seconds": None, "result": "too_late"}
+
+
+def test_quick_reply_waits_for_the_visit_to_finish(settings):
+    rig = Rig(settings, presynth_keys=("quick_coming",))
+    lock = rig.interaction._talkback_lock
+    lock.acquire()  # a visit is talking
+    threading.Timer(0.2, lock.release).start()
+    visit = rig.interaction.quick_reply(EID, "coming", 2.0, 5.0)
+    assert visit.details["result"] == "said"
+    assert ("play", "_presynth_quick_coming.wav") in rig.calls
+
+
+def test_quick_reply_gives_up_if_the_speaker_stays_busy(settings):
+    rig = Rig(settings)
+    rig.interaction._talkback_lock.acquire()
+    try:
+        visit = rig.interaction.quick_reply(EID, "coming", 299.0, 0.1)
+    finally:
+        rig.interaction._talkback_lock.release()
+    assert visit.details["result"] == "busy"
+    assert rig.calls == []
+
+
+def test_quick_reply_that_cannot_connect_is_failed(settings):
+    rig = Rig(settings, connect_fails=(1,))
+    visit = rig.interaction.quick_reply(EID, "no_thanks", 5.0, 295.0)
+    assert visit.details["result"] == "failed"
+    assert visit.response is None

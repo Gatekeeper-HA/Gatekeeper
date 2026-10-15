@@ -82,7 +82,7 @@ Only services that require a login are published, on `SERVER_IP`:
 |------|---------|--------|
 | 8971 | Frigate UI and API | HTTPS, Frigate login |
 | 1883 | MQTT | Per-account passwords (see [MQTT](#mqtt)) |
-| 8090 | ntfy notifications | Gatekeeper token / `phone` user |
+| 8090 | ntfy notifications | Gatekeeper token / `phone` user; anyone may post a quick reply (signed, see [Quick replies](#quick-replies)) |
 | 8123 | Home Assistant (optional `ha` profile) | Home Assistant login |
 
 Frigate's unauthenticated API (5000) and go2rtc (API/UI, RTSP restream, WebRTC) are used
@@ -104,6 +104,13 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `NTFY_URL` | *(none)* | ntfy server for notifications; empty disables ntfy. The compose stack runs one (`http://ntfy`) |
 | `NTFY_TOPIC` | `doorbell` | ntfy topic |
 | `NTFY_TOKEN` | *(none)* | ntfy access token (`NTFY_GATEKEEPER_TOKEN` in the compose stack) |
+| `QUICK_REPLIES` | `coming,later,no_thanks` | The [quick reply](#quick-replies) buttons on a notification, in order (at most 3); empty turns them off |
+| `QUICK_REPLY_WINDOW_SECONDS` | `300` | A quick reply is only said for a visit notified this recently |
+| `QUICK_REPLY_COMING` | *The resident is coming to the door. Please wait a moment.* | Said for *I'm coming* |
+| `QUICK_REPLY_LATER` | *The resident can't come to the door right now. Please come back another time.* | Said for *Not now* |
+| `QUICK_REPLY_NO_THANKS` | *The resident isn't interested, thank you. Have a good day.* | Said for *No thanks* |
+| `NTFY_PUBLIC_URL` | `NTFY_URL` | The ntfy server as your phone reaches it, for the quick reply buttons (the compose stack sets `http://<SERVER_IP>:8090`) |
+| `NTFY_REPLY_TOPIC` | `<NTFY_TOPIC>-replies` | The topic the buttons post to and Gatekeeper reads |
 | `FRIGATE_API` | `http://frigate:5000` | Frigate API, for the visitor's snapshot in notifications |
 | `REOLINK_HOST`, `REOLINK_USERNAME`, `REOLINK_PASSWORD` | *(none)* | Reolink doorbell for button presses (login over HTTPS, push events on port 9000). Empty host disables. The compose stack uses the camera's `.env` values |
 | `CAMERA_NAME` | `front_door` | Must match the camera name in your Frigate config |
@@ -316,6 +323,34 @@ the `phone` user can read it. In the ntfy Android app:
 
 The phone must be able to reach the server (home Wi-Fi, or a VPN when away).
 
+## Quick replies
+
+A doorbell notification has buttons to answer the visitor without going to the door:
+**I'm coming**, **Not now** and **No thanks**. Pressing one makes Gatekeeper say that line
+at the door (`QUICK_REPLY_COMING`, `QUICK_REPLY_LATER`, `QUICK_REPLY_NO_THANKS`). If
+Gatekeeper is still talking to the visitor, it says it right after.
+
+- **Within 5 minutes** (`QUICK_REPLY_WINDOW_SECONDS`) of the notification. A button pressed
+  later does nothing, so an old notification can't talk to whoever is at the door now.
+- **Once** per button and visit.
+- **Not on the interim alert** while an officer is being questioned; the final
+  notification has them.
+
+**How it works with ntfy:** each button posts the visit's id, the reply and a signature to the
+`doorbell-replies` topic, and Gatekeeper follows that topic. The phone posts without logging
+in, so the compose stack lets anyone post there (and only Gatekeeper read it). The signature
+is made with a key Gatekeeper creates at startup, so only buttons from its own notifications
+work. After a restart, older buttons stop working. On your own ntfy server, allow anonymous
+writes to the reply topic (`ntfy access everyone doorbell-replies write-only`) and give
+Gatekeeper's user read access to it.
+
+**Home Assistant** gets a *Say: …* button per reply on the Gatekeeper device (see [MQTT](#mqtt)),
+which answers the latest visit. Use them in a dashboard, or as actions of your own
+actionable notifications.
+
+Each reply is logged in `events.jsonl` as a `quick_reply` record with the visit's id
+(see [Visit log](#visit-log)), and the daily report counts them.
+
 ## MQTT
 
 The broker requires a login. The `mqtt-auth` service writes Mosquitto's password file from
@@ -336,9 +371,13 @@ Gatekeeper publishes (all retained):
 | `gatekeeper/<camera>/state` | `conversation` during a visit, else `idle` |
 | `gatekeeper/<camera>/visit` | The latest visit record (JSON, as in `events.jsonl`) |
 
+Gatekeeper listens on `gatekeeper/<camera>/quick_reply` for a [quick reply](#quick-replies):
+`coming`, `later` or `no_thanks` answers the latest visit; `{"reply": "coming", "event_id":
+"..."}` answers a given one.
+
 With Home Assistant's MQTT integration connected to the broker, a **Gatekeeper** device
 appears automatically with a *Last visitor* sensor (classification, with the transcript and
-reply as attributes) and a *Conversation* binary sensor.
+reply as attributes), a *Conversation* binary sensor, and a *Say: …* button per quick reply.
 
 ## Health
 
@@ -365,7 +404,11 @@ Every visit adds one JSON line to `events.jsonl`:
 `talkback_failed`, `talkback_unavailable`, `timeout`, `error`, `pressed_during_visit`, or
 `left` (someone came out of the front door and walked away; see `DOOR_ZONE`), or
 `returned` (someone walked up soon after; see `RETURN_WINDOW_SECONDS`).
-`trigger` is `person` or `button`. `turns` is how many times Gatekeeper listened: if the
+A `quick_reply` line records a [quick reply](#quick-replies) to the visit with the same
+`event_id`. Its `details` hold `reply`; `result` (`said`, `too_late`, `busy`: a visit held
+the speaker until the window ended, or `failed`); `after_seconds` (since the notification);
+and `present` (whether Frigate still saw someone).
+`trigger` is `person`, `button` or `quick_reply`. `turns` is how many times Gatekeeper listened: if the
 visitor says nothing, the no-answer reply asks again and Gatekeeper listens once more.
 `endpoint` is how listening ended: `answered` (they spoke, then fell silent), `no_input`,
 `max`, `tap_lost`, or `window` (a fixed recording, without the audio tap). `reply_latency`

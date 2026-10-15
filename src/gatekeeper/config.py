@@ -23,6 +23,8 @@ PHRASE_KEYS = (
     "police_notifying", "police_leave", "police_leave_again",
     "civic_ask_identity", "civic_ask_message", "civic_thanks",
 )  # fmt: skip
+# What the resident can answer from the notification (quick_reply.py), QUICK_REPLY_<KEY>.
+QUICK_REPLY_KEYS = ("coming", "later", "no_thanks")
 
 
 class Settings(BaseSettings):
@@ -166,6 +168,23 @@ class Settings(BaseSettings):
     ntfy_topic: str = "doorbell"
     ntfy_token: SecretStr = SecretStr("")
 
+    # Quick replies: buttons on the notification that make Gatekeeper say one of
+    # these lines at the door (quick_reply.py). QUICK_REPLIES picks the buttons, in
+    # order (ntfy shows up to 3); empty turns them off. A reply is only said for a
+    # visit notified in the last quick_reply_window_seconds.
+    quick_replies: str = "coming,later,no_thanks"
+    quick_reply_window_seconds: float = 300.0
+    quick_reply_coming: str = "The resident is coming to the door. Please wait a moment."
+    quick_reply_later: str = (
+        "The resident can't come to the door right now. Please come back another time."
+    )
+    quick_reply_no_thanks: str = "The resident isn't interested, thank you. Have a good day."
+    # The ntfy server as the phone reaches it (default NTFY_URL), and the topic the
+    # buttons post to (default <NTFY_TOPIC>-replies). Gatekeeper reads that topic
+    # with NTFY_TOKEN. Anyone may post to it: each button carries a signature.
+    ntfy_public_url: str = ""
+    ntfy_reply_topic: str = ""
+
     # Doorbell button presses from a Reolink doorbell (HTTPS login + push
     # events); an empty REOLINK_HOST disables them.
     reolink_host: str = ""
@@ -194,6 +213,18 @@ class Settings(BaseSettings):
     def _derive_defaults(self) -> Settings:
         if not self.audio_rtsp_url:
             self.audio_rtsp_url = f"rtsp://go2rtc:8554/{self.camera_name}"
+        if not self.ntfy_public_url:
+            self.ntfy_public_url = self.ntfy_url
+        if not self.ntfy_reply_topic:
+            self.ntfy_reply_topic = f"{self.ntfy_topic}-replies"
+        unknown = set(self.quick_reply_list) - set(QUICK_REPLY_KEYS)
+        if unknown:
+            raise ValueError(
+                f"QUICK_REPLIES: unknown {', '.join(sorted(unknown))}; "
+                f"choose from {', '.join(QUICK_REPLY_KEYS)}"
+            )
+        if len(self.quick_reply_list) > 3:
+            raise ValueError("QUICK_REPLIES: at most 3 (ntfy shows no more buttons)")
         return self
 
     @property
@@ -225,6 +256,15 @@ class Settings(BaseSettings):
     def phrases(self) -> dict[str, str]:
         """Conversation lines by key (see ``dialogue.py``)."""
         return {key: getattr(self, f"phrase_{key}") for key in PHRASE_KEYS}
+
+    @property
+    def quick_reply_list(self) -> list[str]:
+        return [k.strip() for k in self.quick_replies.split(",") if k.strip()]
+
+    @property
+    def quick_reply_phrases(self) -> dict[str, str]:
+        """Quick reply text by key, for every key (offered or not)."""
+        return {key: getattr(self, f"quick_reply_{key}") for key in QUICK_REPLY_KEYS}
 
     @property
     def snapshot_dir(self) -> Path:

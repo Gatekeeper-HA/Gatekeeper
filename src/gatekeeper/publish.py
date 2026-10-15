@@ -6,29 +6,46 @@ Topics (all retained):
 - ``gatekeeper/<camera>/state``: ``conversation`` while a visit runs, else ``idle``.
 - ``gatekeeper/<camera>/visit``: the latest visit record (JSON, as in events.jsonl).
 
+Gatekeeper listens on ``gatekeeper/<camera>/quick_reply`` (quick_reply.py).
+
 Discovery gives Home Assistant a "Last visitor" sensor (classification, or the
-outcome if the visitor was never greeted, with the record as attributes) and a
-"Conversation" binary sensor, grouped under one device per camera.
+outcome if the visitor was never greeted, with the record as attributes), a
+"Conversation" binary sensor and a button per quick reply, grouped under one
+device per camera.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Sequence
+
+from gatekeeper.quick_reply import LABELS
 
 log = logging.getLogger(__name__)
 
 STATUS_TOPIC = "gatekeeper/status"
+QUICK_REPLY_TOPIC = "gatekeeper/{camera}/quick_reply"
 
 
 class Publisher:
-    def __init__(self, client, *, camera: str, discovery_prefix: str, version: str) -> None:
+    def __init__(
+        self,
+        client,
+        *,
+        camera: str,
+        discovery_prefix: str,
+        version: str,
+        quick_replies: Sequence[str] = (),
+    ) -> None:
         self.client = client
         self.camera = camera
         self.discovery_prefix = discovery_prefix
         self.version = version
+        self.quick_replies = tuple(quick_replies)
         self.state_topic = f"gatekeeper/{camera}/state"
         self.visit_topic = f"gatekeeper/{camera}/visit"
+        self.quick_reply_topic = QUICK_REPLY_TOPIC.format(camera=camera)
 
     def set_will(self) -> None:
         """Call before connecting: the broker publishes "offline" if we vanish."""
@@ -60,6 +77,17 @@ class Publisher:
             "sw_version": self.version,
         }
         common = {"availability_topic": STATUS_TOPIC, "device": device}
+        buttons = {
+            f"{self.discovery_prefix}/button/{node}/quick_reply_{reply}/config": {
+                "name": f"Say: {LABELS[reply]}",
+                "unique_id": f"{node}_quick_reply_{reply}",
+                "command_topic": self.quick_reply_topic,
+                "payload_press": reply,
+                "icon": "mdi:message-reply-text",
+                **common,
+            }
+            for reply in self.quick_replies
+        }
         return {
             f"{self.discovery_prefix}/sensor/{node}/last_visitor/config": {
                 "name": "Last visitor",
@@ -79,6 +107,7 @@ class Publisher:
                 "icon": "mdi:account-voice",
                 **common,
             },
+            **buttons,
         }
 
     def _publish(self, topic: str, payload: str) -> None:

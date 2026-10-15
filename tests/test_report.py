@@ -409,3 +409,37 @@ def test_silent_turns_not_transcribed_are_counted():
     r = build(inputs(log_text=log))
     assert r["whisper"]["silent_turns_skipped"] == 2
     assert "no answers, 2 silent turn(s) not transcribed" in render_text(r)
+
+
+def test_quick_replies_are_counted_apart_from_visits():
+    greeted = visit(NOW - 3600, NOW - 3570, classification="cooperative_other")
+    said = visit(
+        NOW - 3600,
+        NOW - 3520,
+        event_id=greeted["event_id"],
+        outcome="quick_reply",
+        trigger="quick_reply",
+        details={"reply": "coming", "result": "said", "after_seconds": 41.0, "present": True},
+    )
+    failed = visit(
+        NOW - 3600,
+        NOW - 3510,
+        event_id=greeted["event_id"],
+        outcome="quick_reply",
+        trigger="quick_reply",
+        details={"reply": "later", "result": "failed", "after_seconds": 51.0, "present": False},
+    )
+    r = build(inputs(visits=[greeted, said, failed], window_visits=[greeted, said, failed]))
+    assert r["counts"]["visits"] == 1
+    assert r["quick_replies"] == {
+        "count": 2,
+        "replies": {"coming": 1, "later": 1},
+        "results": {"said": 1, "failed": 1},
+        "nobody_there": 1,
+        "median_after_seconds": 41.0,
+    }
+    assert failing(r)["quick_replies"] == "1 quick reply(ies) couldn't be said"
+    assert (
+        "Quick replies: 2 (coming 1, later 1; said 1, failed 1), 41 s after the notification "
+        "(median), 1 with nobody there" in render_text(r)
+    )

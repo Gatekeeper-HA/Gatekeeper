@@ -4,6 +4,7 @@ The Notifier runs as an ``Interaction.on_notify`` callback, once per visit:
 right after the visitor's answer is classified (before the reply plays), or
 when the visit fails. Sending happens on a background thread so the visit
 isn't delayed; the Frigate snapshot of the visitor is attached when available.
+With quick replies (quick_reply.py), ntfy notifications carry their buttons.
 
 Backends: ntfy (self-hosted or ntfy.sh). Home Assistant notify can be added as
 another backend with the same ``send(notification, image)`` method.
@@ -62,6 +63,8 @@ class Notification:
     message: str
     tags: list[str] = field(default_factory=list)
     priority: int = 3
+    # Quick reply buttons: (label, what the button posts).
+    actions: list[tuple[str, str]] = field(default_factory=list)
 
 
 def compose(visit: Visit) -> Notification:
@@ -161,10 +164,19 @@ def _header(value: str) -> str:
 class NtfyBackend:
     name = "ntfy"
 
-    def __init__(self, url: str, topic: str, token: str = "", timeout: float = 5.0) -> None:
+    def __init__(
+        self,
+        url: str,
+        topic: str,
+        token: str = "",
+        timeout: float = 5.0,
+        reply_url: str = "",
+    ) -> None:
         self.endpoint = f"{url.rstrip('/')}/{urllib.parse.quote(topic)}"
         self.token = token
         self.timeout = timeout
+        # Where quick reply buttons post (the reply topic, as the phone reaches it).
+        self.reply_url = reply_url
 
     def request(self, n: Notification, image: bytes | None) -> urllib.request.Request:
         headers = {
@@ -174,6 +186,11 @@ class NtfyBackend:
         }
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
+        if n.actions and self.reply_url:
+            headers["Actions"] = "; ".join(
+                f'http, "{label}", {self.reply_url}, method=POST, body={body}, clear=true'
+                for label, body in n.actions
+            )
         if image:
             # The body is the attachment; ntfy reads the message from this
             # header and turns literal "\n" into newlines.
@@ -218,9 +235,12 @@ class Notifier:
         snapshot: Callable[[Visit], bytes | None] = lambda visit: None,
         clock: Callable[[], float] = time.monotonic,
         log_to: EventLog | None = None,
+        actions: Callable[[Visit], list[tuple[str, str]]] = lambda visit: [],
     ) -> None:
         self.backends = list(backends)
         self._snapshot = snapshot
+        # Quick reply buttons for a visit's notification (app.py).
+        self._actions = actions
         self._clock = clock
         # One line per attempt (notifications.jsonl), so "was every visit
         # notified, and how fast" can be checked later.
@@ -234,6 +254,7 @@ class Notifier:
     def send(self, visit: Visit) -> None:
         started = self._clock()
         notification = compose(visit)
+        notification.actions = self._actions(visit)
         image = None
         if visit.image is not None:  # e.g. a warrant held up to the camera
             try:

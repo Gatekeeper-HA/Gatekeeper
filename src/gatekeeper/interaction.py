@@ -74,8 +74,10 @@ class Visit:
     pressed_during_visit (a doorbell press while a visit ran or just ended),
     left (someone came out of the front door and walked away), or returned
     (someone walked up soon after that: most likely them coming back in). Neither
-    is greeted or notified.
-    trigger is "person" (Frigate detection) or "button" (doorbell press).
+    is greeted or notified. quick_reply records the resident's quick reply to a
+    visit (same event id; details: reply, result, after_seconds, present).
+    trigger is "person" (Frigate detection), "button" (doorbell press) or
+    "quick_reply".
     turns is how many times Gatekeeper listened: 2 when the first answer was
     silence and the no-answer reply asked again.
     endpoint is how the last listening turn ended: "answered" (the visitor
@@ -302,7 +304,7 @@ class Interaction:
             if self._webrtc_available and self._talkback_lock.acquire(blocking=False):
                 try:
                     visit.response = self.settings.replies["pressed"]
-                    asyncio.run(self._say_once(visit, "pressed"))
+                    asyncio.run(self._say_once(visit, "pressed", visit.response))
                 except Exception:
                     log.exception("could not answer the doorbell press")
                     visit.response = None
@@ -313,12 +315,51 @@ class Interaction:
         finally:
             event_id_var.reset(token)
 
-    async def _say_once(self, visit: Visit, key: str) -> None:
+    def quick_reply(self, event_id: str, reply: str, after: float | None, left: float) -> Visit:
+        """The resident's quick reply to visit ``event_id`` (quick_reply.py): say it
+        at the door, once the speaker is free, and log it. ``after``: seconds since
+        the visit was notified (None: not known); ``left``: how long it may wait to
+        be said (<= 0: too late)."""
+        token = event_id_var.set(event_id)
+        try:
+            visit = Visit(
+                event_id, self.settings.camera_name, outcome="quick_reply", trigger="quick_reply"
+            )
+            visit.details = {
+                "reply": reply,
+                "after_seconds": None if after is None else round(after, 1),
+            }
+            if left <= 0:
+                result = "too_late"
+            elif not self._webrtc_available:
+                result = "failed"
+            elif not self._talkback_lock.acquire(timeout=left):
+                result = "busy"  # a visit held the speaker until the window ended
+            else:
+                try:
+                    if self._present is not None:
+                        visit.details["present"] = self._present()
+                    visit.response = self.settings.quick_reply_phrases[reply]
+                    asyncio.run(self._say_once(visit, f"quick_{reply}", visit.response))
+                    result = "said" if visit.response else "failed"
+                except Exception:
+                    log.exception("could not say the quick reply")
+                    visit.response, result = None, "failed"
+                finally:
+                    self._talkback_lock.release()
+            visit.details["result"] = result
+            log.info("quick reply %r: %s", reply, result)
+            self._log_visit(visit, publish=False)
+            return visit
+        finally:
+            event_id_var.reset(token)
+
+    async def _say_once(self, visit: Visit, key: str, text: str) -> None:
         """Play one phrase on its own session and keep it open until it's heard."""
         talk = self._talk()
         try:
             playback = await asyncio.wait_for(
-                self._say(talk, visit, key, self.settings.replies[key]),
+                self._say(talk, visit, key, text),
                 self.settings.visit_timeout_seconds,
             )
             if playback is None:

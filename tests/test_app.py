@@ -101,3 +101,18 @@ def test_notify_backends_from_settings(settings):
     (backend,) = build_notify_backends(settings)
     assert backend.endpoint == "http://ntfy/doorbell"
     assert backend.token == "tk_x"
+
+
+def test_command_topics_are_subscribed_and_handled_apart_from_events(settings):
+    events, replies = [], []
+    client = build_mqtt_client(
+        settings,
+        on_event=events.append,
+        commands={"gatekeeper/front_door/quick_reply": replies.append},
+    )
+    subscribed = []
+    client.on_connect(SimpleNamespace(subscribe=subscribed.append), None, {}, 0, None)
+    assert subscribed == ["frigate/events", "gatekeeper/front_door/quick_reply"]
+    msg = SimpleNamespace(topic="gatekeeper/front_door/quick_reply", payload=b"coming")
+    client.on_message(client, None, msg)
+    assert replies == [b"coming"] and events == []
