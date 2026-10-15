@@ -155,7 +155,7 @@ class _Talk:
     def __init__(self, connect: ConnectFn, sleep, per_clip: bool) -> None:
         self._connect = connect
         self._sleep = sleep
-        self._per_clip = per_clip
+        self.per_clip = per_clip
         self._session = None
         self._closing: list[asyncio.Task] = []
 
@@ -167,7 +167,7 @@ class _Talk:
             if session is None:
                 return None
         playback = session.play(wav)
-        if self._per_clip:
+        if self.per_clip:
             self._closing.append(asyncio.ensure_future(self._close_after(session, playback)))
         else:
             self._session = session
@@ -626,7 +626,22 @@ class _Turns:
         self._talk = talk
         self._visit = visit
 
-    async def ask(self, key: str, max_answer: float | None = None, photos: bool = False):
+    async def ask(
+        self,
+        key: str,
+        max_answer: float | None = None,
+        photos: bool = False,
+        preface: str | None = None,
+    ):
+        if preface is not None:
+            first = await self._i._say(
+                self._talk, self._visit, preface, self._i.settings.phrases[preface]
+            )
+            if first is None:
+                return None
+            await self._i._time_reply(self._visit, first)
+            if self._talk.per_clip:
+                await self._talk.heard(first)  # one session per phrase: not two at once
         text = self._i.settings.phrases[key]
         playback = await self._i._say(self._talk, self._visit, key, text)
         if playback is None:

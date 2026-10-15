@@ -102,6 +102,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   work while Gatekeeper is down. Update the cron lines (README, "Running a rig").
 
 ### Fixed
+- **An officer isn't asked again for what their first sentence said.** "I'm a police officer
+  looking for …" or "… we have a warrant" used to get the reason-and-warrant question
+  anyway (#23). Now the reason (and the warrant, if they said) is taken from that
+  sentence. The disclosure the reason question starts with ("This is an automated
+  assistant, and this conversation is recorded.") is still said, right before the next
+  question, as the new `PHRASE_POLICE_DISCLOSURE`.
 - **Conversations' replies are timed too.** A visit whose answer started a conversation
   (officer, emergency, canvasser) never had a `reply_latency`, so the daily report's reply
   times and its `reply_speed` check left out the visits where speed matters most. It's now

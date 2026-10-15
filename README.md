@@ -140,8 +140,9 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `REPLY_NO_ANSWER` | *You are being recorded. Please state your purpose or leave the property.* | Reply to silence or a one-word answer |
 | `REPLY_PRESSED` | *The resident has already been notified.* | Said when the doorbell is pressed during a visit's cooldown |
 | `PHRASE_EMERGENCY_WAIT` | *I have alerted the resident. Please wait.* | To someone reporting an emergency |
-| `PHRASE_POLICE_ASK_REASON` | *This is an automated assistant, and this conversation is recorded. What is the reason for your visit, and do you have a warrant?* | First question to law enforcement |
-| `PHRASE_POLICE_ASK_WARRANT` | *Do you have a warrant? Please answer yes or no.* | If the first answer didn't say |
+| `PHRASE_POLICE_ASK_REASON` | *This is an automated assistant, and this conversation is recorded. What is the reason for your visit, and do you have a warrant?* | First question to law enforcement, unless their first sentence already said why they came or whether they have a warrant |
+| `PHRASE_POLICE_DISCLOSURE` | *This is an automated assistant, and this conversation is recorded.* | Said instead, right before the next question, when the reason question is skipped |
+| `PHRASE_POLICE_ASK_WARRANT` | *Do you have a warrant? Please answer yes or no.* | If they haven't said |
 | `PHRASE_POLICE_ASK_IDENTITY` | *Please state your agency, your name, and your badge number.* | |
 | `PHRASE_POLICE_SHOW_WARRANT` | *Please hold the warrant up to the camera. Is it signed by a judge?* | Photos are taken while they answer |
 | `PHRASE_POLICE_NOTIFYING` | *Thank you. I am notifying the resident now. Please wait.* | After a judge-signed warrant and their ID |

@@ -7,7 +7,8 @@ conversations takes over the rest of the visit:
 - emergency: alert the resident urgently and ask the visitor to wait. Never
   sends anyone away.
 - law_enforcement: alert the resident at once; ask the reason and whether
-  they have a warrant, then their agency, name and badge number. With a
+  they have a warrant (unless their first sentence said), then their agency,
+  name and badge number. With a
   warrant, ask them to hold it up to the camera (photos are kept) and whether a
   judge signed it. A judge-signed warrant: "I'm notifying the resident".
   Otherwise: the resident doesn't consent, please leave; and, if they're still
@@ -55,6 +56,21 @@ def has_warrant(text: str) -> bool | None:
     return yes_no(t)
 
 
+# What makes an officer's first sentence more than "I'm a police officer": why they've
+# come (Gatekeeper#23: "I'm a police officer looking for …").
+_REASON = re.compile(
+    r"\b(?:looking for|searching for|here (?:about|for|to|regarding|with)|regarding|"
+    r"investigat\w*|complaints?|reports?|reported|call(?:ed)? about|check(?:ing)? on|"
+    r"speak (?:to|with)|talk (?:to|with)|questions?|serv(?:e|ing)|arrest\w*|"
+    r"follow(?:ing)? up|need to|want to|would like to|we'd like to|warrants?)\b"
+)
+
+
+def gave_reason(text: str) -> bool:
+    """Does an officer's sentence say why they've come?"""
+    return bool(_REASON.search(text.lower()))
+
+
 def judge_signed(text: str) -> bool | None:
     """Is the warrant signed by a judge? None if they didn't say."""
     t = text.lower()
@@ -71,11 +87,16 @@ class Turns(Protocol):
     """What a conversation can do during a visit (see Interaction._Turns)."""
 
     async def ask(
-        self, key: str, max_answer: float | None = None, photos: bool = False
+        self,
+        key: str,
+        max_answer: float | None = None,
+        photos: bool = False,
+        preface: str | None = None,
     ) -> str | None:
         """Say phrase ``key`` and return the visitor's answer ("" if silent,
         None if talkback failed). With ``photos``, keep full-resolution photos
-        of what's in front of the camera while they answer."""
+        of what's in front of the camera while they answer. With ``preface``,
+        say that phrase first, right before it."""
 
     async def say(self, key: str) -> bool:
         """Say phrase ``key`` and wait until it has been heard. False if talkback failed."""
@@ -109,21 +130,31 @@ async def law_enforcement(visit, turns: Turns, settings) -> None:
     details = visit.details
     turns.alert()  # the resident hears about it at once, whatever happens next
 
-    reason = await turns.ask("police_ask_reason")
-    if reason is None:
-        visit.outcome = "reply_failed"
-        return
+    # The officer may have said why they've come, or whether they have a warrant,
+    # in their first sentence; then don't ask again (Gatekeeper#23). The disclosure
+    # that starts police_ask_reason is still said, before the next question.
+    first = visit.transcript
+    disclose: str | None = None
+    if gave_reason(first) or has_warrant(first) is not None:
+        reason, disclose = first, "police_disclosure"
+    else:
+        reason = await turns.ask("police_ask_reason")
+        if reason is None:
+            visit.outcome = "reply_failed"
+            return
+        if classify_response(reason)[0] == "emergency":
+            details["reason"] = reason
+            await emergency(visit, turns, settings)
+            return
     details["reason"] = reason
-    if classify_response(reason)[0] == "emergency":
-        await emergency(visit, turns, settings)
-        return
     warrant = has_warrant(reason)
     if warrant is None:
-        answer = await turns.ask("police_ask_warrant")
+        answer = await turns.ask("police_ask_warrant", preface=disclose)
+        disclose = None
         warrant = bool(answer and has_warrant(answer))
     details["warrant"] = warrant
 
-    identity = await turns.ask("police_ask_identity")
+    identity = await turns.ask("police_ask_identity", preface=disclose)
     details["identity"] = identity or ""
 
     if warrant:
