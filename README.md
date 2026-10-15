@@ -265,12 +265,16 @@ Some visitors get a short conversation instead of one reply. Every line is a set
 - **Law enforcement** (`law_enforcement`):
   1. You get an urgent notification at once, before Gatekeeper says anything more.
   2. Gatekeeper says it's an automated assistant and that the conversation is recorded, then
-     asks the reason for the visit and whether they have a warrant. If that's unclear, it
-     asks yes or no. An emergency here switches to the emergency conversation.
+     asks the reason for the visit and whether they have a warrant. If their first sentence
+     already said why they came or whether they have a warrant, it only says the first part
+     (`PHRASE_POLICE_DISCLOSURE`). If the warrant is unclear, it asks yes or no. An
+     emergency here switches to the emergency conversation.
   3. It asks for their agency, name and badge number.
-  4. With a warrant, it asks them to hold it up to the camera and whether a judge signed it.
-     It keeps 3 full-resolution photos from the camera's main stream (via go2rtc) in
-     `audio/snapshots/` and attaches one to the notification.
+  4. With a warrant, it asks them to hold it close to the camera and keep it still, and
+     whether a judge signed it. It takes 6 full-resolution photos half a second apart from
+     the camera's main stream (via go2rtc), keeps them in `audio/snapshots/`, and attaches
+     the sharpest to the notification. If they answer before the photos are all taken, it
+     asks them to keep holding it and says when it's finished.
   5. **A warrant signed by a judge:** "Thank you. I am notifying the resident now."
   6. **Otherwise:** "The resident does not consent to entry or a search without a warrant
      signed by a judge. Please leave the property." If Frigate still sees someone on the
