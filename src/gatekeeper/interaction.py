@@ -18,7 +18,7 @@ from typing import Any
 
 from gatekeeper import dialogue, talkback
 from gatekeeper.audio import Synthesizer, Transcriber, capture_audio_clip
-from gatekeeper.camera import go2rtc_frame
+from gatekeeper.camera import go2rtc_frame, photo_sharpness
 from gatekeeper.classify import CONVERSATIONS, classify_response
 from gatekeeper.config import Settings
 from gatekeeper.eventlog import EventLog
@@ -55,8 +55,9 @@ MIN_ANSWER_SPEECH_SECONDS = 0.25
 # A turn with less than this of even weak speech isn't transcribed (Interaction._any_speech).
 ANY_SPEECH_SECONDS = 0.1
 # Photos of a document held up to the camera (a warrant): how many, how far apart.
-FRAME_COUNT = 3
-FRAME_INTERVAL_SECONDS = 1.0
+# Several, close together, so one catches the page held still (Gatekeeper#24).
+FRAME_COUNT = 6
+FRAME_INTERVAL_SECONDS = 0.5
 
 # connect() -> an open talkback session (play(wav) -> talkback.Playback, async
 # close()), or None if it can't connect.
@@ -209,6 +210,7 @@ class Interaction:
         present: Callable[[], bool] | None = None,
         grab_frame: Callable[[Path], Path | None] | None = None,
         speech_check: Callable[[Path, float, float], float | None] | None = None,
+        photo_score: Callable[[Path], float | None] = photo_sharpness,
         capture: CaptureFn = capture_audio_clip,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         clock: Callable[[], float] = time.time,
@@ -228,6 +230,8 @@ class Interaction:
         # Is someone still on the porch (SessionTracker.person_present)?
         self._present = present
         self._grab_frame = grab_frame or self._grab_go2rtc_frame
+        # How sharp a photo is (camera.photo_sharpness): the sharpest is sent.
+        self._photo_score = photo_score
         # Seconds of speech in a clip between two times (None: can't tell).
         self._speech_check = speech_check or self._silero_speech
         self._capture = capture
@@ -632,6 +636,7 @@ class _Turns:
         max_answer: float | None = None,
         photos: bool = False,
         preface: str | None = None,
+        hold: tuple[str, str] | None = None,
     ):
         if preface is not None:
             first = await self._i._say(
@@ -650,7 +655,15 @@ class _Turns:
         # Photos while they answer, e.g. while holding a warrant up to the camera.
         taking = asyncio.ensure_future(self._photos(playback)) if photos else None
         try:
-            return await self._i._hear(self._visit, key, text, playback, max_answer)
+            answer = await self._i._hear(self._visit, key, text, playback, max_answer)
+            if hold is not None and taking is not None and not taking.done():
+                # They answered before the photos were all taken: don't leave them
+                # wondering whether to keep holding it up.
+                keep_holding, finished = hold
+                if await self.say(keep_holding):
+                    await taking
+                    await self.say(finished)
+            return answer
         finally:
             if taking is not None:
                 await taking
@@ -679,7 +692,8 @@ class _Turns:
 
     async def _photos(self, playback) -> None:
         """FRAME_COUNT full-resolution photos, starting once the prompt has been
-        heard at the door; the middle one goes with the notification."""
+        heard at the door. The sharpest goes with the notification (the middle one
+        if they can't be scored); all are kept."""
         visit, i = self._visit, self._i
         await wait_sent(playback)
         await i._sleep(TALKBACK_LATENCY_SECONDS)
@@ -698,5 +712,9 @@ class _Turns:
                 await i._sleep(FRAME_INTERVAL_SECONDS)
         log.info("took %d photo(s) of the visitor", len(taken))
         if taken:
-            visit.image = taken[len(taken) // 2]
+            scores = [await i._in_thread(i._photo_score, p) for p in taken]
+            scored = [(s, p) for s, p in zip(scores, taken, strict=True) if s is not None]
+            visit.image = max(scored)[1] if scored else taken[len(taken) // 2]
             visit.details["photos"] = [p.name for p in taken]
+            visit.details["photo_sent"] = visit.image.name
+            visit.details["photo_sharpness"] = [None if s is None else round(s, 1) for s in scores]

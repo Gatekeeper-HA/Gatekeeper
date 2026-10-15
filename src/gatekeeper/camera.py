@@ -28,3 +28,32 @@ def go2rtc_frame(api: str, stream: str, path: Path, timeout: float = 10.0) -> Pa
         return None
     path.write_bytes(data)
     return path
+
+
+def sharpness(gray) -> float:
+    """How sharp a grayscale image (a numpy array) is: the variance of its Laplacian
+    over the middle of the frame, where a document held up to the doorbell is, and
+    away from the edges (on the rig, the siding's sharp stripes). Higher is sharper:
+    in focus, and not blurred by a moving hand."""
+    import numpy as np
+
+    h, w = gray.shape
+    g = gray[h // 5 : h - h // 5, w // 5 : w - w // 5].astype(np.float32)
+    lap = g[:-2, 1:-1] + g[2:, 1:-1] + g[1:-1, :-2] + g[1:-1, 2:] - 4 * g[1:-1, 1:-1]
+    return float(lap.var())
+
+
+def photo_sharpness(path: Path) -> float | None:
+    """The sharpness of the JPEG at ``path``, or None if it can't be read (PyAV, which
+    comes with aiortc and faster-whisper, decodes it)."""
+    try:
+        import av
+    except ImportError:
+        return None
+    try:
+        with av.open(str(path)) as container:
+            frame = next(container.decode(video=0))
+            return sharpness(frame.to_ndarray(format="gray"))
+    except Exception as e:
+        log.warning("couldn't read photo %s: %s", path.name, e)
+        return None

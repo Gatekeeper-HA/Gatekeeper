@@ -9,7 +9,8 @@ conversations takes over the rest of the visit:
 - law_enforcement: alert the resident at once; ask the reason and whether
   they have a warrant (unless their first sentence said), then their agency,
   name and badge number. With a
-  warrant, ask them to hold it up to the camera (photos are kept) and whether a
+  warrant, ask them to hold it up to the camera (photos are kept; if they
+  answer first, to keep holding it until they're taken) and whether a
   judge signed it. A judge-signed warrant: "I'm notifying the resident".
   Otherwise: the resident doesn't consent, please leave; and, if they're still
   on the porch after a while, the second warning.
@@ -92,11 +93,14 @@ class Turns(Protocol):
         max_answer: float | None = None,
         photos: bool = False,
         preface: str | None = None,
+        hold: tuple[str, str] | None = None,
     ) -> str | None:
         """Say phrase ``key`` and return the visitor's answer ("" if silent,
         None if talkback failed). With ``photos``, keep full-resolution photos
-        of what's in front of the camera while they answer. With ``preface``,
-        say that phrase first, right before it."""
+        of what's in front of the camera while they answer; with ``hold`` (two
+        phrase keys) as well, if they answer before the photos are all taken,
+        say the first, then the second once they are. With ``preface``, say
+        that phrase first, right before it."""
 
     async def say(self, key: str) -> bool:
         """Say phrase ``key`` and wait until it has been heard. False if talkback failed."""
@@ -158,7 +162,9 @@ async def law_enforcement(visit, turns: Turns, settings) -> None:
     details["identity"] = identity or ""
 
     if warrant:
-        shown = await turns.ask("police_show_warrant", photos=True)
+        shown = await turns.ask(
+            "police_show_warrant", photos=True, hold=("police_hold_warrant", "police_warrant_done")
+        )
         details["judge_signed"] = bool(shown and judge_signed(shown))
 
     if warrant and details.get("judge_signed"):

@@ -144,7 +144,9 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `PHRASE_POLICE_DISCLOSURE` | *This is an automated assistant, and this conversation is recorded.* | Said instead, right before the next question, when the reason question is skipped |
 | `PHRASE_POLICE_ASK_WARRANT` | *Do you have a warrant? Please answer yes or no.* | If they haven't said |
 | `PHRASE_POLICE_ASK_IDENTITY` | *Please state your agency, your name, and your badge number.* | |
-| `PHRASE_POLICE_SHOW_WARRANT` | *Please hold the warrant up to the camera. Is it signed by a judge?* | Photos are taken while they answer |
+| `PHRASE_POLICE_SHOW_WARRANT` | *Please hold the warrant close to the camera and keep it still. Is it signed by a judge?* | Six photos are taken while they answer; the sharpest goes with the notification |
+| `PHRASE_POLICE_HOLD_WARRANT` | *Please keep holding it there while I look it over. I'll let you know when I'm finished.* | If they answer before the photos are all taken |
+| `PHRASE_POLICE_WARRANT_DONE` | *I'm finished. You can lower it now.* | Once they are |
 | `PHRASE_POLICE_NOTIFYING` | *Thank you. I am notifying the resident now. Please wait.* | After a judge-signed warrant and their ID |
 | `PHRASE_POLICE_LEAVE` | *The resident does not consent to entry or a search without a warrant signed by a judge. Please leave the property.* | Otherwise |
 | `PHRASE_POLICE_LEAVE_AGAIN` | *You have been asked to leave. The resident does not consent to your presence, this conversation is recorded, and legal action will be taken if you remain.* | If they're still there `LEAVE_CHECK_SECONDS` later |

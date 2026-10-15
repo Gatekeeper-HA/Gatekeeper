@@ -2,9 +2,11 @@
 fake rig from test_interaction (fixed recording windows, instant playback)."""
 
 import threading
+import time
 
 from conftest import write_wav
 from gatekeeper.config import PHRASE_KEYS
+from gatekeeper.interaction import _Turns
 from gatekeeper.notify import compose
 from test_interaction import ALL_REPLY_KEYS, ECHO_END, EID, FakeTranscriber, Rig
 
@@ -132,6 +134,10 @@ def test_judge_signed_warrant_identity_first_then_resident_notified(settings):
 
     def grab(path):
         frames.append(path.name)
+        # The officer answers before the photos are all taken (they take ~5 s).
+        deadline = time.monotonic() + 10
+        while "police_hold_warrant" not in played(rig) and time.monotonic() < deadline:
+            time.sleep(0.01)
         return write_wav(path)  # any file stands in for the JPEG
 
     rig = rig_for(
@@ -141,14 +147,18 @@ def test_judge_signed_warrant_identity_first_then_resident_notified(settings):
         ("police_show_warrant", "Yes, it's signed by Judge Martinez"),
         grab_frame=grab,
     )
+    # Photo 5 is the sharpest (the page held still); it goes with the notification.
+    rig.interaction._photo_score = lambda path: {"5": 90.0, "2": 40.0}.get(path.stem[-1], 10.0)
     visit = rig.interaction.run(EID)
 
     assert played(rig) == [
         "greeting", "police_disclosure", "police_ask_identity", "police_show_warrant",
-        "police_notifying",
+        "police_hold_warrant", "police_warrant_done", "police_notifying",
     ]  # fmt: skip
-    assert frames == [f"{EID}-1.jpg", f"{EID}-2.jpg", f"{EID}-3.jpg"]
-    assert visit.image.name == f"{EID}-2.jpg"  # the middle one goes with the notification
+    assert frames == [f"{EID}-{n}.jpg" for n in range(1, 7)]
+    assert visit.image.name == f"{EID}-5.jpg"
+    assert visit.details["photo_sent"] == f"{EID}-5.jpg"
+    assert visit.details["photo_sharpness"] == [10.0, 40.0, 10.0, 10.0, 90.0, 10.0]
     assert visit.details["judge_signed"] is True
     assert visit.details["decision"] == "notified"
     final = compose(rig.notified[-1])
@@ -268,6 +278,24 @@ def test_conversation_reply_is_timed_from_the_end_of_the_answer(settings):
     assert record["reply_latency"] >= 0.8
 
 
+def test_unscored_warrant_photos_send_the_middle_one(settings):
+    def grab(path):
+        return write_wav(path)
+
+    rig = rig_for(
+        settings,
+        ("greeting", "Sheriff's office"),
+        ("police_ask_reason", "We have a search warrant"),
+        ("police_ask_identity", "Deputy Lee, badge 210"),
+        ("police_show_warrant", "Yes, signed by a judge"),
+        grab_frame=grab,
+    )
+    rig.interaction._photo_score = lambda path: None  # e.g. PyAV not installed
+    visit = rig.interaction.run(EID)
+    assert visit.image.name == f"{EID}-4.jpg"
+    assert visit.details["photo_sharpness"] == [None] * 6
+
+
 def test_officer_who_says_why_but_not_about_a_warrant_is_asked_only_that(settings):
     # The owner's first officer test (2026-10-14).
     rig = rig_for(
@@ -315,3 +343,35 @@ def test_disclosure_with_a_session_per_phrase(settings):
     )
     rig.interaction.run(EID)
     assert played(rig)[:3] == ["greeting", "police_disclosure", "police_ask_warrant"]
+
+
+def test_no_hold_line_when_the_photos_were_taken_before_the_answer(settings, monkeypatch):
+    # An officer reading the warrant out answers after the photos are all taken.
+    taken = threading.Event()
+    take_photos = _Turns._photos
+
+    async def photos(self, playback):
+        await take_photos(self, playback)
+        taken.set()
+
+    monkeypatch.setattr(_Turns, "_photos", photos)
+    rig = rig_for(
+        settings,
+        ("greeting", "Sheriff's office, we have a search warrant"),
+        ("police_ask_identity", "Deputy Lee, badge 210"),
+        ("police_show_warrant", "Yes, it's signed by Judge Martinez"),
+        grab_frame=lambda path: write_wav(path),
+    )
+    rig.interaction._photo_score = lambda path: 1.0
+    captures = []
+
+    def capture(url, path, seconds):
+        captures.append(path.name)
+        if len(captures) == 3:  # the warrant answer
+            taken.wait(10)
+        return write_wav(path, seconds=1.0)
+
+    rig.interaction._capture = capture
+    rig.interaction.run(EID)
+    assert taken.is_set()
+    assert played(rig)[-2:] == ["police_show_warrant", "police_notifying"]

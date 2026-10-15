@@ -19,6 +19,7 @@ PHRASE_KEYS = (
     "emergency_wait",
     "police_disclosure",
     "police_ask_reason", "police_ask_warrant", "police_ask_identity", "police_show_warrant",
+    "police_hold_warrant", "police_warrant_done",
     "police_notifying", "police_leave", "police_leave_again",
     "civic_ask_identity", "civic_ask_message", "civic_thanks",
 )  # fmt: skip
@@ -127,8 +128,15 @@ class Settings(BaseSettings):
         "Please state your agency, your name, and your badge number."
     )
     phrase_police_show_warrant: str = (
-        "Please hold the warrant up to the camera. Is it signed by a judge?"
+        "Please hold the warrant close to the camera and keep it still. "
+        "Is it signed by a judge?"
     )
+    # The photos take a few seconds: said if they answer before they're all taken,
+    # then the second line once they are.
+    phrase_police_hold_warrant: str = (
+        "Please keep holding it there while I look it over. I'll let you know when I'm finished."
+    )
+    phrase_police_warrant_done: str = "I'm finished. You can lower it now."
     phrase_police_notifying: str = (
         "Thank you. I am notifying the resident now. Please wait."
     )
