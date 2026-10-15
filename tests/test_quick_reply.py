@@ -172,3 +172,8 @@ def test_ntfy_replies_retries_after_losing_the_connection():
         replies.run_forever()
     assert len(attempts) == 3
     assert sleeps == [5.0, 10.0, 20.0]
+
+
+def test_no_buttons_on_a_package_alert():
+    q = quick(FakeClock(), [])
+    assert q.buttons(Visit("package-1.0", "front_door", trigger="package")) == []

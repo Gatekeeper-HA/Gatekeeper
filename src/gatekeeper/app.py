@@ -21,6 +21,12 @@ from gatekeeper.health import Health, serve
 from gatekeeper.interaction import Interaction, Visit
 from gatekeeper.logs import setup_logging
 from gatekeeper.notify import Notifier, NtfyBackend, frigate_snapshot
+from gatekeeper.packages import (
+    PackageModel,
+    PackageWatcher,
+    frigate_frame,
+    person_snapshot,
+)
 from gatekeeper.publish import QUICK_REPLY_TOPIC, Publisher
 from gatekeeper.quick_reply import NtfyReplies, QuickReplies
 from gatekeeper.retention import Retention
@@ -108,6 +114,45 @@ def start_thread(name: str, target, *args, **kwargs) -> None:
     threading.Thread(target=target, args=args, kwargs=kwargs, name=name, daemon=True).start()
 
 
+def start_packages(settings: Settings, tracker, notifier, interaction, publisher) -> None:
+    """Package alerts: check the doorstep after each visit (packages.py)."""
+    zone = Zone(
+        settings.package_zone, settings.camera_name, lambda: fetch_config(settings.frigate_api)
+    )
+    start_thread("package-zone", zone.load_until_known)
+    model = PackageModel()
+
+    def on_change(kind, package, after, came) -> None:
+        visit = Visit(
+            f"package-{package.since:.3f}",
+            settings.camera_name,
+            outcome=f"package_{kind}",
+            trigger="package",
+        )
+        visit.details = {"box": list(package.box), "score": package.score, "since": package.since}
+        # Delivered: the doorstep with the package. Picked up: who came for it.
+        image = after.jpeg
+        if kind == "picked_up":
+            image = person_snapshot(settings.frigate_api, settings.camera_name, came) or image
+        path = settings.snapshot_dir / f"{visit.event_id}-{kind}.jpg"
+        path.write_bytes(image)
+        visit.image = path
+        notifier(visit)
+        interaction.log_only(visit)
+        publisher.package(bool(watcher.packages))
+
+    watcher = PackageWatcher(
+        present=tracker.person_present,
+        frame=lambda: frigate_frame(settings.frigate_api, settings.camera_name),
+        zone=lambda: zone.polygon,
+        score=model.score,
+        on_change=on_change,
+        state_file=settings.package_state_file,
+    )
+    publisher.package(bool(watcher.packages))
+    start_thread("packages", watcher.run_forever)
+
+
 def main() -> None:
     settings = Settings()
     setup_logging(settings.log_level, settings.log_format)
@@ -182,6 +227,7 @@ def main() -> None:
         discovery_prefix=settings.ha_discovery_prefix,
         version=__version__,
         quick_replies=quick.replies if quick else (),
+        packages=bool(settings.package_zone),
     )
     publisher.set_will()
 
@@ -251,6 +297,8 @@ def main() -> None:
     start_thread(
         "sweep", tracker.sweep_forever, settings.sweep_interval_seconds, on_sweep=health.sweep_done
     )
+    if settings.package_zone:
+        start_packages(settings, tracker, notifier, interaction, publisher)
     start_thread("retention", Retention(settings).run_forever)
 
     def on_press() -> None:

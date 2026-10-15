@@ -72,8 +72,9 @@ class QuickReplies:
 
     def buttons(self, visit) -> list[tuple[str, str]]:
         """A visit's notification buttons: (label, what it posts to the reply topic).
-        None mid-conversation (the interim alert while an officer is questioned)."""
-        if visit.stage == "alert":
+        None mid-conversation (the interim alert while an officer is questioned), or
+        for a package alert (no one to answer)."""
+        if visit.stage == "alert" or visit.trigger == "package":
             return []
         return [
             (LABELS[r], f"{visit.event_id} {r} {self.sign(visit.event_id, r)}")

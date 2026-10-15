@@ -122,6 +122,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `DOOR_ZONE` | *(none)* | A Frigate zone at the front door (e.g. `door`). Someone who appears there is the household coming out: if they walk out of it within `LEAVING_WATCH_SECONDS` they aren't greeted or notified, only logged (`outcome: left`). Someone who stays at the door is greeted, and a doorbell press always greets. The compose stack draws one next to the doorbell |
 | `LEAVING_WATCH_SECONDS` | `3` | How long someone who appears in the door zone has to walk out of it. On the rig, 90% of the people leaving did within 2.9 s |
 | `LEAVING_COOLDOWN_SECONDS` | `15` | After someone leaves by the door, person events this soon count as them too (Frigate sometimes splits one person's track) |
+| `PACKAGE_ZONE` | *(none)* | A Frigate zone where packages are left (e.g. `porch`): [package alerts](#package-alerts). The compose stack sets `porch` |
 | `RETURN_WINDOW_SECONDS` | `120` | Someone who walks up this soon after someone left by the door is most likely them coming back in (from the car or the mailbox): not greeted or notified, logged as `returned`. A doorbell press still greets. `0` turns it off |
 | `LISTEN_SECONDS` | `4` | How long to wait for the visitor to start answering after the greeting (or, without the audio tap, how long to record after it) |
 | `AUDIO_TAP` | `true` | Read the camera's audio all the time and stop listening when the visitor stops talking. `false`: record a fixed window per prompt |
@@ -351,6 +352,36 @@ actionable notifications.
 Each reply is logged in `events.jsonl` as a `quick_reply` record with the visit's id
 (see [Visit log](#visit-log)), and the daily report counts them.
 
+## Package alerts
+
+With `PACKAGE_ZONE` set, you get **Package at the front door** when a package is left
+there, with a photo of it, and **Package picked up** when it's gone, with Frigate's photo
+of who came.
+
+A package only arrives or leaves with someone at the door, so the doorstep isn't watched
+all the time. It's compared before and after each visit:
+
+1. While nobody is on the porch, Gatekeeper keeps a recent frame from Frigate.
+2. Once whoever came has been gone 15 s, it takes another frame and compares the zone in
+   the two, after evening out the camera's exposure.
+   - If the lighting changed while they were there (a porch light, the camera's night
+     mode), it compares again every minute for up to 10 minutes.
+3. A small open image model scores each changed patch as a package or not, before and
+   after. The model is CLIP ViT-B/32 (MIT license): about 150 MB, downloaded once and
+   cached with the other models, and about 0.2 s per patch on the CPU. A patch that looks
+   like a package now, and didn't before, is a package.
+4. After a later visit, a package whose patch changed and no longer looks like a package
+   has been picked up.
+
+Packages at the door are kept in `packages.json` (next to the visit log) across restarts.
+Home Assistant gets a *Package* binary sensor (see [MQTT](#mqtt)).
+
+**How well it works depends on your camera's view of the doorstep.** On the rig's 189 visits
+in a week with no package, it raised no alert. Packages left out of the camera's view
+can't be seen. To check yours, leave a box in the zone and walk away, by day and at night.
+The log shows each check's scores (`doorstep change at …: package score …`), and the daily
+report has the day's numbers.
+
 ## MQTT
 
 The broker requires a login. The `mqtt-auth` service writes Mosquitto's password file from
@@ -370,6 +401,7 @@ Gatekeeper publishes (all retained):
 | `gatekeeper/status` | `online`, or `offline` (last will) |
 | `gatekeeper/<camera>/state` | `conversation` during a visit, else `idle` |
 | `gatekeeper/<camera>/visit` | The latest visit record (JSON, as in `events.jsonl`) |
+| `gatekeeper/<camera>/package` | `on` while a package is at the door, else `off` (with [package alerts](#package-alerts)) |
 
 Gatekeeper listens on `gatekeeper/<camera>/quick_reply` for a [quick reply](#quick-replies):
 `coming`, `later` or `no_thanks` answers the latest visit; `{"reply": "coming", "event_id":
@@ -377,7 +409,8 @@ Gatekeeper listens on `gatekeeper/<camera>/quick_reply` for a [quick reply](#qui
 
 With Home Assistant's MQTT integration connected to the broker, a **Gatekeeper** device
 appears automatically with a *Last visitor* sensor (classification, with the transcript and
-reply as attributes), a *Conversation* binary sensor, and a *Say: …* button per quick reply.
+reply as attributes), a *Conversation* binary sensor, a *Say: …* button per quick reply,
+and, with package alerts, a *Package* binary sensor.
 
 ## Health
 
@@ -404,11 +437,15 @@ Every visit adds one JSON line to `events.jsonl`:
 `talkback_failed`, `talkback_unavailable`, `timeout`, `error`, `pressed_during_visit`, or
 `left` (someone came out of the front door and walked away; see `DOOR_ZONE`), or
 `returned` (someone walked up soon after; see `RETURN_WINDOW_SECONDS`).
+`package_delivered` and `package_picked_up` lines record a [package](#package-alerts)
+left or taken. They have `trigger` `package`, `event_id` `package-<time>` (the same for
+both lines of one package), and `details` with the package's `box` in Frigate's 640x480
+frame, its `score` and `since`.
 A `quick_reply` line records a [quick reply](#quick-replies) to the visit with the same
 `event_id`. Its `details` hold `reply`; `result` (`said`, `too_late`, `busy`: a visit held
 the speaker until the window ended, or `failed`); `after_seconds` (since the notification);
 and `present` (whether Frigate still saw someone).
-`trigger` is `person`, `button` or `quick_reply`. `turns` is how many times Gatekeeper listened: if the
+`trigger` is `person`, `button`, `quick_reply` or `package`. `turns` is how many times Gatekeeper listened: if the
 visitor says nothing, the no-answer reply asks again and Gatekeeper listens once more.
 `endpoint` is how listening ended: `answered` (they spoke, then fell silent), `no_input`,
 `max`, `tap_lost`, or `window` (a fixed recording, without the audio tap). `reply_latency`
