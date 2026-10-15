@@ -396,3 +396,16 @@ def test_where_whisper_spends_its_time():
     )
     text = render_text(build(inputs(log_text=log)))
     assert "median 1.1 s (p90 1.8 s; model 1.0 s, features 0.1 s, CPU load 0.6)" in text
+
+
+def test_silent_turns_not_transcribed_are_counted():
+    log = (
+        "### gatekeeper\n"
+        "2026-10-14 10:00:00,000 INFO    gatekeeper.audio [-] loading Whisper model: "
+        "large-v3-turbo on cuda (int8_float16)\n"
+        "2026-10-14 14:30:28,000 INFO    gatekeeper.interaction [a] no speech: not transcribed\n"
+        "2026-10-14 14:30:40,000 INFO    gatekeeper.interaction [a] no speech: not transcribed\n"
+    )
+    r = build(inputs(log_text=log))
+    assert r["whisper"]["silent_turns_skipped"] == 2
+    assert "no answers, 2 silent turn(s) not transcribed" in render_text(r)

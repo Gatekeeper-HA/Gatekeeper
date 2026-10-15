@@ -24,7 +24,7 @@ from gatekeeper.config import Settings
 from gatekeeper.eventlog import EventLog
 from gatekeeper.listen import Word, join_words, strip_greeting
 from gatekeeper.logs import event_id_var
-from gatekeeper.vad import Endpointer, TurnEnd, speech_seconds
+from gatekeeper.vad import CHUNK_SECONDS, Endpointer, TurnEnd, speech_seconds
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +49,8 @@ TAP_POLL_SECONDS = 0.05
 # An answer needs at least this much speech (by Silero) where Whisper heard it;
 # less, and Whisper made it up from noise ("Thanks for watching!").
 MIN_ANSWER_SPEECH_SECONDS = 0.25
+# A turn with less than this of even weak speech isn't transcribed (Interaction._any_speech).
+ANY_SPEECH_SECONDS = 0.1
 # Photos of a document held up to the camera (a warrant): how many, how far apart.
 FRAME_COUNT = 3
 FRAME_INTERVAL_SECONDS = 1.0
@@ -463,10 +465,9 @@ class Interaction:
         started = await asyncio.shield(playback.started)
         sent = await wait_sent(playback) or started + playback.seconds
         echo_end = sent + TALKBACK_LATENCY_SECONDS
+        listen_from = echo_end - ECHO_MARGIN_SECONDS
         turn = await self._endpoint(
-            self._endpointer(
-                echo_end - ECHO_MARGIN_SECONDS, echo_end + s.listen_seconds, max_answer
-            ),
+            self._endpointer(listen_from, echo_end + s.listen_seconds, max_answer),
             started,
         )
         words: list[Word] = []
@@ -483,6 +484,14 @@ class Interaction:
             )
             if clip is None:
                 break
+            if turn.reason == "no_input" and not self._any_speech(started, turn.at):
+                # Not even a hint of speech in the whole clip: anything Whisper made of
+                # it would fail the speech check (MIN_ANSWER_SPEECH_SECONDS) anyway, and
+                # skipping it asks again ~1.5 s sooner. Speech too weak to start an
+                # answer (a voice over a lawnmower) or said over the prompt is still
+                # transcribed.
+                log.info("no speech: not transcribed")
+                break
             stt = asyncio.ensure_future(self._in_thread(self._transcriber.transcribe, clip))
             if turn.reason != "answered" or resumed:
                 words = await stt
@@ -498,6 +507,15 @@ class Interaction:
         visit.endpoint = turn.reason
         visit.speech_end = turn.speech_end
         return words
+
+    def _any_speech(self, t0: float, t1: float) -> bool:
+        """Did the tap hear any hint of speech between ``t0`` and ``t1``: 0.1 s above
+        the level where speech ends (``VAD_THRESHOLD`` - 0.15)? Noise alone stays well
+        below it: a lawnmower next door scored up to 0.14, the officer talking over it
+        0.40-0.61. The prompt's own echo rarely counts."""
+        level = max(self.settings.vad_threshold - 0.15, 0.01)
+        speech = sum(CHUNK_SECONDS for t, p in self._tap.probs_after(t0) if t <= t1 and p >= level)
+        return speech >= ANY_SPEECH_SECONDS
 
     async def _endpoint(self, ep: Endpointer, after: float) -> TurnEnd:
         """Feed the tap's speech probabilities (from ``after``) to ``ep`` until it ends the turn."""

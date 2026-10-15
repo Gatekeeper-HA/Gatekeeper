@@ -92,6 +92,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   (#14).
 
 ### Changed
+- **A turn where nobody spoke isn't transcribed**, so "Please state your purpose" comes
+  ~1.5 s sooner. Whisper's text for silence always failed the speech check anyway. An
+  answer said over the prompt, before listening starts, is still transcribed. The daily
+  report counts the turns skipped.
 - **Whisper no longer re-decodes at higher temperatures** when its output looks like
   garbage. On noise that took up to 7 s and only produced different made-up text.
 - **`scripts/soak/` is now `scripts/rig/`.** Its alerts go straight to ntfy, so they also

@@ -71,7 +71,9 @@ class FakeTap:
         k = math.floor(t / CHUNK_SECONDS + 1e-9) + 1
         while k * CHUNK_SECONDS <= min(self.rig.now, self.up_until):
             ct = k * CHUNK_SECONDS
-            out.append((ct, 0.9 if any(a <= ct <= b for a, b in self.speech) else 0.02))
+            # (start, end) is clear speech; (start, end, p) speech at probability p.
+            p = next((s[2] if len(s) > 2 else 0.9 for s in self.speech if s[0] <= ct <= s[1]), 0.02)
+            out.append((ct, p))
             k += 1
         return out
 
@@ -636,3 +638,44 @@ def test_the_household_by_the_door_is_only_logged(settings, outcome):
     assert record["outcome"] == outcome
     assert record["trigger"] == "person"
     assert record["classification"] is None and record["response"] is None
+
+
+def test_silent_turns_are_not_transcribed(settings):
+    rig = Rig(settings, answer="", answer2="", speech=[])
+    rig.interaction.run(EID)
+    (record,) = rig.log_records()
+    assert (record["endpoint"], record["turns"], record["classification"]) == (
+        "no_input",
+        2,
+        "no_response",
+    )
+    assert rig.interaction._transcriber.calls == 0  # asked again without waiting on Whisper
+
+
+def test_an_answer_said_over_the_greeting_is_still_heard(settings):
+    # They answered while the greeting played and stopped before it ended, so the
+    # listening that starts after its echo hears nothing.
+    rig = Rig(settings, speech=[(T0 + 3.0, ECHO_END - 1.0)])
+    rig.interaction.run(EID)
+    (record,) = rig.log_records()
+    assert record["transcript"] == "I have a package for you"
+    assert record["classification"] == "likely_delivery"
+    assert rig.interaction._transcriber.calls == 1
+
+
+def test_weak_speech_over_noise_is_still_transcribed(settings):
+    # The first officer test, with a lawnmower next door: Silero scored the answer
+    # at 0.40-0.61, too weak to start an answer (0.5), so listening ended no_input.
+    # Whisper heard it; the clip must still go to Whisper.
+    rig = Rig(settings, speech=[(ECHO_END + 1.0, ECHO_END + 2.5, 0.42)])
+    rig.interaction.run(EID)
+    record = rig.log_records()[0]
+    assert record["endpoint"] == "no_input"
+    assert rig.interaction._transcriber.calls >= 1
+    assert record["transcript"] == "I have a package for you"
+
+
+def test_mower_noise_alone_is_not_transcribed(settings):
+    rig = Rig(settings, answer="", answer2="", speech=[(T0, ECHO_END + 10, 0.14)])
+    rig.interaction.run(EID)
+    assert rig.interaction._transcriber.calls == 0
