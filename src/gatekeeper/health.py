@@ -112,6 +112,17 @@ class Health:
             time.sleep(interval)
 
 
+class _Server(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def handle_error(self, request, client_address) -> None:
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            # The probe gave up before the answer (its 4 s ran out while the
+            # models loaded at startup); it asks again. Not worth a traceback.
+            return
+        log.exception("health endpoint error")
+
+
 def serve(health: Health, port: int) -> ThreadingHTTPServer:
     """Serve GET /healthz on ``port`` in a daemon thread."""
 
@@ -131,7 +142,7 @@ def serve(health: Health, port: int) -> ThreadingHTTPServer:
         def log_message(self, format: str, *args) -> None:
             pass  # probes every 30 s; don't log them
 
-    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    server = _Server(("0.0.0.0", port), Handler)
     threading.Thread(target=server.serve_forever, name="health", daemon=True).start()
     log.info("health endpoint on :%d/healthz", server.server_address[1])
     return server

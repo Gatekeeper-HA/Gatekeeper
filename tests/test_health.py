@@ -103,3 +103,25 @@ def test_http_endpoint_and_probe(health):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_a_probe_that_hung_up_early_is_not_an_error(health, capsys, caplog):
+    server = serve(health, 0)
+    try:
+        try:
+            raise BrokenPipeError(32, "Broken pipe")
+        except BrokenPipeError:
+            server.handle_error(None, ("127.0.0.1", 49018))
+        assert capsys.readouterr().err == ""
+        assert not [r for r in caplog.records if r.levelname == "ERROR"]
+
+        try:
+            raise ValueError("a real bug")
+        except ValueError:
+            server.handle_error(None, ("127.0.0.1", 49018))
+        assert [r.message for r in caplog.records if r.levelname == "ERROR"] == [
+            "health endpoint error"
+        ]
+    finally:
+        server.shutdown()
+        server.server_close()
