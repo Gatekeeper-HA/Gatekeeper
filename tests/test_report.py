@@ -466,3 +466,39 @@ def test_the_time_from_someone_leaving_to_the_next_arrival_is_listed():
         "Next arrival after someone left by the door: 31 s (not greeted), 121 s (greeted)"
         in render_text(r)
     )
+
+
+def test_packages_and_the_doorstep_checks_are_reported():
+    greeted = visit(NOW - 3600, NOW - 3570, classification="likely_delivery")
+    left = visit(
+        NOW - 3600,
+        NOW - 3540,
+        event_id="package-%.3f" % (NOW - 3600),
+        outcome="package_delivered",
+        trigger="package",
+        details={"box": [448, 400, 512, 464], "score": 0.81, "since": NOW - 3600},
+    )
+    log = (
+        "### gatekeeper\n"
+        "2026-10-15 14:06:01,000 INFO    gatekeeper.packages [-] doorstep checked: 2 change(s)\n"
+        "2026-10-15 14:06:01,200 INFO    gatekeeper.packages [-] doorstep change at "
+        "[448, 400, 512, 464]: package score 0.81 (before 0.08)\n"
+        "2026-10-15 14:06:01,400 INFO    gatekeeper.packages [-] doorstep change at "
+        "[304, 368, 320, 480]: package score 0.11 (before 0.07)\n"
+        "2026-10-15 21:06:01,000 INFO    gatekeeper.packages [-] doorstep not checked: "
+        "exposure changed 1.80x\n"
+    )
+    r = build(inputs(visits=[greeted, left], window_visits=[greeted, left], log_text=log))
+    assert r["counts"]["visits"] == 1
+    assert r["packages"] == {
+        "delivered": 1,
+        "picked_up": 0,
+        "checked": 1,
+        "not_checked": {"lighting": 1},
+        "changes": 2,
+        "top_scores": [(0.81, 0.08), (0.11, 0.07)],
+    }
+    assert (
+        "Packages: 1 delivered, 0 picked up; doorstep checked 1 time(s) (1 more not: "
+        "lighting), 2 change(s), highest package score 0.81" in render_text(r)
+    )

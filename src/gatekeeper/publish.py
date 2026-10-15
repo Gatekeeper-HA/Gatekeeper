@@ -5,13 +5,15 @@ Topics (all retained):
 - ``gatekeeper/status``: ``online``, or ``offline`` (the client's last will).
 - ``gatekeeper/<camera>/state``: ``conversation`` while a visit runs, else ``idle``.
 - ``gatekeeper/<camera>/visit``: the latest visit record (JSON, as in events.jsonl).
+- ``gatekeeper/<camera>/package``: ``on`` while a package is at the door, else ``off``
+  (with package alerts on).
 
 Gatekeeper listens on ``gatekeeper/<camera>/quick_reply`` (quick_reply.py).
 
 Discovery gives Home Assistant a "Last visitor" sensor (classification, or the
 outcome if the visitor was never greeted, with the record as attributes), a
-"Conversation" binary sensor and a button per quick reply, grouped under one
-device per camera.
+"Conversation" binary sensor, a button per quick reply and, with package
+alerts, a "Package" binary sensor, grouped under one device per camera.
 """
 
 from __future__ import annotations
@@ -37,6 +39,7 @@ class Publisher:
         discovery_prefix: str,
         version: str,
         quick_replies: Sequence[str] = (),
+        packages: bool = False,
     ) -> None:
         self.client = client
         self.camera = camera
@@ -46,6 +49,8 @@ class Publisher:
         self.state_topic = f"gatekeeper/{camera}/state"
         self.visit_topic = f"gatekeeper/{camera}/visit"
         self.quick_reply_topic = QUICK_REPLY_TOPIC.format(camera=camera)
+        self.packages = packages
+        self.package_topic = f"gatekeeper/{camera}/package"
 
     def set_will(self) -> None:
         """Call before connecting: the broker publishes "offline" if we vanish."""
@@ -60,6 +65,9 @@ class Publisher:
 
     def conversation(self, active: bool) -> None:
         self._publish(self.state_topic, "conversation" if active else "idle")
+
+    def package(self, present: bool) -> None:
+        self._publish(self.package_topic, "on" if present else "off")
 
     def visit(self, record: dict) -> None:
         self._publish(self.visit_topic, json.dumps(record, ensure_ascii=False))
@@ -88,6 +96,16 @@ class Publisher:
             }
             for reply in self.quick_replies
         }
+        if self.packages:
+            buttons[f"{self.discovery_prefix}/binary_sensor/{node}/package/config"] = {
+                "name": "Package",
+                "unique_id": f"{node}_package",
+                "state_topic": self.package_topic,
+                "payload_on": "on",
+                "payload_off": "off",
+                "icon": "mdi:package-variant-closed",
+                **common,
+            }
         return {
             f"{self.discovery_prefix}/sensor/{node}/last_visitor/config": {
                 "name": "Last visitor",

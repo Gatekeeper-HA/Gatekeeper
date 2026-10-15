@@ -150,6 +150,11 @@ class Zone:
         while not self.load(logging.INFO if clock() - start < quiet_seconds else logging.WARNING):
             sleep(retry_seconds)
 
+    @property
+    def polygon(self) -> list[Point] | None:
+        """The zone's outline, or None while it's unknown."""
+        return self._polygon
+
     def contains(self, point: Point) -> bool | None:
         """Is ``point`` in the zone? None while the zone is unknown."""
         if self._polygon is None:

@@ -76,6 +76,9 @@ class Visit:
     (someone walked up soon after that: most likely them coming back in). Neither
     is greeted or notified. quick_reply records the resident's quick reply to a
     visit (same event id; details: reply, result, after_seconds, present).
+    package_delivered and package_picked_up record a package left at the door or
+    taken (packages.py; event id package-<when the visit that left it started>;
+    trigger "package"; details: box, score, since).
     trigger is "person" (Frigate detection), "button" (doorbell press) or
     "quick_reply".
     turns is how many times Gatekeeper listened: 2 when the first answer was
@@ -402,6 +405,15 @@ class Interaction:
         token = event_id_var.set(event_id)
         try:
             visit = Visit(event_id, self.settings.camera_name, outcome=outcome)
+            self._log_visit(visit, publish=False)
+        finally:
+            event_id_var.reset(token)
+
+    def log_only(self, visit: Visit) -> None:
+        """Log a record that isn't a visit run here (e.g. a package left at the door):
+        not notified, and Home Assistant's last visitor stays the last real one."""
+        token = event_id_var.set(visit.event_id)
+        try:
             self._log_visit(visit, publish=False)
         finally:
             event_id_var.reset(token)

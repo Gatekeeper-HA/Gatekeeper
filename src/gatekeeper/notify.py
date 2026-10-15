@@ -67,8 +67,27 @@ class Notification:
     actions: list[tuple[str, str]] = field(default_factory=list)
 
 
+def _clock_time(ts) -> str:
+    return time.strftime("%H:%M", time.localtime(ts)) if ts else "?"
+
+
 def compose(visit: Visit) -> Notification:
     place = visit.camera.replace("_", " ")
+    if visit.outcome == "package_delivered":
+        return Notification(
+            title=f"Package at the {place}",
+            message=f"Left at {_clock_time(visit.details.get('since'))}.",
+            tags=["package"],
+            priority=3,
+        )
+    if visit.outcome == "package_picked_up":
+        return Notification(
+            title=f"Package picked up at the {place}",
+            message=f"It had been there since {_clock_time(visit.details.get('since'))}. "
+            "The photo is of who came.",
+            tags=["package", "arrow_up"],
+            priority=4,
+        )
     if visit.outcome == "pressed_during_visit":
         return Notification(
             title=f"Doorbell pressed at the {place}",

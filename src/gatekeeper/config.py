@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     # Someone who walks up this soon after someone left by the door is most likely
     # them coming back in (from the car or the mailbox): not greeted. 0 disables.
     return_window_seconds: float = 120.0
+    # A Frigate zone where packages are left (e.g. "porch"): after each visit,
+    # Gatekeeper checks it for a package left or taken (packages.py). Empty: off.
+    package_zone: str = ""
     # How long to wait for the visitor to start answering after a prompt.
     listen_seconds: int = 4
 
@@ -256,6 +259,11 @@ class Settings(BaseSettings):
     def phrases(self) -> dict[str, str]:
         """Conversation lines by key (see ``dialogue.py``)."""
         return {key: getattr(self, f"phrase_{key}") for key in PHRASE_KEYS}
+
+    @property
+    def package_state_file(self) -> Path:
+        """The packages at the door, kept across restarts."""
+        return self.log_dir / "packages.json"
 
     @property
     def quick_reply_list(self) -> list[str]:

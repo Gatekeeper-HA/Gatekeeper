@@ -95,3 +95,29 @@ def test_quick_reply_buttons_are_discovered():
     assert coming["payload_press"] == "coming"
     assert coming["availability_topic"] == STATUS_TOPIC
     assert len(configs) == 2
+
+
+def test_package_sensor_with_package_alerts():
+    client = FakeClient()
+    p = Publisher(
+        client,
+        camera="front_door",
+        discovery_prefix="homeassistant",
+        version="0.4.0",
+        packages=True,
+    )
+    p.announce()
+    config = json.loads(
+        next(
+            payload
+            for topic, payload, *_ in client.published
+            if topic == "homeassistant/binary_sensor/gatekeeper_front_door/package/config"
+        )
+    )
+    assert config["state_topic"] == "gatekeeper/front_door/package"
+    p.package(True)
+    assert client.published[-1][:2] == ("gatekeeper/front_door/package", "on")
+    # Without package alerts, no sensor.
+    other = FakeClient()
+    publisher(other).announce()
+    assert not any("package" in topic for topic, *_ in other.published)

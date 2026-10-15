@@ -155,6 +155,8 @@ services:
       NTFY_URL: "http://ntfy"
       NTFY_TOPIC: "doorbell"
       NTFY_TOKEN: "${NTFY_GATEKEEPER_TOKEN:?run scripts/ntfy-auth.sh}"
+      # Check the porch for packages left or taken after each visit.
+      PACKAGE_ZONE: "porch"
       # Where the phone posts quick replies (the ntfy server as it reaches it).
       NTFY_PUBLIC_URL: "http://${SERVER_IP:?set SERVER_IP in .env}:8090"
       # Doorbell button presses (Reolink login over HTTPS, push events on 9000).

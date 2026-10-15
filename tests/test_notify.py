@@ -253,3 +253,21 @@ def test_notifier_adds_the_visit_s_buttons():
     notifier = Notifier([Backend()], actions=lambda v: [("I'm coming", f"{v.event_id} coming x")])
     notifier.send(visit(classification="cooperative_other", response="OK."))
     assert sent[0].actions == [("I'm coming", "e1 coming x")]
+
+
+def test_compose_package_alerts(monkeypatch):
+    monkeypatch.setattr("gatekeeper.notify._clock_time", lambda ts: "14:05")
+    left = compose(
+        visit(event_id="package-1.0", outcome="package_delivered", details={"since": 1.0})
+    )
+    assert (left.title, left.message, left.tags) == (
+        "Package at the front door",
+        "Left at 14:05.",
+        ["package"],
+    )
+    taken = compose(
+        visit(event_id="package-1.0", outcome="package_picked_up", details={"since": 1.0})
+    )
+    assert taken.title == "Package picked up at the front door"
+    assert taken.message.startswith("It had been there since 14:05.")
+    assert taken.priority == 4

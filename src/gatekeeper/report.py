@@ -84,7 +84,11 @@ MAX_LOG_KINDS = 20
 NOT_GREETED = {"left", "returned"}
 # Records in the visit log that aren't visits: the household (above), and the
 # resident's quick replies to a visit (quick_reply.py).
-NOT_VISITS = NOT_GREETED | {"quick_reply"}
+NOT_VISITS = NOT_GREETED | {"quick_reply", "package_delivered", "package_picked_up"}
+# packages.py's log lines.
+DOORSTEP_CHECKED = re.compile(r"doorstep checked: (\d+) change")
+DOORSTEP_NOT_CHECKED = re.compile(r"doorstep not checked: (.*)$")
+DOORSTEP_SCORE = re.compile(r"doorstep change at .*: package score ([\d.]+) \(before ([\d.]+)\)")
 # How long after someone left by the door the next person to walk up is listed
 # (return_gaps): the data for tuning RETURN_WINDOW_SECONDS.
 RETURN_GAP_SECONDS = 30 * 60
@@ -322,6 +326,33 @@ def quick_reply_info(records: list[dict]) -> dict:
     return info
 
 
+def package_info(records: list[dict], lines: list[str]) -> dict:
+    """Packages left and picked up (package_* records), and how the doorstep checks
+    after visits went (packages.py's log lines), for tuning its thresholds."""
+    outcomes = collections.Counter(r.get("outcome") for r in records)
+    checked = changes = 0
+    not_checked: collections.Counter = collections.Counter()
+    scores = []
+    for line in lines:
+        if m := DOORSTEP_CHECKED.search(line):
+            checked += 1
+            changes += int(m.group(1))
+        elif m := DOORSTEP_NOT_CHECKED.search(line):
+            reason = m.group(1)
+            not_checked["lighting" if "changed" in reason else reason] += 1
+        elif m := DOORSTEP_SCORE.search(line):
+            scores.append((float(m.group(1)), float(m.group(2))))
+    return {
+        "delivered": outcomes.get("package_delivered", 0),
+        "picked_up": outcomes.get("package_picked_up", 0),
+        "checked": checked,
+        "not_checked": dict(not_checked),
+        "changes": changes,
+        # The highest package scores of the day's changes: (after, before).
+        "top_scores": sorted(scores, reverse=True)[:5],
+    }
+
+
 def frigate_info(stats: dict | None, camera: str) -> dict | None:
     if not stats:
         return None
@@ -510,6 +541,10 @@ def build(i: Inputs) -> dict:
         "whisper": whisper,
         "replies": replies,
         "quick_replies": quick,
+        "packages": package_info(
+            [v for v in i.visits if str(v.get("outcome", "")).startswith("package_")],
+            sources.get("gatekeeper", []),
+        ),
         "frigate": frigate,
         "deploys": deploys,
         "logs": logs,
@@ -588,6 +623,17 @@ def summary_lines(report: dict) -> list[str]:
     if r.get("conversations"):
         lines.append(
             "Conversations: " + ", ".join(f"{k} {v}" for k, v in r["conversations"].items())
+        )
+    pk = report.get("packages") or {}
+    if pk.get("checked") or pk.get("not_checked") or pk.get("delivered") or pk.get("picked_up"):
+        not_checked = sum(pk["not_checked"].values())
+        top = pk["top_scores"][0][0] if pk["top_scores"] else None
+        lines.append(
+            f"Packages: {pk['delivered']} delivered, {pk['picked_up']} picked up; doorstep "
+            f"checked {pk['checked']} time(s)"
+            + (f" ({not_checked} more not: {', '.join(pk['not_checked'])})" if not_checked else "")
+            + f", {pk['changes']} change(s)"
+            + (f", highest package score {top:.2f}" if top is not None else "")
         )
     q = report.get("quick_replies") or {"count": 0}
     if q["count"]:

@@ -21,6 +21,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     report counts them by reply and result, with how long after the notification they came
     and how many found nobody there. Its `quick_replies` check fails if one couldn't be said.
 
+- **Package alerts** (Phase 1, `PACKAGE_ZONE`): **Package at the front door** when a
+  package is left, with a photo of it, and **Package picked up** when it's gone, with a
+  photo of who came. No subscription or extra hardware.
+  - **How it works:** a package only arrives or leaves with someone at the door, so the
+    zone is compared before and after each visit. A small open image model (CLIP ViT-B/32,
+    on the CPU) judges whether a changed patch is a package. When the lighting changed
+    during a visit, the comparison is tried again for up to 10 minutes.
+  - **On the rig:** 189 visits in a week with no package raised no alert. The compose stack
+    checks the `porch` zone.
+  - **Also:** Home Assistant gets a *Package* binary sensor. Records are
+    `package_delivered` and `package_picked_up`. The daily report counts the packages and
+    how the day's checks went, for tuning.
+
 ### Fixed
 - **No traceback when Docker's health probe gives up early.** While the models load at
   startup, a probe can time out before `/healthz` answers. Writing the answer then raised

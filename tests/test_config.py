@@ -71,3 +71,9 @@ def test_quick_replies_default_to_the_ntfy_server_and_topic(monkeypatch):
 def test_quick_replies_must_be_known_and_at_most_three(value):
     with pytest.raises(ValidationError):
         Settings(quick_replies=value)
+
+
+def test_package_alerts_are_off_without_a_zone(monkeypatch):
+    monkeypatch.delenv("PACKAGE_ZONE", raising=False)
+    assert Settings().package_zone == ""
+    assert Settings(log_dir="/logs").package_state_file == Path("/logs/packages.json")
