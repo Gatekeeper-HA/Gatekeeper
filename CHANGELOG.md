@@ -21,6 +21,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     report counts them by reply and result, with how long after the notification they came
     and how many found nobody there. Its `quick_replies` check fails if one couldn't be said.
 
+### Fixed
+- **No traceback when Docker's health probe gives up early.** While the models load at
+  startup, a probe can time out before `/healthz` answers. Writing the answer then raised
+  `BrokenPipeError`, which the daily report counted as an error in Gatekeeper's log (the
+  first deploy of quick replies). Other health endpoint errors are now logged normally.
+
 ## [0.3.0] - 2026-10-14
 
 Phase 1's first release: the conversation engine, conversations for officers, emergencies
