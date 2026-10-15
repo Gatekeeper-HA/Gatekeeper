@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-14
+
+Phase 1's first release: the conversation engine, conversations for officers, emergencies
+and political visitors, no greeting for the household on its way out, and NVIDIA GPU
+support. Each ran on the rig's porch before the release, with real visitors and the
+owner's test visits.
+
 ### Added
 - **The household coming out of the front door isn't greeted** (`DOOR_ZONE`, Phase 1).
   Someone who appears in Frigate's door zone and walks out of it within
@@ -25,9 +32,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     "I have alerted the resident. Please wait." Never sent away.
   - **Law enforcement:**
     - an urgent notification at once;
-    - asks the reason and whether they have a warrant, then their agency, name and badge;
-    - with a warrant, asks them to hold it up to the camera (3 full-resolution photos from
-      go2rtc, one attached) and whether a judge signed it;
+    - asks the reason and whether they have a warrant, then their agency, name and badge.
+      If their first sentence already said why they came or whether they have a warrant,
+      that isn't asked again; only the question's disclosure ("This is an automated
+      assistant, and this conversation is recorded.") is said, as `PHRASE_POLICE_DISCLOSURE`;
+    - with a warrant, asks them to hold it close to the camera and keep it still, and
+      whether a judge signed it. Six full-resolution photos are taken from go2rtc half a
+      second apart; the sharpest (over the middle of the frame) goes with the notification,
+      and all are kept. If they answer before the photos are all taken, it asks them to
+      keep holding it and says when it's finished (`PHRASE_POLICE_HOLD_WARRANT`,
+      `PHRASE_POLICE_WARRANT_DONE`);
     - a judge-signed warrant gets "notifying the resident"; otherwise, the resident doesn't
       consent, please leave, with a firmer second request if Frigate still sees them after
       `LEAVE_CHECK_SECONDS`.
@@ -51,8 +65,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - **New settings:** `AUDIO_TAP`, `VAD_THRESHOLD`, `END_SILENCE_MS`, `MAX_ANSWER_SECONDS`,
     `TALKBACK_SESSION`. Without a working tap, visits record a fixed window as before.
   - **The visit log** records how listening ended (`endpoint`) and the time from the end of
-    the answer to the reply (`reply_latency`). The daily report shows both, and checks the
-    replies' speed (p90 under 3.5 s on a GPU, 7 s on a CPU) and that the audio tap held.
+    the answer to the reply (`reply_latency`; in a conversation, to its first phrase). The
+    daily report shows both, and checks the replies' speed (p90 under 3.5 s on a GPU, 7 s on
+    a CPU) and that the audio tap held.
   - `scripts/replay/endpointing.py` replays recorded visits through the endpointing, for
     tuning.
 - **NVIDIA GPU support (opt-in, `docker-compose.gpu.yml`):**
@@ -71,7 +86,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     model) transcribes an answer in 1.1 s, against 4.0 s for `base.en` on the CPU, and hears
     names and full sentences better. `int8_float16` is 2–4× faster than `float16` on that
     card.
-
 - **Rig tooling (`scripts/rig/`, README "Running a rig"),** for a live install that takes
   every merge:
   - **The daily report is part of the package** (`python -m gatekeeper.report`), so it
@@ -92,13 +106,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   (#14).
 
 ### Changed
-- **Warrant photos: six, and the sharpest is sent** (#24). The officer is asked to hold
-  the warrant close to the camera and keep it still; six full-resolution photos are
-  taken half a second apart (three, a second apart, before), scored by sharpness over
-  the middle of the frame, and the sharpest goes with the notification. All are kept;
-  the visit's `details` list each one's score. Taking them lasts about 5 s, so if the
-  officer answers first, Gatekeeper asks them to keep holding it while it looks it over,
-  and says when it's finished (`PHRASE_POLICE_HOLD_WARRANT`, `PHRASE_POLICE_WARRANT_DONE`).
 - **A turn where nobody spoke isn't transcribed**, so "Please state your purpose" comes
   ~1.5 s sooner. Whisper's text for silence always failed the speech check anyway. An
   answer said over the prompt, before listening starts, is still transcribed. The daily
@@ -109,16 +116,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   work while Gatekeeper is down. Update the cron lines (README, "Running a rig").
 
 ### Fixed
-- **An officer isn't asked again for what their first sentence said.** "I'm a police officer
-  looking for …" or "… we have a warrant" used to get the reason-and-warrant question
-  anyway (#23). Now the reason (and the warrant, if they said) is taken from that
-  sentence. The disclosure the reason question starts with ("This is an automated
-  assistant, and this conversation is recorded.") is still said, right before the next
-  question, as the new `PHRASE_POLICE_DISCLOSURE`.
-- **Conversations' replies are timed too.** A visit whose answer started a conversation
-  (officer, emergency, canvasser) never had a `reply_latency`, so the daily report's reply
-  times and its `reply_speed` check left out the visits where speed matters most. It's now
-  the time to the conversation's first phrase.
 - **An answer that repeats the question isn't cut as its echo any more.** "Do you have a
   warrant?" "I do not have a warrant." was dropped as the prompt's own echo (an
   officer test, with a lawnmower next door). With the audio tap, words after the
