@@ -23,8 +23,7 @@ def words(text: str, start: float = 0.0, step: float = 0.3) -> list[Word]:
         ),
         # Whisper garbles some greeting words.
         (
-            "Hello this property is monitor please stay the purpose of your visit "
-            "I have a package",
+            "Hello this property is monitor please stay the purpose of your visit I have a package",
             "I have a package",
         ),
         # Recording started late, after the greeting began.
@@ -49,8 +48,7 @@ def words(text: str, start: float = 0.0, step: float = 0.3) -> list[Word]:
         ("The purpose of my visit is a delivery.", "visit is a delivery."),
         # Garbled last words: dropped as far as the greeting's estimated end.
         (
-            "Hello this property is monitored please state the purpose of yer fisit "
-            "FedEx here",
+            "Hello this property is monitored please state the purpose of yer fisit FedEx here",
             "fisit FedEx here",
         ),
         # The visitor said nothing.
@@ -103,3 +101,26 @@ def test_single_stray_greeting_word_is_not_a_match():
     kept, method = strip_greeting(heard, GREETING)
     assert method == "unmatched"
     assert join_words(kept) == "please leave it by the door"
+
+
+POLICE_ASK_REASON = (
+    "This is an automated assistant, and this conversation is recorded. "
+    "What is the reason for your visit, and do you have a warrant?"
+)
+
+
+def test_an_answer_after_the_echo_is_kept_even_if_it_repeats_the_prompt():
+    # The rig's first officer test (2026-10-14): Whisper didn't hear the prompt's
+    # echo, only the answer, 1.4 s after the echo ended; it matched the prompt's
+    # last words, so it was cut as echo.
+    heard = words("I do not have a warrant.", start=11.9)
+    assert strip_greeting(heard, POLICE_ASK_REASON) == ([], "matched")  # without timing
+    kept, method = strip_greeting(heard, POLICE_ASK_REASON, echo_until=11.0)
+    assert (join_words(kept), method) == ("I do not have a warrant.", "unmatched")
+
+
+def test_the_echo_before_its_end_is_still_cut():
+    heard = words("Hello this property is monitored please state the purpose of your visit")
+    heard += words("The purpose of my visit is a delivery.", start=5.0)
+    kept, method = strip_greeting(heard, GREETING, echo_until=4.5)
+    assert (join_words(kept), method) == ("The purpose of my visit is a delivery.", "matched")
