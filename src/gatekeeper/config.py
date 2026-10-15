@@ -17,6 +17,7 @@ REPLY_KEYS = ("no_answer", "delivery", "sales", "maintenance", "generic", "press
 # Lines of the multi-turn conversations (dialogue.py), PHRASE_<KEY> in the environment.
 PHRASE_KEYS = (
     "emergency_wait",
+    "police_disclosure",
     "police_ask_reason", "police_ask_warrant", "police_ask_identity", "police_show_warrant",
     "police_notifying", "police_leave", "police_leave_again",
     "civic_ask_identity", "civic_ask_message", "civic_thanks",
@@ -112,6 +113,11 @@ class Settings(BaseSettings):
     # Conversations (dialogue.py). They state the resident's position; have a
     # lawyer review any change to the law-enforcement lines.
     phrase_emergency_wait: str = "I have alerted the resident. Please wait."
+    # Said before the next question when the officer's first sentence already gave
+    # the reason, so police_ask_reason (which starts with it) isn't asked.
+    phrase_police_disclosure: str = (
+        "This is an automated assistant, and this conversation is recorded."
+    )
     phrase_police_ask_reason: str = (
         "This is an automated assistant, and this conversation is recorded. "
         "What is the reason for your visit, and do you have a warrant?"

@@ -85,21 +85,22 @@ def test_voter_registration_canvasser_is_not_told_to_leave(settings):
 def test_officer_without_a_warrant_is_asked_to_leave_once_if_they_go(settings):
     rig = rig_for(
         settings,
-        ("greeting", "Police, we'd like to ask a few questions"),
-        ("police_ask_reason", "We're investigating a break-in down the street, no warrant"),
+        ("greeting", "Police, we're investigating a break-in down the street, no warrant"),
         ("police_ask_identity", "Officer Dana Smith, Lino Lakes police, badge 4471"),
         present=lambda: False,
     )
     visit = rig.interaction.run(EID)
 
-    assert played(rig) == ["greeting", "police_ask_reason", "police_ask_identity", "police_leave"]
-    # The resident is alerted before Gatekeeper asks the officer anything.
+    # Their first sentence said why, and that there's no warrant: neither is asked again,
+    # but the disclosure that starts the reason question is still said (Gatekeeper#23).
+    assert played(rig) == ["greeting", "police_disclosure", "police_ask_identity", "police_leave"]
+    # The resident is alerted before Gatekeeper says anything more to the officer.
     assert rig.calls.index(("notify", "alert")) < rig.calls.index(
-        ("play", "_presynth_police_ask_reason.wav")
+        ("play", "_presynth_police_disclosure.wav")
     )
     assert settings.leave_check_seconds in rig.sleeps
     assert visit.details == {
-        "reason": "We're investigating a break-in down the street, no warrant",
+        "reason": "Police, we're investigating a break-in down the street, no warrant",
         "warrant": False,
         "identity": "Officer Dana Smith, Lino Lakes police, badge 4471",
         "decision": "asked_to_leave",
@@ -135,8 +136,7 @@ def test_judge_signed_warrant_identity_first_then_resident_notified(settings):
 
     rig = rig_for(
         settings,
-        ("greeting", "Sheriff's office, we have a warrant"),
-        ("police_ask_reason", "We have a search warrant for this address"),
+        ("greeting", "Sheriff's office, we have a search warrant for this address"),
         ("police_ask_identity", "Deputy Lee, Anoka County Sheriff, badge 210"),
         ("police_show_warrant", "Yes, it's signed by Judge Martinez"),
         grab_frame=grab,
@@ -144,7 +144,7 @@ def test_judge_signed_warrant_identity_first_then_resident_notified(settings):
     visit = rig.interaction.run(EID)
 
     assert played(rig) == [
-        "greeting", "police_ask_reason", "police_ask_identity", "police_show_warrant",
+        "greeting", "police_disclosure", "police_ask_identity", "police_show_warrant",
         "police_notifying",
     ]  # fmt: skip
     assert frames == [f"{EID}-1.jpg", f"{EID}-2.jpg", f"{EID}-3.jpg"]
@@ -266,3 +266,52 @@ def test_conversation_reply_is_timed_from_the_end_of_the_answer(settings):
     # From the end of speech, so at least the 0.8 s of end-of-speech silence.
     (record,) = rig.log_records()
     assert record["reply_latency"] >= 0.8
+
+
+def test_officer_who_says_why_but_not_about_a_warrant_is_asked_only_that(settings):
+    # The owner's first officer test (2026-10-14).
+    rig = rig_for(
+        settings,
+        ("greeting", "I'm a police officer looking for Joe Schmo."),
+        ("police_ask_warrant", "No."),
+        ("police_ask_identity", "Coon Rapids Police Department, Philly."),
+        present=lambda: False,
+    )
+    visit = rig.interaction.run(EID)
+    assert played(rig) == [
+        "greeting", "police_disclosure", "police_ask_warrant", "police_ask_identity",
+        "police_leave",
+    ]  # fmt: skip
+    assert visit.details["reason"] == "I'm a police officer looking for Joe Schmo."
+    assert visit.details["warrant"] is False
+    (record,) = rig.log_records()
+    assert [d["asked"] for d in record["dialogue"]] == [
+        "greeting", "police_ask_warrant", "police_ask_identity",
+    ]  # fmt: skip
+
+
+def test_officer_who_only_says_police_is_asked_the_reason(settings):
+    rig = rig_for(
+        settings,
+        ("greeting", "Police department"),
+        ("police_ask_reason", "We're looking for a witness, no warrant"),
+        ("police_ask_identity", "Officer Kim, badge 12"),
+        present=lambda: False,
+    )
+    visit = rig.interaction.run(EID)
+    assert played(rig)[:3] == ["greeting", "police_ask_reason", "police_ask_identity"]
+    assert "police_disclosure" not in played(rig)
+    assert visit.details["reason"] == "We're looking for a witness, no warrant"
+
+
+def test_disclosure_with_a_session_per_phrase(settings):
+    settings.talkback_session = "clip"
+    rig = rig_for(
+        settings,
+        ("greeting", "I'm a police officer looking for Joe Schmo."),
+        ("police_ask_warrant", "No."),
+        ("police_ask_identity", "Officer Kim, badge 12"),
+        present=lambda: False,
+    )
+    rig.interaction.run(EID)
+    assert played(rig)[:3] == ["greeting", "police_disclosure", "police_ask_warrant"]

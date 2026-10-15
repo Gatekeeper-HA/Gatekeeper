@@ -50,3 +50,23 @@ def test_has_warrant(text, expected):
 )
 def test_judge_signed(text, expected):
     assert judge_signed(text) is expected
+
+
+@pytest.mark.parametrize(
+    ("text", "reason"),
+    [
+        ("I'm a police officer looking for Joe Schmo.", True),
+        ("Police, we're investigating a break-in", True),
+        ("Sheriff's office, we have a warrant", True),
+        ("Officer Kim, we'd like to ask you a few questions", True),
+        ("We're here about a noise complaint", True),
+        ("Police", False),
+        ("Police department", False),
+        ("Sheriff's office, open the door", False),
+        ("I'm Officer Dana Smith with the Lino Lakes police", False),
+    ],
+)
+def test_gave_reason(text, reason):
+    from gatekeeper.dialogue import gave_reason
+
+    assert gave_reason(text) is reason
