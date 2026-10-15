@@ -221,3 +221,35 @@ def test_compose_law_enforcement_alert_says_more_is_coming():
     assert n.title == "Law enforcement at the front door"
     assert n.priority == 5
     assert "More when it's done." in n.message
+
+
+def test_ntfy_quick_reply_buttons_post_to_the_reply_topic():
+    backend = NtfyBackend(
+        "http://ntfy", "doorbell", "tk", reply_url="http://192.168.1.5:8090/doorbell-replies"
+    )
+    n = Notification(
+        "Visitor", "hi", actions=[("I'm coming", "e1 coming 0a1b"), ("Not now", "e1 later 2c3d")]
+    )
+    assert backend.request(n, None).get_header("Actions") == (
+        "http, \"I'm coming\", http://192.168.1.5:8090/doorbell-replies, method=POST, "
+        "body=e1 coming 0a1b, clear=true; "
+        'http, "Not now", http://192.168.1.5:8090/doorbell-replies, method=POST, '
+        "body=e1 later 2c3d, clear=true"
+    )
+    # Without a reply topic (quick replies off), no buttons.
+    plain = NtfyBackend("http://ntfy", "doorbell", "tk")
+    assert plain.request(n, None).get_header("Actions") is None
+
+
+def test_notifier_adds_the_visit_s_buttons():
+    sent = []
+
+    class Backend:
+        name = "fake"
+
+        def send(self, notification, image):
+            sent.append(notification)
+
+    notifier = Notifier([Backend()], actions=lambda v: [("I'm coming", f"{v.event_id} coming x")])
+    notifier.send(visit(classification="cooperative_other", response="OK."))
+    assert sent[0].actions == [("I'm coming", "e1 coming x")]

@@ -1,6 +1,9 @@
 from pathlib import Path
 
-from gatekeeper.config import REPLY_KEYS, Settings
+import pytest
+from pydantic import ValidationError
+
+from gatekeeper.config import QUICK_REPLY_KEYS, REPLY_KEYS, Settings
 
 
 def test_defaults_match_compose_rig(monkeypatch):
@@ -52,3 +55,19 @@ def test_trigger_zones(monkeypatch):
     assert Settings().trigger_zone_list == ["porch", "walkway"]
     monkeypatch.delenv("TRIGGER_ZONES")
     assert Settings().trigger_zone_list == []
+
+
+def test_quick_replies_default_to_the_ntfy_server_and_topic(monkeypatch):
+    for var in ("NTFY_PUBLIC_URL", "NTFY_REPLY_TOPIC", "QUICK_REPLIES"):
+        monkeypatch.delenv(var, raising=False)
+    s = Settings(ntfy_url="http://ntfy", ntfy_topic="doorbell")
+    assert (s.ntfy_public_url, s.ntfy_reply_topic) == ("http://ntfy", "doorbell-replies")
+    assert s.quick_reply_list == list(QUICK_REPLY_KEYS)
+    assert set(s.quick_reply_phrases) == set(QUICK_REPLY_KEYS)
+    assert Settings(quick_replies="").quick_reply_list == []
+
+
+@pytest.mark.parametrize("value", ["coming,shout", "coming,later,no_thanks,coming"])
+def test_quick_replies_must_be_known_and_at_most_three(value):
+    with pytest.raises(ValidationError):
+        Settings(quick_replies=value)

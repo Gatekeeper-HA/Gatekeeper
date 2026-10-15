@@ -82,6 +82,9 @@ ERROR_LEVELS = {"ERROR", "CRITICAL", "TRACEBACK"}
 MAX_LOG_KINDS = 20
 # Visit outcomes that are the household, deliberately not greeted (the door zone).
 NOT_GREETED = {"left", "returned"}
+# Records in the visit log that aren't visits: the household (above), and the
+# resident's quick replies to a visit (quick_reply.py).
+NOT_VISITS = NOT_GREETED | {"quick_reply"}
 # How long after someone left by the door the next person to walk up is listed
 # (return_gaps): the data for tuning RETURN_WINDOW_SECONDS.
 RETURN_GAP_SECONDS = 30 * 60
@@ -302,6 +305,23 @@ def reply_info(visits: list[dict]) -> dict:
     return info
 
 
+def quick_reply_info(records: list[dict]) -> dict:
+    """The resident's quick replies from the notification (``quick_reply`` records):
+    which, what became of them (said, too_late, busy, failed), how long after the
+    notification, and how many found nobody left on the porch."""
+    details = [r.get("details") or {} for r in records]
+    after = [d["after_seconds"] for d in details if d.get("after_seconds") is not None]
+    info: dict = {
+        "count": len(records),
+        "replies": dict(collections.Counter(d.get("reply") for d in details)),
+        "results": dict(collections.Counter(d.get("result") for d in details)),
+        "nobody_there": sum(1 for d in details if d.get("present") is False),
+    }
+    if after:
+        info["median_after_seconds"] = round(percentile(after, 0.5), 1)
+    return info
+
+
 def frigate_info(stats: dict | None, camera: str) -> dict | None:
     if not stats:
         return None
@@ -342,7 +362,8 @@ def build(i: Inputs) -> dict:
     # greeted or notified (the door zone): counted on their own.
     left = [v for v in i.visits if v.get("outcome") == "left"]
     returned = [v for v in i.visits if v.get("outcome") == "returned"]
-    visits = [v for v in i.visits if v.get("outcome") not in NOT_GREETED]
+    visits = [v for v in i.visits if v.get("outcome") not in NOT_VISITS]
+    quick = quick_reply_info([v for v in i.visits if v.get("outcome") == "quick_reply"])
     outcomes = collections.Counter(v.get("outcome") for v in visits)
 
     # Every visit notified, in time?
@@ -434,6 +455,9 @@ def build(i: Inputs) -> dict:
     if replies["endpoints"]:
         lost = replies["endpoints"].get("tap_lost", 0)
         check("audio_tap", not lost, f"the audio tap was lost during {lost} visit(s)")
+    if quick["count"]:
+        failed = quick["results"].get("failed", 0)
+        check("quick_replies", not failed, f"{failed} quick reply(ies) couldn't be said")
     failed_deploys = [d for d in deploys if d.get("result") not in ("deployed", "moved")]
     check("deploys", not failed_deploys, f"{len(failed_deploys)} failed deploy(s)")
 
@@ -485,6 +509,7 @@ def build(i: Inputs) -> dict:
         "recording_audio": {"silent_hours": silent},
         "whisper": whisper,
         "replies": replies,
+        "quick_replies": quick,
         "frigate": frigate,
         "deploys": deploys,
         "logs": logs,
@@ -563,6 +588,21 @@ def summary_lines(report: dict) -> list[str]:
     if r.get("conversations"):
         lines.append(
             "Conversations: " + ", ".join(f"{k} {v}" for k, v in r["conversations"].items())
+        )
+    q = report.get("quick_replies") or {"count": 0}
+    if q["count"]:
+        lines.append(
+            f"Quick replies: {q['count']} ("
+            + ", ".join(f"{k} {v}" for k, v in q["replies"].items())
+            + "; "
+            + ", ".join(f"{k} {v}" for k, v in q["results"].items())
+            + ")"
+            + (
+                f", {q['median_after_seconds']:.0f} s after the notification (median)"
+                if "median_after_seconds" in q
+                else ""
+            )
+            + (f", {q['nobody_there']} with nobody there" if q["nobody_there"] else "")
         )
     if r["count"]:
         lines.append(

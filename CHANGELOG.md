@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **Quick replies** (Phase 1): the doorbell notification has buttons, *I'm coming*,
+  *Not now* and *No thanks*, that make Gatekeeper say that line at the door. Before, you
+  couldn't answer from your phone at all. It works within 5 minutes of the notification,
+  once per button and visit, and right after the visit if Gatekeeper is still talking.
+  - **With ntfy,** the buttons post to a reply topic (`doorbell-replies`) that Gatekeeper
+    follows. The compose stack lets anyone post there and only Gatekeeper read it. Each
+    button is signed with a key made at startup, so only Gatekeeper's own notifications'
+    buttons work.
+  - **Home Assistant** gets a *Say: …* button per reply (MQTT `gatekeeper/<camera>/quick_reply`).
+  - **New settings:** `QUICK_REPLIES`, `QUICK_REPLY_WINDOW_SECONDS`, `QUICK_REPLY_COMING`,
+    `QUICK_REPLY_LATER`, `QUICK_REPLY_NO_THANKS`, `NTFY_PUBLIC_URL`, `NTFY_REPLY_TOPIC`.
+  - **Visit log and report:** each reply is logged as a `quick_reply` record. The daily
+    report counts them by reply and result, with how long after the notification they came
+    and how many found nobody there. Its `quick_replies` check fails if one couldn't be said.
+
 ## [0.3.0] - 2026-10-14
 
 Phase 1's first release: the conversation engine, conversations for officers, emergencies

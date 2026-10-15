@@ -85,7 +85,9 @@ services:
       - ./go2rtc/go2rtc.yaml:/config/go2rtc.yaml:ro
 
   # Doorbell notifications for the ntfy phone app. Only the "phone" user may
-  # read the topic and only Gatekeeper's token may publish to it.
+  # read the topic and only Gatekeeper's token may publish to it. The quick reply
+  # buttons post to doorbell-replies without logging in; Gatekeeper reads it and
+  # checks each button's signature.
   ntfy:
     image: binwiederhier/ntfy:v2.28.0
     container_name: ntfy
@@ -102,7 +104,7 @@ services:
       NTFY_AUTH_FILE: "/var/lib/ntfy/user.db"
       NTFY_AUTH_DEFAULT_ACCESS: "deny-all"
       NTFY_AUTH_USERS: "gatekeeper:${NTFY_GATEKEEPER_PASSWORD_HASH:?run scripts/ntfy-auth.sh}:user,phone:${NTFY_PHONE_PASSWORD_HASH:?run scripts/ntfy-auth.sh}:user"
-      NTFY_AUTH_ACCESS: "gatekeeper:doorbell:write-only,phone:doorbell:read-only"
+      NTFY_AUTH_ACCESS: "gatekeeper:doorbell:write-only,phone:doorbell:read-only,gatekeeper:doorbell-replies:read-only,*:doorbell-replies:write-only"
       NTFY_AUTH_TOKENS: "gatekeeper:${NTFY_GATEKEEPER_TOKEN:?run scripts/ntfy-auth.sh}:Gatekeeper"
     volumes:
       - ${DATA_DIR:-./data}/ntfy:/var/lib/ntfy
@@ -153,6 +155,8 @@ services:
       NTFY_URL: "http://ntfy"
       NTFY_TOPIC: "doorbell"
       NTFY_TOKEN: "${NTFY_GATEKEEPER_TOKEN:?run scripts/ntfy-auth.sh}"
+      # Where the phone posts quick replies (the ntfy server as it reaches it).
+      NTFY_PUBLIC_URL: "http://${SERVER_IP:?set SERVER_IP in .env}:8090"
       # Doorbell button presses (Reolink login over HTTPS, push events on 9000).
       REOLINK_HOST: "${CAMERA_IP:?set CAMERA_IP in .env}"
       REOLINK_USERNAME: "${CAMERA_USER:?set CAMERA_USER in .env}"

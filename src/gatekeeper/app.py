@@ -6,6 +6,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
+from urllib.parse import quote
 
 import paho.mqtt.client as mqtt
 
@@ -20,7 +21,8 @@ from gatekeeper.health import Health, serve
 from gatekeeper.interaction import Interaction, Visit
 from gatekeeper.logs import setup_logging
 from gatekeeper.notify import Notifier, NtfyBackend, frigate_snapshot
-from gatekeeper.publish import Publisher
+from gatekeeper.publish import QUICK_REPLY_TOPIC, Publisher
+from gatekeeper.quick_reply import NtfyReplies, QuickReplies
 from gatekeeper.retention import Retention
 from gatekeeper.sessions import SessionTracker
 
@@ -38,7 +40,10 @@ def build_mqtt_client(
     on_event: Callable[[FrigateEvent], None],
     health: Health | None = None,
     on_connected: Callable[[], None] | None = None,
+    commands: dict[str, Callable[[bytes], None]] | None = None,
 ) -> mqtt.Client:
+    """``commands``: handlers for topics other than Frigate's events, by topic."""
+    commands = commands or {}
     client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
     if settings.mqtt_username:
         client.username_pw_set(settings.mqtt_username, settings.mqtt_password.get_secret_value())
@@ -49,6 +54,8 @@ def build_mqtt_client(
             return
         log.info("connected to MQTT rc=%s", reason_code)
         client.subscribe(settings.mqtt_topic)
+        for topic in commands:
+            client.subscribe(topic)
         if health:
             health.mqtt_connected = True
         if on_connected:
@@ -61,6 +68,9 @@ def build_mqtt_client(
 
     def on_message(client, userdata, msg):
         try:
+            if msg.topic in commands:
+                commands[msg.topic](msg.payload)
+                return
             event = parse_event(msg.payload)
             if event:
                 on_event(event)
@@ -76,9 +86,17 @@ def build_mqtt_client(
 def build_notify_backends(settings: Settings) -> list:
     backends = []
     if settings.ntfy_url:
+        reply_url = ""
+        if settings.quick_reply_list:
+            reply_url = "/".join(
+                (settings.ntfy_public_url.rstrip("/"), quote(settings.ntfy_reply_topic))
+            )
         backends.append(
             NtfyBackend(
-                settings.ntfy_url, settings.ntfy_topic, settings.ntfy_token.get_secret_value()
+                settings.ntfy_url,
+                settings.ntfy_topic,
+                settings.ntfy_token.get_secret_value(),
+                reply_url=reply_url,
             )
         )
     if not backends:
@@ -115,7 +133,15 @@ def main() -> None:
     presynth = presynth_all(
         synth,
         settings.out_dir,
-        {"greeting": settings.greeting, **settings.replies, **settings.phrases},
+        {
+            "greeting": settings.greeting,
+            **settings.replies,
+            **settings.phrases,
+            **{
+                f"quick_{key}": settings.quick_reply_phrases[key]
+                for key in settings.quick_reply_list
+            },
+        },
     )
 
     transcriber = Transcriber(
@@ -129,6 +155,18 @@ def main() -> None:
     except Exception:
         log.exception("could not load the Whisper model; will retry on the first visit")
 
+    # The resident's quick replies from the notification, said by `interaction`
+    # (defined below; none can arrive before a visit is notified).
+    quick = None
+    commands = {}
+    if settings.quick_reply_list:
+        quick = QuickReplies(
+            settings.quick_reply_list,
+            settings.quick_reply_window_seconds,
+            say=lambda *args: interaction.quick_reply(*args),
+        )
+        commands[QUICK_REPLY_TOPIC.format(camera=settings.camera_name)] = quick.from_mqtt
+
     # The callbacks reference `tracker` and `publisher`, defined below; no
     # message arrives before connect() at the end.
     client = build_mqtt_client(
@@ -136,12 +174,14 @@ def main() -> None:
         on_event=lambda event: tracker.handle_event(event),
         health=health,
         on_connected=lambda: publisher.announce(),
+        commands=commands,
     )
     publisher = Publisher(
         client,
         camera=settings.camera_name,
         discovery_prefix=settings.ha_discovery_prefix,
         version=__version__,
+        quick_replies=quick.replies if quick else (),
     )
     publisher.set_will()
 
@@ -149,7 +189,16 @@ def main() -> None:
         build_notify_backends(settings),
         snapshot=lambda visit: frigate_snapshot(settings.frigate_api, visit),
         log_to=EventLog(settings.notification_log_file),
+        actions=quick.buttons if quick else lambda visit: [],
     )
+    if quick and settings.ntfy_url:
+        replies = NtfyReplies(
+            settings.ntfy_url,
+            settings.ntfy_reply_topic,
+            settings.ntfy_token.get_secret_value(),
+            quick.from_ntfy,
+        )
+        start_thread("quick-replies", replies.run_forever)
     tap = None
     if settings.audio_tap:
         # Reads the camera's audio from now on, so visits listen without connecting.
@@ -165,7 +214,8 @@ def main() -> None:
         tap=tap,
         # Before asking an officer to leave a second time: are they still there?
         present=lambda: tracker.person_present(),
-        on_notify=[notifier],
+        # quick.notified first: a reply's window starts with the notification.
+        on_notify=[quick.notified, notifier] if quick else [notifier],
         on_logged=[publisher.visit],
     )
 
