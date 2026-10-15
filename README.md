@@ -362,7 +362,8 @@ Every visit adds one JSON line to `events.jsonl`:
 visitor says nothing, the no-answer reply asks again and Gatekeeper listens once more.
 `endpoint` is how listening ended: `answered` (they spoke, then fell silent), `no_input`,
 `max`, `tap_lost`, or `window` (a fixed recording, without the audio tap). `reply_latency`
-is the seconds from the end of their answer to the reply starting to play; the camera adds
+is the seconds from the end of their answer to the reply (or a conversation's first
+question) starting to play; the camera adds
 its own ~2.4 s before it's heard.
 
 ## Data

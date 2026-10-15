@@ -102,6 +102,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   work while Gatekeeper is down. Update the cron lines (README, "Running a rig").
 
 ### Fixed
+- **Conversations' replies are timed too.** A visit whose answer started a conversation
+  (officer, emergency, canvasser) never had a `reply_latency`, so the daily report's reply
+  times and its `reply_speed` check left out the visits where speed matters most. It's now
+  the time to the conversation's first phrase.
 - **An answer that repeats the question isn't cut as its echo any more.** "Do you have a
   warrant?" "I do not have a warrant." was dropped as the prompt's own echo (an
   officer test, with a lawnmower next door). With the audio tap, words after the

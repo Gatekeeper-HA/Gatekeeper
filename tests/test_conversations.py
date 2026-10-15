@@ -6,7 +6,7 @@ import threading
 from conftest import write_wav
 from gatekeeper.config import PHRASE_KEYS
 from gatekeeper.notify import compose
-from test_interaction import ALL_REPLY_KEYS, EID, FakeTranscriber, Rig
+from test_interaction import ALL_REPLY_KEYS, ECHO_END, EID, FakeTranscriber, Rig
 
 KEYS = ("greeting", *ALL_REPLY_KEYS, *PHRASE_KEYS)
 
@@ -250,3 +250,19 @@ def test_timeout_mid_conversation_still_notifies_what_it_learned(settings):
     assert visit.outcome == "timeout"
     final = compose(rig.notified[-1])
     assert 'Reason: "We have a few questions, no warrant"' in final.message
+
+
+def test_conversation_reply_is_timed_from_the_end_of_the_answer(settings):
+    # With the audio tap: the conversation's first phrase is the reply (Gatekeeper#25).
+    rig = rig_for(
+        settings,
+        ("greeting", "This is a wellness check, is everyone okay in there"),
+        speech=[(ECHO_END + 0.1, ECHO_END + 2.0)],
+    )
+    visit = rig.interaction.run(EID)
+
+    assert played(rig) == ["greeting", "emergency_wait"]
+    assert (visit.flow, visit.endpoint) == ("emergency", "answered")
+    # From the end of speech, so at least the 0.8 s of end-of-speech silence.
+    (record,) = rig.log_records()
+    assert record["reply_latency"] >= 0.8
