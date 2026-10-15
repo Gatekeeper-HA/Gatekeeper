@@ -92,6 +92,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   (#14).
 
 ### Changed
+- **Warrant photos: six, and the sharpest is sent** (#24). The officer is asked to hold
+  the warrant close to the camera and keep it still; six full-resolution photos are
+  taken half a second apart (three, a second apart, before), scored by sharpness over
+  the middle of the frame, and the sharpest goes with the notification. All are kept;
+  the visit's `details` list each one's score.
 - **A turn where nobody spoke isn't transcribed**, so "Please state your purpose" comes
   ~1.5 s sooner. Whisper's text for silence always failed the speech check anyway. An
   answer said over the prompt, before listening starts, is still transcribed. The daily

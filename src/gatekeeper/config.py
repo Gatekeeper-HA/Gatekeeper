@@ -121,7 +121,8 @@ class Settings(BaseSettings):
         "Please state your agency, your name, and your badge number."
     )
     phrase_police_show_warrant: str = (
-        "Please hold the warrant up to the camera. Is it signed by a judge?"
+        "Please hold the warrant close to the camera and keep it still. "
+        "Is it signed by a judge?"
     )
     phrase_police_notifying: str = (
         "Thank you. I am notifying the resident now. Please wait."
