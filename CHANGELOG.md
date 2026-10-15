@@ -96,7 +96,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   the warrant close to the camera and keep it still; six full-resolution photos are
   taken half a second apart (three, a second apart, before), scored by sharpness over
   the middle of the frame, and the sharpest goes with the notification. All are kept;
-  the visit's `details` list each one's score.
+  the visit's `details` list each one's score. Taking them lasts about 5 s, so if the
+  officer answers first, Gatekeeper asks them to keep holding it while it looks it over,
+  and says when it's finished (`PHRASE_POLICE_HOLD_WARRANT`, `PHRASE_POLICE_WARRANT_DONE`).
 - **A turn where nobody spoke isn't transcribed**, so "Please state your purpose" comes
   ~1.5 s sooner. Whisper's text for silence always failed the speech check anyway. An
   answer said over the prompt, before listening starts, is still transcribed. The daily

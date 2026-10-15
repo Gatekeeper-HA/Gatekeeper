@@ -636,6 +636,7 @@ class _Turns:
         max_answer: float | None = None,
         photos: bool = False,
         preface: str | None = None,
+        hold: tuple[str, str] | None = None,
     ):
         if preface is not None:
             first = await self._i._say(
@@ -654,7 +655,15 @@ class _Turns:
         # Photos while they answer, e.g. while holding a warrant up to the camera.
         taking = asyncio.ensure_future(self._photos(playback)) if photos else None
         try:
-            return await self._i._hear(self._visit, key, text, playback, max_answer)
+            answer = await self._i._hear(self._visit, key, text, playback, max_answer)
+            if hold is not None and taking is not None and not taking.done():
+                # They answered before the photos were all taken: don't leave them
+                # wondering whether to keep holding it up.
+                keep_holding, finished = hold
+                if await self.say(keep_holding):
+                    await taking
+                    await self.say(finished)
+            return answer
         finally:
             if taking is not None:
                 await taking
