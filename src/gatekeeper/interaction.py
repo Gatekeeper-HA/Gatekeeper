@@ -81,7 +81,8 @@ class Visit:
     spoke, then fell silent), "no_input", "max" (talked too long), "tap_lost",
     or "window" (no audio tap: a fixed-length recording).
     reply_latency is the seconds from the end of the visitor's answer to the
-    reply starting to play (add the camera's ~2.4 s to hear it).
+    reply (or a conversation's first phrase) starting to play (add the camera's
+    ~2.4 s to hear it).
     flow is the conversation that took over (dialogue.py): "emergency",
     "law_enforcement" or "civic"; details is what it found out (identity,
     reason, warrant, message, decision, ...); dialogue lists every question
@@ -604,11 +605,17 @@ class Interaction:
         if reply is None:
             visit.outcome = "reply_failed"
             return
-        if visit.speech_end is not None:
-            visit.reply_latency = round(await asyncio.shield(reply.started) - visit.speech_end, 2)
-            log.info("reply started %.2f s after the visitor stopped talking", visit.reply_latency)
+        await self._time_reply(visit, reply)
         await talk.heard(reply)
         visit.outcome = "completed"
+
+    async def _time_reply(self, visit: Visit, playback) -> None:
+        """Set ``reply_latency`` from the first reply played after the visitor's answer:
+        the one-line reply, or a conversation's first phrase (Gatekeeper#25)."""
+        if visit.reply_latency is not None or visit.speech_end is None:
+            return
+        visit.reply_latency = round(await asyncio.shield(playback.started) - visit.speech_end, 2)
+        log.info("reply started %.2f s after the visitor stopped talking", visit.reply_latency)
 
 
 class _Turns:
@@ -624,6 +631,7 @@ class _Turns:
         playback = await self._i._say(self._talk, self._visit, key, text)
         if playback is None:
             return None
+        await self._i._time_reply(self._visit, playback)
         # Photos while they answer, e.g. while holding a warrant up to the camera.
         taking = asyncio.ensure_future(self._photos(playback)) if photos else None
         try:
@@ -636,6 +644,7 @@ class _Turns:
         playback = await self._i._say(self._talk, self._visit, key, self._i.settings.phrases[key])
         if playback is None:
             return False
+        await self._i._time_reply(self._visit, playback)
         await self._talk.heard(playback)
         return True
 
