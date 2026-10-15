@@ -409,3 +409,26 @@ def test_silent_turns_not_transcribed_are_counted():
     r = build(inputs(log_text=log))
     assert r["whisper"]["silent_turns_skipped"] == 2
     assert "no answers, 2 silent turn(s) not transcribed" in render_text(r)
+
+
+def test_the_time_from_someone_leaving_to_the_next_arrival_is_listed():
+    # For tuning RETURN_WINDOW_SECONDS: back after 31 s (not greeted), after 121 s
+    # (greeted: just outside 2 minutes), and someone 40 minutes later (not listed).
+    visits = [
+        visit(NOW - 9000, NOW - 8997, outcome="left"),
+        visit(NOW - 8969, NOW - 8967, outcome="returned"),
+        visit(NOW - 6000, NOW - 5997, outcome="left"),
+        visit(NOW - 5950, NOW - 5920, trigger="button", classification="no_response"),
+        visit(NOW - 5879, NOW - 5845, classification="no_response"),
+        visit(NOW - 4000, NOW - 3997, outcome="left"),
+        visit(NOW - 1600, NOW - 1570, classification="likely_delivery"),
+    ]
+    r = build(inputs(visits=visits, window_visits=visits))
+    assert r["counts"]["return_gaps"] == [
+        {"seconds": 31, "greeted": False},
+        {"seconds": 121, "greeted": True},
+    ]
+    assert (
+        "Next arrival after someone left by the door: 31 s (not greeted), 121 s (greeted)"
+        in render_text(r)
+    )
