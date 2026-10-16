@@ -333,6 +333,7 @@ class PackageWatcher:
         self.retry_seconds = retry_seconds
         self.give_up_seconds = give_up_seconds
         self._retry_at = 0.0
+        self._unjudged = ""  # why the last comparison wasn't judged
         self._before: Shot | None = None  # the doorstep with nobody there
         self._before_at = 0.0
         self._came: float | None = None  # someone is (or was just) there, since
@@ -361,10 +362,16 @@ class PackageWatcher:
             if after is None:
                 return  # try again next time
             if self._before is not None and not self._judge(self._before, after, self._came):
+                # One "not checked" line per visit (the daily report counts them).
                 if now - self._seen < self.give_up_seconds:
                     self._retry_at = now + self.retry_seconds
+                    log.info(
+                        "doorstep not checked yet (%s): trying again in %.0f s",
+                        self._unjudged,
+                        self.retry_seconds,
+                    )
                     return
-                log.info("doorstep not checked after this visit: the lighting didn't settle")
+                log.info("doorstep not checked: the lighting didn't settle (%s)", self._unjudged)
             self._came, self._retry_at = None, 0.0
             self._before, self._before_at = after, now
         elif self._before is None or now - self._before_at >= self.refresh_seconds:
@@ -382,7 +389,7 @@ class PackageWatcher:
             return True
         comparison = compare(before.rgb, after.rgb, zone_cells(polygon, *before.rgb.shape[:2]))
         if not comparison.judged:
-            log.info("doorstep not checked: %s", comparison.reason)
+            self._unjudged = comparison.reason  # step() logs it: trying again, or giving up
             return False
         log.info("doorstep checked: %d change(s)", len(comparison.patches))
         for package in list(self.packages):
