@@ -35,6 +35,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     how the day's checks went, for tuning.
 
 ### Fixed
+- **Daily report: packages "not checked" counts visits, not retries** (#35). A visit whose
+  lighting changed was counted once per retry (every minute for up to 10 minutes), and
+  the visits it gave up on weren't counted at all. Retries are now counted apart, as
+  "retried for the lighting".
 - **No traceback when Docker's health probe gives up early.** While the models load at
   startup, a probe can time out before `/healthz` answers. Writing the answer then raised
   `BrokenPipeError`, which the daily report counted as an error in Gatekeeper's log (the

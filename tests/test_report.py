@@ -485,8 +485,10 @@ def test_packages_and_the_doorstep_checks_are_reported():
         "[448, 400, 512, 464]: package score 0.81 (before 0.08)\n"
         "2026-10-15 14:06:01,400 INFO    gatekeeper.packages [-] doorstep change at "
         "[304, 368, 320, 480]: package score 0.11 (before 0.07)\n"
+        "2026-10-15 20:56:01,000 INFO    gatekeeper.packages [-] doorstep not checked yet "
+        "(exposure changed 1.80x): trying again in 60 s\n"
         "2026-10-15 21:06:01,000 INFO    gatekeeper.packages [-] doorstep not checked: "
-        "exposure changed 1.80x\n"
+        "the lighting didn't settle (exposure changed 1.80x)\n"
     )
     r = build(inputs(visits=[greeted, left], window_visits=[greeted, left], log_text=log))
     assert r["counts"]["visits"] == 1
@@ -495,10 +497,12 @@ def test_packages_and_the_doorstep_checks_are_reported():
         "picked_up": 0,
         "checked": 1,
         "not_checked": {"lighting": 1},
+        "retries": 1,
         "changes": 2,
         "top_scores": [(0.81, 0.08), (0.11, 0.07)],
     }
     assert (
         "Packages: 1 delivered, 0 picked up; doorstep checked 1 time(s) (1 more not: "
-        "lighting), 2 change(s), highest package score 0.81" in render_text(r)
+        "lighting), 1 retried for the lighting, 2 change(s), highest package score 0.81"
+        in render_text(r)
     )

@@ -1,4 +1,5 @@
 import json
+import logging
 
 import numpy as np
 import pytest
@@ -206,3 +207,19 @@ def test_nothing_is_judged_until_the_zone_is_known(tmp_path):
     porch.run(10)
     porch.visit(Shot(with_package(doorstep(1)), b"x"))
     assert porch.changes == []
+
+
+def test_a_visit_whose_lighting_never_settles_counts_once_in_the_report(tmp_path, caplog):
+    from gatekeeper.report import package_info
+
+    caplog.set_level(logging.INFO, logger="gatekeeper.packages")
+    porch = Porch(tmp_path)
+    porch.run(10)
+    # Night mode came on during the visit, and stays on.
+    porch.visit(Shot(doorstep(1, brightness=1.8), b"night"))
+    porch.run(700)
+    lines = [r.getMessage() for r in caplog.records]
+    info = package_info([], lines)
+    assert info["not_checked"] == {"lighting": 1}  # one visit, not one per retry
+    assert info["retries"] >= 9  # every minute for 10 minutes
+    assert info["checked"] == 0
