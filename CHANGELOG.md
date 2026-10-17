@@ -35,6 +35,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     how the day's checks went, for tuning.
 
 ### Fixed
+- **The daily report's `audio_tap` check fails when the tap was down.** It only caught a tap
+  lost in the middle of a turn. When the tap was already down, each turn fell back to a
+  fixed recording window and the check passed, even on a day with the tap down for every
+  visit. The report now counts those turns (`replies.tap_down_turns`) and fails on them.
 - **No traceback when Docker's health probe gives up early.** While the models load at
   startup, a probe can time out before `/healthz` answers. Writing the answer then raised
   `BrokenPipeError`, which the daily report counted as an error in Gatekeeper's log (the
