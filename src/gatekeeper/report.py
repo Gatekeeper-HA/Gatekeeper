@@ -85,6 +85,8 @@ NOT_GREETED = {"left", "returned"}
 # Records in the visit log that aren't visits: the household (above), and the
 # resident's quick replies to a visit (quick_reply.py).
 NOT_VISITS = NOT_GREETED | {"quick_reply", "package_delivered", "package_picked_up"}
+# Visit outcomes where the doorbell speaker didn't connect: nobody at the door heard a thing.
+SPEAKER_DOWN = {"talkback_failed", "talkback_unavailable"}
 # packages.py's log lines.
 DOORSTEP_CHECKED = re.compile(r"doorstep checked: (\d+) change")
 DOORSTEP_NOT_CHECKED = re.compile(r"doorstep not checked: (.*)$")
@@ -92,6 +94,15 @@ DOORSTEP_SCORE = re.compile(r"doorstep change at .*: package score ([\d.]+) \(be
 # How long after someone left by the door the next person to walk up is listed
 # (return_gaps): the data for tuning RETURN_WINDOW_SECONDS.
 RETURN_GAP_SECONDS = 30 * 60
+
+
+def classification(visit: dict) -> str:
+    """A visit's classification; one without is a button press, or a visit that never got
+    an answer to classify (the speaker didn't connect, a timeout)."""
+    if visit.get("classification"):
+        return visit["classification"]
+    pressed = visit.get("trigger") == "button" or visit.get("outcome") == "pressed_during_visit"
+    return "pressed" if pressed else "unclassified"
 
 
 def local(ts: float) -> str:
@@ -435,6 +446,12 @@ def build(i: Inputs) -> dict:
     check("notify_speed", slowest <= NOTIFY_SECONDS, f"slowest notification {slowest:.1f} s")
     check("no_hangs", not hangs, f"{hangs} hang/restart(s)")
     check("no_visit_errors", not outcomes.get("error"), f"{outcomes.get('error')} visit error(s)")
+    speaker_down = sum(outcomes.get(o, 0) for o in SPEAKER_DOWN)
+    check(
+        "talkback",
+        not speaker_down,
+        f"{speaker_down} visit(s) where the doorbell speaker didn't connect",
+    )
     silent = host.get("silent_audio_hours", [])
     check("recording_audio", not silent, f"no recording audio in {len(silent)} hour(s)")
     check(
@@ -516,9 +533,7 @@ def build(i: Inputs) -> dict:
             "returned": len(returned),
             "return_gaps": return_gaps(i.visits),
             "triggers": dict(collections.Counter(v.get("trigger", "person") for v in visits)),
-            "classifications": dict(
-                collections.Counter(v.get("classification") or "pressed" for v in visits)
-            ),
+            "classifications": dict(collections.Counter(classification(v) for v in visits)),
             "outcomes": dict(outcomes),
         },
         "arrivals": {

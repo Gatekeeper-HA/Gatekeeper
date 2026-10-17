@@ -39,6 +39,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   startup, a probe can time out before `/healthz` answers. Writing the answer then raised
   `BrokenPipeError`, which the daily report counted as an error in Gatekeeper's log (the
   first deploy of quick replies). Other health endpoint errors are now logged normally.
+- **The daily report flags visits where the doorbell speaker didn't connect.** A new
+  `talkback` check fails on `talkback_failed` and `talkback_unavailable` visits: nobody at
+  the door heard anything, yet every check passed. Unclassified visits that weren't button
+  presses are counted as `unclassified` rather than `pressed`.
 
 ## [0.3.0] - 2026-10-14
 
