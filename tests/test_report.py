@@ -502,3 +502,20 @@ def test_packages_and_the_doorstep_checks_are_reported():
         "Packages: 1 delivered, 0 picked up; doorstep checked 1 time(s) (1 more not: "
         "lighting), 2 change(s), highest package score 0.81" in render_text(r)
     )
+
+
+def test_visits_where_the_speaker_did_not_connect_fail_a_check():
+    failed = visit(NOW - 3600, NOW - 3590, outcome="talkback_failed")
+    unavailable = visit(NOW - 2000, NOW - 1990, outcome="talkback_unavailable")
+    pressed = visit(NOW - 1000, NOW - 990, outcome="pressed_during_visit", trigger="button")
+    visits = [failed, unavailable, pressed]
+    r = build(inputs(visits=visits, window_visits=visits))
+
+    assert failing(r)["talkback"] == "2 visit(s) where the doorbell speaker didn't connect"
+    # Not answered, so not classified: only the doorbell press is "pressed".
+    assert r["counts"]["classifications"] == {"unclassified": 2, "pressed": 1}
+
+
+def test_the_talkback_check_passes_when_every_visit_was_spoken_to():
+    r = build(inputs())
+    assert {c["name"]: c["ok"] for c in r["checks"]}["talkback"] is True
