@@ -77,6 +77,7 @@ TRANSCRIBED = re.compile(
 )
 MADE_UP = "no speech where Whisper heard it"  # interaction: an answer Whisper made up
 NOT_TRANSCRIBED = "no speech: not transcribed"  # interaction: a silent turn
+TAP_DOWN = "audio tap down; recording a fixed window instead"  # interaction: a turn without it
 
 LEVELS = {"WARNING": 1, "ERROR": 2, "CRITICAL": 3, "TRACEBACK": 3}
 ERROR_LEVELS = {"ERROR", "CRITICAL", "TRACEBACK"}
@@ -86,6 +87,8 @@ NOT_GREETED = {"left", "returned"}
 # Records in the visit log that aren't visits: the household (above), and the
 # resident's quick replies to a visit (quick_reply.py).
 NOT_VISITS = NOT_GREETED | {"quick_reply", "package_delivered", "package_picked_up"}
+# Visit outcomes where the doorbell speaker didn't connect: nobody at the door heard a thing.
+SPEAKER_DOWN = {"talkback_failed", "talkback_unavailable"}
 # packages.py's log lines.
 DOORSTEP_CHECKED = re.compile(r"doorstep checked: (\d+) change")
 DOORSTEP_NOT_CHECKED = re.compile(r"doorstep not checked: (.*)$")
@@ -93,6 +96,15 @@ DOORSTEP_SCORE = re.compile(r"doorstep change at .*: package score ([\d.]+) \(be
 # How long after someone left by the door the next person to walk up is listed
 # (return_gaps): the data for tuning RETURN_WINDOW_SECONDS.
 RETURN_GAP_SECONDS = 30 * 60
+
+
+def classification(visit: dict) -> str:
+    """A visit's classification; one without is a button press, or a visit that never got
+    an answer to classify (the speaker didn't connect, a timeout)."""
+    if visit.get("classification"):
+        return visit["classification"]
+    pressed = visit.get("trigger") == "button" or visit.get("outcome") == "pressed_during_visit"
+    return "pressed" if pressed else "unclassified"
 
 
 def local(ts: float) -> str:
@@ -436,6 +448,12 @@ def build(i: Inputs) -> dict:
     check("notify_speed", slowest <= NOTIFY_SECONDS, f"slowest notification {slowest:.1f} s")
     check("no_hangs", not hangs, f"{hangs} hang/restart(s)")
     check("no_visit_errors", not outcomes.get("error"), f"{outcomes.get('error')} visit error(s)")
+    speaker_down = sum(outcomes.get(o, 0) for o in SPEAKER_DOWN)
+    check(
+        "talkback",
+        not speaker_down,
+        f"{speaker_down} visit(s) where the doorbell speaker didn't connect",
+    )
     silent = host.get("silent_audio_hours", [])
     check("recording_audio", not silent, f"no recording audio in {len(silent)} hour(s)")
     check(
@@ -477,6 +495,7 @@ def build(i: Inputs) -> dict:
             f"Whisper p90 {whisper['p90_seconds']:.1f} s per answer",
         )
     replies = reply_info(visits)
+    replies["tap_down_turns"] = sum(TAP_DOWN in line for line in sources.get("gatekeeper", []))
     if replies["count"]:
         limit = REPLY_P90_SECONDS["cuda" if whisper["device"] == "cuda" else "cpu"]
         check(
@@ -484,9 +503,12 @@ def build(i: Inputs) -> dict:
             replies["p90_seconds"] <= limit,
             f"replies p90 {replies['p90_seconds']:.1f} s after the answer",
         )
-    if replies["endpoints"]:
-        lost = replies["endpoints"].get("tap_lost", 0)
-        check("audio_tap", not lost, f"the audio tap was lost during {lost} visit(s)")
+    if replies["endpoints"] or replies["tap_down_turns"]:
+        lost, down = replies["endpoints"].get("tap_lost", 0), replies["tap_down_turns"]
+        problems = [f"the audio tap was lost during {lost} visit(s)"] if lost else []
+        if down:
+            problems.append(f"the audio tap was down for {down} listening turn(s)")
+        check("audio_tap", not problems, "; ".join(problems))
     if quick["count"]:
         failed = quick["results"].get("failed", 0)
         check("quick_replies", not failed, f"{failed} quick reply(ies) couldn't be said")
@@ -517,9 +539,7 @@ def build(i: Inputs) -> dict:
             "returned": len(returned),
             "return_gaps": return_gaps(i.visits),
             "triggers": dict(collections.Counter(v.get("trigger", "person") for v in visits)),
-            "classifications": dict(
-                collections.Counter(v.get("classification") or "pressed" for v in visits)
-            ),
+            "classifications": dict(collections.Counter(classification(v) for v in visits)),
             "outcomes": dict(outcomes),
         },
         "arrivals": {
@@ -657,7 +677,15 @@ def summary_lines(report: dict) -> list[str]:
             f"(p90 {r['p90_seconds']:.1f} s; the camera adds ~2.4 s)"
         )
     if r["endpoints"]:
-        lines.append("Listening ended: " + ", ".join(f"{k} {v}" for k, v in r["endpoints"].items()))
+        lines.append(
+            "Listening ended: "
+            + ", ".join(f"{k} {v}" for k, v in r["endpoints"].items())
+            + (
+                f" (audio tap down for {r['tap_down_turns']} turn(s))"
+                if r["tap_down_turns"]
+                else ""
+            )
+        )
     if f:
         detectors = ", ".join(f"{k} {v:.0f} ms" for k, v in f["detectors"].items() if v)
         lines.append(f"Frigate: {detectors or 'no detector'}, camera {f['camera_fps']} fps")

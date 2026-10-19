@@ -295,6 +295,7 @@ def test_reply_times_and_how_listening_ended():
         "count": 3,
         "endpoints": {"answered": 3, "tap_lost": 1},
         "conversations": {},
+        "tap_down_turns": 0,
         "median_seconds": 1.9,
         "p90_seconds": 2.2,
         "max_seconds": 2.2,
@@ -315,8 +316,28 @@ def test_slow_replies_fail_on_the_gpu():
 
 def test_visits_without_the_engine_have_no_reply_checks():
     r = build(inputs())
-    assert r["replies"] == {"count": 0, "endpoints": {}, "conversations": {}}
+    assert r["replies"] == {"count": 0, "endpoints": {}, "conversations": {}, "tap_down_turns": 0}
     assert not {"reply_speed", "audio_tap"} & {c["name"] for c in r["checks"]}
+
+
+def test_turns_recorded_while_the_audio_tap_was_down_fail_the_audio_tap_check():
+    visits = [visit(NOW - 3600 + 600 * k, NOW - 3500 + 600 * k, endpoint="window") for k in (0, 1)]
+    down = (
+        "2026-10-13 19:33:31,255 WARNING gatekeeper.interaction [x] "
+        "audio tap down; recording a fixed window instead\n"
+    )
+    log = "### gatekeeper\n" + down * 3
+    r = build(inputs(visits=visits, window_visits=visits, log_text=log))
+
+    assert r["replies"]["tap_down_turns"] == 3
+    assert failing(r)["audio_tap"] == "the audio tap was down for 3 listening turn(s)"
+    assert "Listening ended: window 2 (audio tap down for 3 turn(s))" in render_text(r)
+
+
+def test_fixed_windows_without_a_tap_configured_pass_the_audio_tap_check():
+    visits = [visit(NOW - 3600, NOW - 3500, endpoint="window")]
+    r = build(inputs(visits=visits, window_visits=visits))
+    assert "audio_tap" not in failing(r)
 
 
 def test_tailored_conversations_and_made_up_answers_are_counted():
@@ -502,6 +523,23 @@ def test_packages_and_the_doorstep_checks_are_reported():
         "Packages: 1 delivered, 0 picked up; doorstep checked 1 time(s) (1 more not: "
         "lighting), 2 change(s), highest package score 0.81" in render_text(r)
     )
+
+
+def test_visits_where_the_speaker_did_not_connect_fail_a_check():
+    failed = visit(NOW - 3600, NOW - 3590, outcome="talkback_failed")
+    unavailable = visit(NOW - 2000, NOW - 1990, outcome="talkback_unavailable")
+    pressed = visit(NOW - 1000, NOW - 990, outcome="pressed_during_visit", trigger="button")
+    visits = [failed, unavailable, pressed]
+    r = build(inputs(visits=visits, window_visits=visits))
+
+    assert failing(r)["talkback"] == "2 visit(s) where the doorbell speaker didn't connect"
+    # Not answered, so not classified: only the doorbell press is "pressed".
+    assert r["counts"]["classifications"] == {"unclassified": 2, "pressed": 1}
+
+
+def test_the_talkback_check_passes_when_every_visit_was_spoken_to():
+    r = build(inputs())
+    assert {c["name"]: c["ok"] for c in r["checks"]}["talkback"] is True
 
 
 def test_ffmpeg_fixing_timestamps_after_a_dropout_is_noise():
