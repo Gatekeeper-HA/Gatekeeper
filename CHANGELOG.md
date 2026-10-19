@@ -35,6 +35,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     how the day's checks went, for tuning.
 
 ### Fixed
+- **Daily report: packages "not checked" counts visits, not retries** (#35). A visit whose
+  lighting changed was counted once per retry (every minute for up to 10 minutes), and
+  the visits it gave up on weren't counted at all. Retries are now counted apart, as
+  "retried for the lighting".
 - **The daily report's `audio_tap` check fails when the tap was down.** It only caught a tap
   lost in the middle of a turn. When the tap was already down, each turn fell back to a
   fixed recording window and the check passed, even on a day with the tap down for every

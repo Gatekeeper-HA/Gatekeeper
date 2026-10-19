@@ -92,6 +92,7 @@ SPEAKER_DOWN = {"talkback_failed", "talkback_unavailable"}
 # packages.py's log lines.
 DOORSTEP_CHECKED = re.compile(r"doorstep checked: (\d+) change")
 DOORSTEP_NOT_CHECKED = re.compile(r"doorstep not checked: (.*)$")
+DOORSTEP_RETRY = re.compile(r"doorstep not checked yet")
 DOORSTEP_SCORE = re.compile(r"doorstep change at .*: package score ([\d.]+) \(before ([\d.]+)\)")
 # How long after someone left by the door the next person to walk up is listed
 # (return_gaps): the data for tuning RETURN_WINDOW_SECONDS.
@@ -343,23 +344,27 @@ def package_info(records: list[dict], lines: list[str]) -> dict:
     """Packages left and picked up (package_* records), and how the doorstep checks
     after visits went (packages.py's log lines), for tuning its thresholds."""
     outcomes = collections.Counter(r.get("outcome") for r in records)
-    checked = changes = 0
+    checked = changes = retries = 0
     not_checked: collections.Counter = collections.Counter()
     scores = []
     for line in lines:
         if m := DOORSTEP_CHECKED.search(line):
             checked += 1
             changes += int(m.group(1))
+        elif DOORSTEP_RETRY.search(line):
+            retries += 1  # the lighting changed: compared again a minute later
         elif m := DOORSTEP_NOT_CHECKED.search(line):
             reason = m.group(1)
-            not_checked["lighting" if "changed" in reason else reason] += 1
+            lighting = "changed" in reason or "lighting" in reason
+            not_checked["lighting" if lighting else reason] += 1
         elif m := DOORSTEP_SCORE.search(line):
             scores.append((float(m.group(1)), float(m.group(2))))
     return {
         "delivered": outcomes.get("package_delivered", 0),
         "picked_up": outcomes.get("package_picked_up", 0),
         "checked": checked,
-        "not_checked": dict(not_checked),
+        "not_checked": dict(not_checked),  # visits whose doorstep wasn't compared
+        "retries": retries,  # comparisons put off for the lighting
         "changes": changes,
         # The highest package scores of the day's changes: (after, before).
         "top_scores": sorted(scores, reverse=True)[:5],
@@ -653,6 +658,7 @@ def summary_lines(report: dict) -> list[str]:
             f"Packages: {pk['delivered']} delivered, {pk['picked_up']} picked up; doorstep "
             f"checked {pk['checked']} time(s)"
             + (f" ({not_checked} more not: {', '.join(pk['not_checked'])})" if not_checked else "")
+            + (f", {pk['retries']} retried for the lighting" if pk.get("retries") else "")
             + f", {pk['changes']} change(s)"
             + (f", highest package score {top:.2f}" if top is not None else "")
         )
