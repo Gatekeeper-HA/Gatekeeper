@@ -51,6 +51,7 @@ class Publisher:
         self.quick_reply_topic = QUICK_REPLY_TOPIC.format(camera=camera)
         self.packages = packages
         self.package_topic = f"gatekeeper/{camera}/package"
+        self._package: bool | None = None  # published on every (re)connect
 
     def set_will(self) -> None:
         """Call before connecting: the broker publishes "offline" if we vanish."""
@@ -62,12 +63,18 @@ class Publisher:
         for topic, config in self.discovery().items():
             self._publish(topic, json.dumps(config))
         self._publish(self.state_topic, "idle")
+        if self._package is not None:
+            self._publish(self.package_topic, "on" if self._package else "off")
 
     def conversation(self, active: bool) -> None:
         self._publish(self.state_topic, "conversation" if active else "idle")
 
     def package(self, present: bool) -> None:
-        self._publish(self.package_topic, "on" if present else "off")
+        """Whether a package is at the door. Before MQTT has connected (at startup),
+        it's only kept, and published when it does."""
+        self._package = present
+        if getattr(self.client, "is_connected", lambda: True)():
+            self._publish(self.package_topic, "on" if present else "off")
 
     def visit(self, record: dict) -> None:
         self._publish(self.visit_topic, json.dumps(record, ensure_ascii=False))

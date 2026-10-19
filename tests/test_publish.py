@@ -121,3 +121,20 @@ def test_package_sensor_with_package_alerts():
     other = FakeClient()
     publisher(other).announce()
     assert not any("package" in topic for topic, *_ in other.published)
+
+
+def test_package_state_from_before_mqtt_connects_is_published_on_connect():
+    client = FakeClient()
+    client.is_connected = lambda: False
+    p = Publisher(
+        client,
+        camera="front_door",
+        discovery_prefix="homeassistant",
+        version="0.4.0",
+        packages=True,
+    )
+    p.package(True)  # at startup: packages.json had one
+    assert client.published == []
+    client.is_connected = lambda: True
+    p.announce()
+    assert ("gatekeeper/front_door/package", "on", 1, True) in client.published
