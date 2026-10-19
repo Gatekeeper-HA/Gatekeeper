@@ -146,3 +146,44 @@ def test_read_once_ingests_the_stream_including_odd_byte_reads():
     assert started and started[0][-1] == "-"
     assert np.array_equal(tap.slice(0, clock.t + 1), samples)
     assert len(tap.probs_after(0)) == 3
+
+
+def test_a_stalled_tap_restarts_and_the_new_reader_gets_time_to_connect():
+    clock = Clock()
+    tap = AudioTap("rtsp://cam/x", vad_factory=LoudnessVAD, clock=clock)
+    tap._vad = LoudnessVAD()
+    tap._proc = FakeProc(b"")
+    arrive(tap, clock, 0.2)
+    clock.t += audio_tap.RESTART_AFTER_STALL_SECONDS + 1
+    tap._check_stall()
+    assert tap._proc.poll() is not None  # stalled: killed
+
+    # Hours later, the stream is back and a new ffmpeg starts: not killed while connecting.
+    clock.t += 3600
+    tap._read_started, tap._proc = clock.t, FakeProc(b"")
+    clock.t += 1.0
+    tap._check_stall()
+    assert tap._proc.poll() is None
+    arrive(tap, clock, 0.2)
+    tap._check_stall()
+    assert tap._proc.poll() is None
+
+    # It stalls too: restarted after the usual time.
+    clock.t += audio_tap.RESTART_AFTER_STALL_SECONDS + 1
+    tap._check_stall()
+    assert tap._proc.poll() is not None
+
+
+def test_a_new_reader_that_never_delivers_audio_is_restarted():
+    clock = Clock()
+    tap = AudioTap("rtsp://cam/x", vad_factory=LoudnessVAD, clock=clock)
+    tap._vad = LoudnessVAD()
+    arrive(tap, clock, 0.2)
+    clock.t += 3600
+    tap._read_started, tap._proc = clock.t, FakeProc(b"")
+    clock.t += audio_tap.RESTART_AFTER_STALL_SECONDS - 1
+    tap._check_stall()
+    assert tap._proc.poll() is None
+    clock.t += 2
+    tap._check_stall()
+    assert tap._proc.poll() is not None

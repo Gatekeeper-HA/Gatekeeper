@@ -76,6 +76,7 @@ TRANSCRIBED = re.compile(
 )
 MADE_UP = "no speech where Whisper heard it"  # interaction: an answer Whisper made up
 NOT_TRANSCRIBED = "no speech: not transcribed"  # interaction: a silent turn
+TAP_DOWN = "audio tap down; recording a fixed window instead"  # interaction: a turn without it
 
 LEVELS = {"WARNING": 1, "ERROR": 2, "CRITICAL": 3, "TRACEBACK": 3}
 ERROR_LEVELS = {"ERROR", "CRITICAL", "TRACEBACK"}
@@ -493,6 +494,7 @@ def build(i: Inputs) -> dict:
             f"Whisper p90 {whisper['p90_seconds']:.1f} s per answer",
         )
     replies = reply_info(visits)
+    replies["tap_down_turns"] = sum(TAP_DOWN in line for line in sources.get("gatekeeper", []))
     if replies["count"]:
         limit = REPLY_P90_SECONDS["cuda" if whisper["device"] == "cuda" else "cpu"]
         check(
@@ -500,9 +502,12 @@ def build(i: Inputs) -> dict:
             replies["p90_seconds"] <= limit,
             f"replies p90 {replies['p90_seconds']:.1f} s after the answer",
         )
-    if replies["endpoints"]:
-        lost = replies["endpoints"].get("tap_lost", 0)
-        check("audio_tap", not lost, f"the audio tap was lost during {lost} visit(s)")
+    if replies["endpoints"] or replies["tap_down_turns"]:
+        lost, down = replies["endpoints"].get("tap_lost", 0), replies["tap_down_turns"]
+        problems = [f"the audio tap was lost during {lost} visit(s)"] if lost else []
+        if down:
+            problems.append(f"the audio tap was down for {down} listening turn(s)")
+        check("audio_tap", not problems, "; ".join(problems))
     if quick["count"]:
         failed = quick["results"].get("failed", 0)
         check("quick_replies", not failed, f"{failed} quick reply(ies) couldn't be said")
@@ -671,7 +676,15 @@ def summary_lines(report: dict) -> list[str]:
             f"(p90 {r['p90_seconds']:.1f} s; the camera adds ~2.4 s)"
         )
     if r["endpoints"]:
-        lines.append("Listening ended: " + ", ".join(f"{k} {v}" for k, v in r["endpoints"].items()))
+        lines.append(
+            "Listening ended: "
+            + ", ".join(f"{k} {v}" for k, v in r["endpoints"].items())
+            + (
+                f" (audio tap down for {r['tap_down_turns']} turn(s))"
+                if r["tap_down_turns"]
+                else ""
+            )
+        )
     if f:
         detectors = ", ".join(f"{k} {v:.0f} ms" for k, v in f["detectors"].items() if v)
         lines.append(f"Frigate: {detectors or 'no detector'}, camera {f['camera_fps']} fps")

@@ -75,6 +75,7 @@ class AudioTap:
         self._written = 0  # samples received since the tap started
         self._anchor: tuple[int, float] | None = None  # (sample index, its time)
         self._last_audio: float | None = None
+        self._read_started: float | None = None  # when the current ffmpeg was started
         self._probs: deque[tuple[float, float]] = deque(
             maxlen=int(seconds * SAMPLE_RATE / CHUNK_SAMPLES)
         )
@@ -111,6 +112,7 @@ class AudioTap:
             proc.kill()
 
     def _read_once(self) -> None:
+        self._read_started = self._clock()
         proc = self._popen(
             tap_command(self.rtsp_url),
             stdin=subprocess.DEVNULL,
@@ -142,12 +144,19 @@ class AudioTap:
     def _watch_stalls(self) -> None:
         while not self._stopping:
             time.sleep(1.0)
-            proc, last = self._proc, self._last_audio
-            if proc is None or proc.poll() is not None:
-                continue
-            if last is not None and self._clock() - last > RESTART_AFTER_STALL_SECONDS:
-                log.warning("audio tap stalled for %.0f s; restarting it", self._clock() - last)
-                proc.kill()
+            self._check_stall()
+
+    def _check_stall(self) -> None:
+        """Restart ffmpeg if it has given no audio for too long. A new reader is timed
+        from its start, not from the audio before the stall, or it would be killed
+        before it could connect."""
+        proc, last, started = self._proc, self._last_audio, self._read_started
+        if proc is None or proc.poll() is not None or last is None:
+            return
+        quiet = self._clock() - max(last, started or last)
+        if quiet > RESTART_AFTER_STALL_SECONDS:
+            log.warning("audio tap stalled for %.0f s; restarting it", quiet)
+            proc.kill()
 
     def ingest(self, samples: np.ndarray) -> None:
         """Add samples that just arrived (the last one is "now")."""
