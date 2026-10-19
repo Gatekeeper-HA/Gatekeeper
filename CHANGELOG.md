@@ -39,6 +39,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   startup, a probe can time out before `/healthz` answers. Writing the answer then raised
   `BrokenPipeError`, which the daily report counted as an error in Gatekeeper's log (the
   first deploy of quick replies). Other health endpoint errors are now logged normally.
+- **The audio tap recovers after a stall.** Once the camera's audio stopped for more than
+  10 s, the watchdog judged every new ffmpeg reader by the audio from before the stall and
+  killed it within a second, before it could connect. The tap stayed down, and visits
+  recorded fixed windows, until Gatekeeper restarted. A new reader now gets 10 s from its
+  start (#41).
 
 ## [0.3.0] - 2026-10-14
 
