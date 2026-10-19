@@ -540,3 +540,20 @@ def test_visits_where_the_speaker_did_not_connect_fail_a_check():
 def test_the_talkback_check_passes_when_every_visit_was_spoken_to():
     r = build(inputs())
     assert {c["name"]: c["ok"] for c in r["checks"]}["talkback"] is True
+
+
+def test_ffmpeg_fixing_timestamps_after_a_dropout_is_noise():
+    line = (
+        "2026-10-14 00:38:00.000000000  [2026-10-13 19:38:00] ffmpeg.front_door.record"
+        "       ERROR   : [vost#0:0/copy @ 0x62573f2659c0] Non-monotonic DTS; previous: "
+        "439756648, current: 438004960; changing to 439756649. This may result in incorrect "
+        "timestamps in the output file."
+    )
+    crash = (
+        "2026-10-14 00:38:00.000000000  [2026-10-13 19:38:00] watchdog.front_door"
+        "            ERROR   : Ffmpeg process crashed unexpectedly for front_door."
+    )
+    logs = summarize_logs(f"### frigate\n{line}\n{line}\n{crash}\n")
+
+    assert logs["ignored"] == 2
+    assert logs["sources"]["frigate"]["errors"] == 1  # the dropout itself still shows
