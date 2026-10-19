@@ -502,3 +502,20 @@ def test_packages_and_the_doorstep_checks_are_reported():
         "Packages: 1 delivered, 0 picked up; doorstep checked 1 time(s) (1 more not: "
         "lighting), 2 change(s), highest package score 0.81" in render_text(r)
     )
+
+
+def test_ffmpeg_fixing_timestamps_after_a_dropout_is_noise():
+    line = (
+        "2026-10-14 00:38:00.000000000  [2026-10-13 19:38:00] ffmpeg.front_door.record"
+        "       ERROR   : [vost#0:0/copy @ 0x62573f2659c0] Non-monotonic DTS; previous: "
+        "439756648, current: 438004960; changing to 439756649. This may result in incorrect "
+        "timestamps in the output file."
+    )
+    crash = (
+        "2026-10-14 00:38:00.000000000  [2026-10-13 19:38:00] watchdog.front_door"
+        "            ERROR   : Ffmpeg process crashed unexpectedly for front_door."
+    )
+    logs = summarize_logs(f"### frigate\n{line}\n{line}\n{crash}\n")
+
+    assert logs["ignored"] == 2
+    assert logs["sources"]["frigate"]["errors"] == 1  # the dropout itself still shows

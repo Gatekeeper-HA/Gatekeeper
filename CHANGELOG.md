@@ -35,6 +35,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     how the day's checks went, for tuning.
 
 ### Fixed
+- **Daily report: Frigate's "Non-monotonic DTS" lines are known noise** (#43). When the
+  camera stream comes back after a dropout, ffmpeg corrects its timestamps in a burst of
+  these lines (97 of a sub-minute dropout's 153 errors on the rig). They're now counted as
+  ignored; the dropout still shows in the watchdog's lines.
 - **No traceback when Docker's health probe gives up early.** While the models load at
   startup, a probe can time out before `/healthz` answers. Writing the answer then raised
   `BrokenPipeError`, which the daily report counted as an error in Gatekeeper's log (the

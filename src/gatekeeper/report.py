@@ -54,6 +54,7 @@ NOISE = [
         r"weight_norm` is deprecated",
         r"torch\.jit\.script` is deprecated",
         r"Did not detect hwaccel",  # Frigate decodes video on the CPU (config.gpu.yml)
+        r"Non-monotonic DTS",  # ffmpeg fixing the timestamps of a stream that came back
     )
 ]
 
