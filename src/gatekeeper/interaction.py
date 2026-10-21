@@ -76,8 +76,11 @@ class Visit:
     (someone walked up soon after that: most likely them coming back in). Neither
     is greeted or notified. entered: greeted, but they went in by the front door
     without saying anything (the household coming home), so the visit stopped there
-    and the notification is a quiet one. quick_reply records the resident's quick
-    reply to a visit (same event id; details: reply, result, after_seconds, present).
+    and the notification is a quiet one. household: someone the owner enrolled,
+    recognized by face (details: name, greeted), either before the greeting (not
+    greeted) or during the visit before they said anything (stopped); also a quiet
+    notification. quick_reply records the resident's quick reply to a visit (same
+    event id; details: reply, result, after_seconds, present).
     package_delivered and package_picked_up record a package left at the door or
     taken (packages.py; event id package-<when the visit that left it started>;
     trigger "package"; details: box, score, since).
@@ -137,8 +140,18 @@ class Visit:
         }
 
 
-class WentInside(Exception):
-    """The person the visit is for went in by the front door without answering."""
+class Stopped(Exception):
+    """The visit is for the household (they went in by the door, or were recognized)
+    and they haven't said anything: it ends here, with ``outcome`` and ``details``."""
+
+    def __init__(self, outcome: str, details: dict) -> None:
+        super().__init__(outcome)
+        self.outcome = outcome
+        self.details = details
+
+
+# Outcomes of visits that turned out to be the household (Stopped, log_household).
+HOUSEHOLD_OUTCOMES = ("entered", "household")
 
 
 async def wait_sent(playback) -> float | None:
@@ -256,9 +269,9 @@ class Interaction:
         self._on_logged = list(on_logged)
         # go2rtc supports one talkback WebRTC session at a time.
         self._talkback_lock = threading.Lock()
-        # Visits whose person went in by the door (went_inside, from SessionTracker).
-        self._inside: set[str] = set()
-        self._inside_lock = threading.Lock()
+        # Visits to stop, and why (went_inside, recognized; from SessionTracker).
+        self._stops: dict[str, tuple[str, dict]] = {}
+        self._stops_lock = threading.Lock()
         # Blocking work (ffmpeg, Whisper, Kokoro) runs here rather than in
         # asyncio's default executor, which asyncio.run waits for on exit: a
         # stuck thread must not stop a timed-out visit from returning.
@@ -293,9 +306,10 @@ class Interaction:
             else:
                 try:
                     asyncio.run(self._run_with_timeout(visit))
-                except WentInside:
-                    log.info("they went in by the door without answering: stopped")
-                    visit.outcome = "entered"
+                except Stopped as stop:
+                    log.info("stopped: %s", stop.outcome)
+                    visit.outcome = stop.outcome
+                    visit.details.update(stop.details)
                 except TimeoutError:
                     log.error("visit timed out after %.0f s", self.settings.visit_timeout_seconds)
                     visit.outcome = "timeout"
@@ -305,26 +319,47 @@ class Interaction:
                 finally:
                     self._talkback_lock.release()
             self._notify(visit)
-            # The household going in isn't Home Assistant's last visitor.
-            self._log_visit(visit, publish=visit.outcome != "entered")
+            # The household isn't Home Assistant's last visitor.
+            self._log_visit(visit, publish=visit.outcome not in HOUSEHOLD_OUTCOMES)
             return visit
         finally:
-            with self._inside_lock:
-                self._inside.discard(event_id)
+            with self._stops_lock:
+                self._stops.pop(event_id, None)
             event_id_var.reset(token)
 
     def went_inside(self, event_id: str) -> None:
         """``SessionTracker``: the person visit ``event_id`` is for went in by the front
         door. The visit stops at its next chance, unless they've said something."""
-        with self._inside_lock:
-            self._inside.add(event_id)
+        self._stop(event_id, "entered", {})
 
-    def _check_inside(self, visit: Visit) -> None:
-        """Stop the visit (``WentInside``) if its person went in without answering."""
-        with self._inside_lock:
-            inside = visit.event_id in self._inside
-        if inside and not visit.transcript and visit.flow is None:
-            raise WentInside
+    def recognized(self, event_id: str, name: str) -> None:
+        """``SessionTracker``: the person visit ``event_id`` is for is ``name``, by their
+        face. The visit stops at its next chance, unless they've said something."""
+        self._stop(event_id, "household", {"name": name, "greeted": True})
+
+    def _stop(self, event_id: str, outcome: str, details: dict) -> None:
+        with self._stops_lock:
+            self._stops.setdefault(event_id, (outcome, details))
+
+    def _check_stop(self, visit: Visit) -> None:
+        """Stop the visit (``Stopped``) if it's for the household and they haven't
+        answered."""
+        with self._stops_lock:
+            stop = self._stops.get(visit.event_id)
+        if stop and not visit.transcript and visit.flow is None:
+            raise Stopped(*stop)
+
+    def log_household(self, event_id: str, name: str) -> None:
+        """``SessionTracker``: someone recognized by face before their greeting. Not
+        greeted; a quiet notification, and not Home Assistant's last visitor."""
+        token = event_id_var.set(event_id)
+        try:
+            visit = Visit(event_id, self.settings.camera_name, outcome="household")
+            visit.details = {"name": name, "greeted": False}
+            self._notify(visit)
+            self._log_visit(visit, publish=False)
+        finally:
+            event_id_var.reset(token)
 
     def acknowledge_press(self, visit: Visit) -> Visit:
         """A doorbell press during a visit's cooldown: notify at once, then say
@@ -617,7 +652,7 @@ class Interaction:
         t = after
         while True:
             if not ep.heard_speech:
-                self._check_inside(visit)
+                self._check_stop(visit)
             for chunk_end, prob in self._tap.probs_after(t):
                 t = chunk_end
                 end = ep.update(chunk_end, prob)
@@ -666,7 +701,7 @@ class Interaction:
         reply_key = await self._ask(visit, "greeting", s.greeting, greeting)
 
         if reply_key == "no_answer":
-            self._check_inside(visit)  # no need to ask an empty porch again
+            self._check_stop(visit)  # no need to ask an empty porch again
             # The no-answer reply asks again ("...please state your purpose"):
             # listen once more after it.
             question = await self._say(talk, visit, "no_answer", s.replies["no_answer"])
@@ -677,7 +712,7 @@ class Interaction:
                 return
             reply_key = await self._ask(visit, "no_answer", s.replies["no_answer"], question)
             if reply_key == "no_answer":
-                self._check_inside(visit)
+                self._check_stop(visit)
                 # Still silent: the question was the reply.
                 visit.response = s.replies["no_answer"]
                 self._notify(visit)

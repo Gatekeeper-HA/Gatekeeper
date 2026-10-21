@@ -169,6 +169,10 @@ services:
       # Don't greet the household coming out: people who appear in Frigate's door
       # zone and walk out of it.
       DOOR_ZONE: "door"
+      # Recognize the household by face: off unless FACE_RECOGNITION=1 in .env (faces
+      # are biometric data; enroll people with their consent, see the README).
+      FACE_RECOGNITION: "${FACE_RECOGNITION:-0}"
+      FACE_DIR: "/faces"
       LISTEN_SECONDS: "4"
       WHISPER_MODEL: "base.en"
       WHISPER_COMPUTE_TYPE: "int8"
@@ -182,6 +186,7 @@ services:
       - ${DATA_DIR:-./data}/gatekeeper/audio:/audio
       - ${DATA_DIR:-./data}/gatekeeper/logs:/logs
       - ${DATA_DIR:-./data}/gatekeeper/cache:/root/.cache
+      - ${DATA_DIR:-./data}/gatekeeper/faces:/faces
 
 networks:
   surveil:

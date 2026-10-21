@@ -774,7 +774,7 @@ def test_someone_who_goes_inside_without_answering_stops_the_visit(settings):
     assert published == []  # not Home Assistant's last visitor
     (record,) = rig.log_records()
     assert record["outcome"] == "entered" and record["response"] is None
-    assert not rig.interaction._inside  # forgotten once the visit is over
+    assert not rig.interaction._stops  # forgotten once the visit is over
 
 
 def test_going_inside_after_answering_doesnt_stop_the_visit(settings):
@@ -796,3 +796,37 @@ def test_going_inside_during_a_fixed_window_stops_before_asking_again(settings):
     visit = rig.interaction.run(EID)
     assert visit.outcome == "entered"
     assert [c[1] for c in rig.calls if c[0] == "play"] == ["_presynth_greeting.wav"]
+
+
+def test_someone_recognized_during_their_visit_stops_it(settings):
+    rig = Rig(settings, answer="", answer2="", speech=[])
+    notified, published = [], []
+    rig.interaction._on_notify = [lambda v: notified.append((v.outcome, dict(v.details)))]
+    rig.interaction._on_logged = [published.append]
+    sleep = rig.interaction._sleep
+
+    async def sleep_then_recognize(seconds):
+        await sleep(seconds)
+        if rig.now >= ECHO_END + 1.0:
+            rig.interaction.recognized(EID, "Alex")
+
+    rig.interaction._sleep = sleep_then_recognize
+    visit = rig.interaction.run(EID)
+    assert visit.outcome == "household"
+    assert visit.details == {"name": "Alex", "greeted": True}
+    assert [c[1] for c in rig.calls if c[0] == "play"] == ["_presynth_greeting.wav"]
+    assert notified == [("household", {"name": "Alex", "greeted": True})]
+    assert published == []
+
+
+def test_someone_recognized_before_their_greeting_is_only_logged_and_quietly_notified(settings):
+    rig = Rig(settings)
+    notified, published = [], []
+    rig.interaction._on_notify = [notified.append]
+    rig.interaction._on_logged = [published.append]
+    rig.interaction.log_household("1791944783.070551-face", "Alex")
+    assert rig.calls == [] and published == []
+    (n,) = notified
+    assert (n.outcome, n.details) == ("household", {"name": "Alex", "greeted": False})
+    (record,) = rig.log_records()
+    assert record["outcome"] == "household" and record["details"]["name"] == "Alex"

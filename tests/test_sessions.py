@@ -311,6 +311,8 @@ class DoorHarness:
         self.started: list[tuple[str, str]] = []
         self.not_greeted: list[tuple[str, str]] = []
         self.inside: list[str] = []
+        self.household: list[tuple[str, str]] = []
+        self.recognized: list[tuple[str, str]] = []
         self.workers = []
         self.tracker = SessionTracker(
             camera="front_door",
@@ -323,6 +325,9 @@ class DoorHarness:
             return_window_seconds=120.0,
             on_not_greeted=lambda event_id, outcome: self.not_greeted.append((event_id, outcome)),
             on_went_inside=self.inside.append,
+            face_min_matches=2,
+            on_household=lambda event_id, name: self.household.append((event_id, name)),
+            on_recognized=lambda visit_id, name: self.recognized.append((visit_id, name)),
             run_visit=lambda event_id, trigger: self.started.append((event_id, trigger)),
             spawn=self.workers.append,
             clock=clock,
@@ -591,3 +596,79 @@ def test_an_expired_session_is_logged(clock, caplog):
         "person event A ended before a visit: no news from Frigate for 120 s; "
         "121.0 s in the trigger zone, under the 1000 s dwell"
     ]
+
+
+# Faces (face_watch.py).
+
+
+def test_someone_recognized_before_the_greeting_is_not_greeted(clock):
+    h = DoorHarness(clock)
+    h.tracker.handle_event(walk("A", (0.45, 0.6), type_="new"))  # on the walkway
+    h.tracker.face_seen("A", "Alex")
+    assert h.household == []  # one match isn't enough
+    h.tracker.face_seen("A", "Alex")
+    clock.advance(1.0)
+    h.tracker.handle_event(walk("A", (0.45, 0.6), (0.6, 0.9)))  # on the porch, due
+    assert h.workers == [] and h.household == [("A", "Alex")]
+    # Frigate splits their track: still them.
+    h.tracker.handle_event(walk("B", (0.62, 0.92), type_="new"))
+    clock.advance(1.0)
+    h.tracker.sweep()
+    assert h.workers == [] and h.tracker.sessions["B"].merged_into == "A"
+
+
+def test_recognized_once_due_means_not_greeted_at_once(clock):
+    h = DoorHarness(clock)
+    h.tracker.handle_event(walk("A", (0.45, 0.6), type_="new"))
+    h.tracker.face_seen("A", "Alex")
+    h.tracker.face_seen("A", "Sam")  # matches for different people don't add up
+    assert h.household == []
+    h.tracker.face_seen("A", "Alex")
+    assert h.household == []  # still on the walkway: not due yet
+    h.tracker.handle_event(walk("A", (0.45, 0.6), (0.6, 0.9)))
+    clock.advance(1.0)
+    h.tracker.sweep()
+    assert h.household == [("A", "Alex")]
+
+
+def test_someone_recognized_during_their_visit_stops_it(clock):
+    h = DoorHarness(clock)
+    greeted(h, clock)
+    h.tracker.face_seen("A", "Alex")
+    h.tracker.face_seen("A", "Alex")
+    assert h.recognized == [("A", "Alex")] and h.household == []
+
+
+def test_a_face_never_overrides_a_doorbell_press(clock):
+    h = DoorHarness(clock)
+    h.tracker.handle_event(walk("A", (0.45, 0.6), (0.6, 0.9), type_="new"))
+    assert h.tracker.press() == ("started", "A")
+    h.tracker.face_seen("A", "Alex")
+    h.tracker.face_seen("A", "Alex")
+    assert h.recognized == [] and h.household == []
+
+    h2 = DoorHarness(clock)
+    greeted(h2, clock)
+    assert h2.tracker.press() == ("merged", "A")
+    h2.tracker.face_seen("A", "Alex")
+    h2.tracker.face_seen("A", "Alex")
+    assert h2.recognized == []
+
+
+def test_unknown_faces_change_nothing(clock):
+    h = DoorHarness(clock)
+    greeted(h, clock)
+    for _ in range(5):
+        h.tracker.face_seen("A", None)
+    h.tracker.face_seen("gone", "Alex")
+    assert h.recognized == [] and h.household == []
+
+
+def test_people_lists_everyone_frigate_sees(clock):
+    h = DoorHarness(clock)
+    h.tracker.handle_event(walk("A", (0.45, 0.6), (0.6, 0.9), type_="new"))
+    h.tracker.press()  # a press with someone there: no extra "person"
+    h2 = DoorHarness(clock)
+    h2.tracker.press()  # a press with nobody seen
+    assert h.tracker.people() == [("A", clock(), 0.6)]
+    assert h2.tracker.people() == []

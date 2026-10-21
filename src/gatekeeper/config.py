@@ -68,6 +68,27 @@ class Settings(BaseSettings):
     # How long to wait for the visitor to start answering after a prompt.
     listen_seconds: int = 4
 
+    # Recognizing the household by face (face_watch.py). Off by default: faces are
+    # biometric data. The owner enrolls people, with their consent
+    # (python -m gatekeeper.face_admin); someone recognized isn't greeted, or their
+    # visit stops if it has started. A doorbell press still greets.
+    face_recognition: bool = False
+    # The camera's high-resolution stream. Defaults to audio_rtsp_url (go2rtc's main
+    # stream, which has the video too).
+    face_rtsp_url: str = ""
+    # A face matches an enrolled person at this cosine similarity (0-1) or more; this
+    # many matches make someone that person. On the rig, different people in the
+    # household never scored above 0.45.
+    face_match_threshold: float = 0.5
+    face_min_matches: int = 2
+    # Narrower faces (pixels, in the high-resolution frame) are too small to tell.
+    face_min_width: float = 80.0
+    face_dir: Path = Path("/faces")
+    # The faces of people who went in by the door, kept this long for the owner to
+    # enroll (0 = keep until enrolled or purged).
+    face_candidate_days: float = 14.0
+    face_model_dir: Path = Path.home() / ".cache" / "gatekeeper" / "faces"
+
     # Listening. With the audio tap, Gatekeeper reads the camera's audio all the
     # time and stops listening when the visitor stops talking (voice activity
     # detection); without it, it records a fixed window per prompt.
@@ -216,6 +237,8 @@ class Settings(BaseSettings):
     def _derive_defaults(self) -> Settings:
         if not self.audio_rtsp_url:
             self.audio_rtsp_url = f"rtsp://go2rtc:8554/{self.camera_name}"
+        if not self.face_rtsp_url:
+            self.face_rtsp_url = self.audio_rtsp_url
         if not self.ntfy_public_url:
             self.ntfy_public_url = self.ntfy_url
         if not self.ntfy_reply_topic:
@@ -273,6 +296,16 @@ class Settings(BaseSettings):
     def quick_reply_phrases(self) -> dict[str, str]:
         """Quick reply text by key, for every key (offered or not)."""
         return {key: getattr(self, f"quick_reply_{key}") for key in QUICK_REPLY_KEYS}
+
+    @property
+    def gallery_file(self) -> Path:
+        """The people the owner enrolled (faces.Gallery)."""
+        return self.face_dir / "gallery.json"
+
+    @property
+    def candidate_dir(self) -> Path:
+        """Faces kept for enrollment (face_watch.FaceWatcher.keep)."""
+        return self.face_dir / "candidates"
 
     @property
     def snapshot_dir(self) -> Path:

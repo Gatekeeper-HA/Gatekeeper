@@ -124,6 +124,13 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `LEAVING_COOLDOWN_SECONDS` | `15` | After someone leaves by the door, person events this soon count as them too (Frigate sometimes splits one person's track) |
 | `PACKAGE_ZONE` | *(none)* | A Frigate zone where packages are left (e.g. `porch`): [package alerts](#package-alerts). The compose stack sets `porch` |
 | `RETURN_WINDOW_SECONDS` | `120` | Someone who walks up this soon after someone left by the door is most likely them coming back in (from the car or the mailbox): not greeted or notified, logged as `returned`. A doorbell press still greets. `0` turns it off |
+| `FACE_RECOGNITION` | `false` | Recognize the household by face: [household faces](#household-faces). Off by default (biometric data); the compose stack reads it from `.env` |
+| `FACE_MATCH_THRESHOLD` | `0.5` | Cosine similarity (0–1) to an enrolled face that counts as a match. On the rig, different people in the household never scored above 0.45 |
+| `FACE_MIN_MATCHES` | `2` | Matches to the same person that make someone them |
+| `FACE_MIN_WIDTH` | `80` | Faces narrower than this, in pixels of the high-resolution frame, are too small to tell |
+| `FACE_RTSP_URL` | `AUDIO_RTSP_URL` | The camera's high-resolution stream (video) |
+| `FACE_DIR` | `/faces` | Enrolled faces (`gallery.json`) and faces kept for enrollment (`candidates/`) |
+| `FACE_CANDIDATE_DAYS` | `14` | How long the faces of people who went in by the door are kept for you to enroll |
 | `LISTEN_SECONDS` | `4` | How long to wait for the visitor to start answering after the greeting (or, without the audio tap, how long to record after it) |
 | `AUDIO_TAP` | `true` | Read the camera's audio all the time and stop listening when the visitor stops talking. `false`: record a fixed window per prompt |
 | `VAD_THRESHOLD` | `0.5` | Speech probability (0–1) above which audio counts as the visitor talking |
@@ -382,6 +389,54 @@ can't be seen. To check yours, leave a box in the zone and walk away, by day and
 The log shows each check's scores (`doorstep change at …: package score …`), and the daily
 report has the day's numbers.
 
+## Household faces
+
+With `FACE_RECOGNITION` on, Gatekeeper recognizes the people you enroll. When one of them
+walks up, they aren't greeted, and you get a quiet notification, *Alex at the front door*.
+If they're recognized only after the greeting started, the visit stops there, as long as
+they haven't said anything. A doorbell press always gets a full visit.
+
+**How it works.** Gatekeeper keeps the last few seconds of the camera's high-resolution
+stream (2560x1920 on the Reolink). While Frigate sees someone, it decodes from just before
+they appeared, a few frames a second. It finds faces with YuNet and recognizes them with
+SFace, two small open models from OpenCV Zoo (MIT and Apache-2.0, about 40 MB, downloaded
+once). Both run on the CPU, and decoding plus recognition uses about one core, only while
+someone is on camera. Faces are found on a 640x480 copy, but each is read from the full
+frame. That's why it does better than recognizing from Frigate's 640x480 detect stream:
+a face is big enough to recognize while they're still on the walkway.
+
+**What's stored.**
+- **Enrolled people:** 128 numbers per face in `FACE_DIR/gallery.json`, no pictures.
+- **Faces kept for enrollment:** those of people who went in by the front door (`entered`)
+  or were recognized, up to 8 per visit, for `FACE_CANDIDATE_DAYS`, in
+  `FACE_DIR/candidates/`.
+- **Nobody else's face is stored.** Visitors' faces are compared in memory and forgotten.
+- **Purge:** `purge` deletes everything (below).
+
+**Enrolling.** Only enroll people who agreed to be recognized. Faces are biometric data,
+regulated in some places (Illinois, Texas, Washington, the EU and the UK). After a few days
+of the household coming and going:
+
+```bash
+docker exec -it gatekeeper python -m gatekeeper.face_admin candidates
+# Look at gatekeeper/faces/review/group-<n>.jpg (under DATA_DIR), then:
+docker exec -it gatekeeper python -m gatekeeper.face_admin enroll Alex 1 4 --consent
+docker exec -it gatekeeper python -m gatekeeper.face_admin list
+docker exec -it gatekeeper python -m gatekeeper.face_admin forget Alex
+docker exec -it gatekeeper python -m gatekeeper.face_admin purge
+```
+
+One person usually comes out as several groups, for daylight, night and the porch light.
+Enroll all of them under the same name: faces from more kinds of light recognize them more
+often. Run `candidates` again after a week or two to add more.
+
+**How well it works on the rig.** A week of greeted visits, each matched against the
+faces from the other days: of 70 visits, 28 showed a face big and sharp enough, and 16
+were recognized, 12 of them before the greeting. Nobody was taken for someone else. In
+daylight the rig's camera looks into a bright sky, and faces on the walkway are often too
+dark to recognize. At night, under the porch light, they're clear. The daily report counts
+the recognitions and how often a face was seen.
+
 ## MQTT
 
 The broker requires a login. The `mqtt-auth` service writes Mosquitto's password file from
@@ -436,8 +491,10 @@ Every visit adds one JSON line to `events.jsonl`:
 `outcome` is `completed`, `reply_failed`, `talkback_busy` (another visit was in progress),
 `talkback_failed`, `talkback_unavailable`, `timeout`, `error`, `pressed_during_visit`, or
 `left` (someone came out of the front door and walked away; see `DOOR_ZONE`),
-`returned` (someone walked up soon after; see `RETURN_WINDOW_SECONDS`), or `entered`
-(greeted, then went in by the front door without answering; see `DOOR_ZONE`).
+`returned` (someone walked up soon after; see `RETURN_WINDOW_SECONDS`), `entered`
+(greeted, then went in by the front door without answering; see `DOOR_ZONE`), or
+`household` (recognized by face; `details` has `name`, and `greeted`: whether the
+greeting had started; see [household faces](#household-faces)).
 `package_delivered` and `package_picked_up` lines record a [package](#package-alerts)
 left or taken. They have `trigger` `package`, `event_id` `package-<time>` (the same for
 both lines of one package), and `details` with the package's `box` in Frigate's 640x480
@@ -461,7 +518,8 @@ its own ~2.4 s before it's heard.
 | `gatekeeper/audio/in/` | Captured visitor audio clips |
 | `gatekeeper/audio/out/` | Synthesized TTS files |
 | `gatekeeper/logs/events.jsonl` | Today's visit log (JSON Lines); earlier days are rotated to `events-YYYY-MM-DD.jsonl` |
-| `gatekeeper/cache/` | Kokoro and Whisper model cache |
+| `gatekeeper/cache/` | Kokoro, Whisper and face model cache |
+| `gatekeeper/faces/` | [Household faces](#household-faces): enrolled people and faces kept for enrollment (mode 600) |
 | `frigate/config/` | Frigate database, model cache and secrets (`config.yml` comes from the repo) |
 | `frigate/storage/` | Frigate recordings, clips and snapshots |
 | `mosquitto/data/`, `mosquitto/log/` | MQTT broker persistence and log |
