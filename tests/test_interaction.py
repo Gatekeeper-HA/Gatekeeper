@@ -741,3 +741,58 @@ def test_quick_reply_that_cannot_connect_is_failed(settings):
     visit = rig.interaction.quick_reply(EID, "no_thanks", 5.0, 295.0)
     assert visit.details["result"] == "failed"
     assert visit.response is None
+
+
+# The household going in by the door (SessionTracker.on_went_inside).
+
+
+def going_inside_at(rig, t):
+    """They go in by the door once the rig's clock reaches ``t``."""
+    sleep = rig.interaction._sleep
+
+    async def sleep_then_go_in(seconds):
+        await sleep(seconds)
+        if rig.now >= t:
+            rig.interaction.went_inside(EID)
+
+    rig.interaction._sleep = sleep_then_go_in
+
+
+def test_someone_who_goes_inside_without_answering_stops_the_visit(settings):
+    rig = Rig(settings, answer="", answer2="", speech=[])
+    notified, published = [], []
+    rig.interaction._on_notify = [lambda v: notified.append(v.outcome)]
+    rig.interaction._on_logged = [published.append]
+    going_inside_at(rig, ECHO_END + 2.0)
+    visit = rig.interaction.run(EID)
+
+    assert visit.outcome == "entered"
+    # Greeted, but not asked again: nobody's there.
+    assert [c[1] for c in rig.calls if c[0] == "play"] == ["_presynth_greeting.wav"]
+    assert rig.now < ECHO_END + settings.listen_seconds  # stopped mid-turn
+    assert notified == ["entered"]  # the quiet notification
+    assert published == []  # not Home Assistant's last visitor
+    (record,) = rig.log_records()
+    assert record["outcome"] == "entered" and record["response"] is None
+    assert not rig.interaction._inside  # forgotten once the visit is over
+
+
+def test_going_inside_after_answering_doesnt_stop_the_visit(settings):
+    rig = Rig(settings, speech=[(ECHO_END + 0.1, ECHO_END + 1.5)])
+    going_inside_at(rig, ECHO_END + 1.0)
+    visit = rig.interaction.run(EID)
+    assert (visit.outcome, visit.classification) == ("completed", "likely_delivery")
+
+
+def test_going_inside_during_a_fixed_window_stops_before_asking_again(settings):
+    rig = Rig(settings, answer="", answer2="")
+    capture = rig.capture
+
+    def capture_while_they_go_in(*args):
+        rig.interaction.went_inside(EID)
+        return capture(*args)
+
+    rig.interaction._capture = capture_while_they_go_in
+    visit = rig.interaction.run(EID)
+    assert visit.outcome == "entered"
+    assert [c[1] for c in rig.calls if c[0] == "play"] == ["_presynth_greeting.wav"]

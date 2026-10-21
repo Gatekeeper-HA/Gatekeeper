@@ -119,7 +119,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `AUDIO_RTSP_URL` | `rtsp://go2rtc:8554/<CAMERA_NAME>` | RTSP stream for capturing visitor audio |
 | `DWELL_SECONDS` | `1` | Seconds a person must be visible before triggering |
 | `TRIGGER_ZONES` | *(none)* | Comma-separated Frigate zones (e.g. `porch`). A person must enter one before Gatekeeper greets them, and the dwell counts from entering it. Empty: anywhere in view. Doorbell presses ignore it |
-| `DOOR_ZONE` | *(none)* | A Frigate zone at the front door (e.g. `door`). Someone who appears there is the household coming out: if they walk out of it within `LEAVING_WATCH_SECONDS` they aren't greeted or notified, only logged (`outcome: left`). Someone who stays at the door is greeted, and a doorbell press always greets. The compose stack draws one next to the doorbell |
+| `DOOR_ZONE` | *(none)* | A Frigate zone at the front door (e.g. `door`). Someone who appears there is the household coming out: if they walk out of it within `LEAVING_WATCH_SECONDS` they aren't greeted or notified, only logged (`outcome: left`). Someone who stays at the door is greeted, and a doorbell press always greets. Someone greeted who then goes in by the door without saying anything (their track ends there, with nobody else on the porch) is the household coming home: Gatekeeper stops talking and sends a quiet notification, *Someone went inside by the front door* (`outcome: entered`). The compose stack draws one next to the doorbell |
 | `LEAVING_WATCH_SECONDS` | `3` | How long someone who appears in the door zone has to walk out of it. On the rig, 90% of the people leaving did within 2.9 s |
 | `LEAVING_COOLDOWN_SECONDS` | `15` | After someone leaves by the door, person events this soon count as them too (Frigate sometimes splits one person's track) |
 | `PACKAGE_ZONE` | *(none)* | A Frigate zone where packages are left (e.g. `porch`): [package alerts](#package-alerts). The compose stack sets `porch` |
@@ -435,8 +435,9 @@ Every visit adds one JSON line to `events.jsonl`:
 
 `outcome` is `completed`, `reply_failed`, `talkback_busy` (another visit was in progress),
 `talkback_failed`, `talkback_unavailable`, `timeout`, `error`, `pressed_during_visit`, or
-`left` (someone came out of the front door and walked away; see `DOOR_ZONE`), or
-`returned` (someone walked up soon after; see `RETURN_WINDOW_SECONDS`).
+`left` (someone came out of the front door and walked away; see `DOOR_ZONE`),
+`returned` (someone walked up soon after; see `RETURN_WINDOW_SECONDS`), or `entered`
+(greeted, then went in by the front door without answering; see `DOOR_ZONE`).
 `package_delivered` and `package_picked_up` lines record a [package](#package-alerts)
 left or taken. They have `trigger` `package`, `event_id` `package-<time>` (the same for
 both lines of one package), and `details` with the package's `box` in Frigate's 640x480

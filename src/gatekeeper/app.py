@@ -292,6 +292,7 @@ def main() -> None:
         leaving_cooldown_seconds=settings.leaving_cooldown_seconds,
         return_window_seconds=settings.return_window_seconds,
         on_not_greeted=interaction.log_not_greeted,
+        on_went_inside=interaction.went_inside,
         run_visit=run_visit,
     )
     start_thread(

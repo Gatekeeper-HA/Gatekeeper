@@ -88,6 +88,14 @@ def compose(visit: Visit) -> Notification:
             tags=["package", "arrow_up"],
             priority=4,
         )
+    if visit.outcome == "entered":
+        # Most likely the household coming home: low priority, so no sound.
+        return Notification(
+            title=f"Someone went inside by the {place}",
+            message="Greeted, then went in without saying anything.",
+            tags=["house"],
+            priority=2,
+        )
     if visit.outcome == "pressed_during_visit":
         return Notification(
             title=f"Doorbell pressed at the {place}",

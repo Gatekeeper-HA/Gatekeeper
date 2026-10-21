@@ -310,6 +310,7 @@ class DoorHarness:
     def __init__(self, clock, door=lambda point: inside(DOOR, point)):
         self.started: list[tuple[str, str]] = []
         self.not_greeted: list[tuple[str, str]] = []
+        self.inside: list[str] = []
         self.workers = []
         self.tracker = SessionTracker(
             camera="front_door",
@@ -321,6 +322,7 @@ class DoorHarness:
             leaving_cooldown_seconds=15.0,
             return_window_seconds=120.0,
             on_not_greeted=lambda event_id, outcome: self.not_greeted.append((event_id, outcome)),
+            on_went_inside=self.inside.append,
             run_visit=lambda event_id, trigger: self.started.append((event_id, trigger)),
             spawn=self.workers.append,
             clock=clock,
@@ -461,6 +463,75 @@ def test_no_return_window_when_it_is_zero(clock):
     h.tracker.sweep()
     h.run_workers()
     assert h.started == [("B", "person")]
+
+
+def greeted(h, clock, event_id="A"):
+    """Someone walks up the walkway and is greeted; the visit is still running."""
+    h.tracker.handle_event(walk(event_id, (0.45, 0.6), type_="new"))
+    clock.advance(1.0)
+    h.tracker.handle_event(walk(event_id, (0.45, 0.6), (0.6, 0.9)))
+    assert len(h.workers) == 1  # started, not run: the visit is in progress
+
+
+def test_someone_whose_track_ends_at_the_door_went_inside(clock):
+    h = DoorHarness(clock)
+    greeted(h, clock)
+    clock.advance(5)
+    h.tracker.handle_event(walk("A", (0.45, 0.6), (0.6, 0.9), (0.85, 0.97), type_="end"))
+    assert h.inside == ["A"]
+
+
+def test_walking_away_is_not_going_inside(clock):
+    h = DoorHarness(clock)
+    greeted(h, clock)
+    clock.advance(20)
+    h.tracker.handle_event(walk("A", (0.45, 0.6), (0.6, 0.9), (0.45, 0.62), type_="end"))
+    assert h.inside == []
+
+
+def test_not_while_someone_else_is_still_on_the_porch(clock):
+    h = DoorHarness(clock)
+    greeted(h, clock)
+    h.tracker.handle_event(walk("B", (0.5, 0.8), type_="new"))
+    clock.advance(5)
+    h.tracker.sweep()
+    assert h.tracker.sessions["B"].merged_into == "A"
+    h.tracker.handle_event(walk("A", (0.6, 0.9), (0.85, 0.97), type_="end"))
+    assert h.inside == []
+    # Then the second one goes in too: their event was merged into the visit.
+    h.tracker.handle_event(walk("B", (0.5, 0.8), (0.88, 0.98), type_="end"))
+    assert h.inside == ["A"]
+
+
+def test_not_after_a_doorbell_press(clock):
+    h = DoorHarness(clock)
+    greeted(h, clock)
+    assert h.tracker.press() == ("merged", "A")
+    clock.advance(5)
+    h.tracker.handle_event(walk("A", (0.6, 0.9), (0.85, 0.97), type_="end"))
+    assert h.inside == []
+
+    # A visit the press started.
+    h2 = DoorHarness(clock)
+    h2.tracker.handle_event(walk("C", (0.45, 0.6), (0.6, 0.9), type_="new"))
+    assert h2.tracker.press() == ("started", "C")
+    h2.tracker.handle_event(walk("C", (0.6, 0.9), (0.85, 0.97), type_="end"))
+    assert h2.inside == []
+
+
+def test_not_once_the_visit_is_over(clock):
+    h = DoorHarness(clock)
+    greeted(h, clock)
+    h.run_workers()  # the visit finished
+    h.tracker.handle_event(walk("A", (0.6, 0.9), (0.85, 0.97), type_="end"))
+    assert h.inside == []
+
+
+def test_not_while_the_door_zone_is_unknown(clock):
+    h = DoorHarness(clock, door=lambda point: None)
+    greeted(h, clock)
+    h.tracker.handle_event(walk("A", (0.6, 0.9), (0.85, 0.97), type_="end"))
+    assert h.inside == []
 
 
 # Why a person in a trigger zone was dropped without a visit (the report's missed arrivals).

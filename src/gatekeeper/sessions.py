@@ -24,6 +24,11 @@ of the door zone; if they do, they aren't greeted, and person events in the next
 Someone who walks up within ``return_window_seconds`` of that is most likely them
 coming back in (from the car or the mailbox), and isn't greeted either. If they
 stay at the door, they're greeted. A doorbell press always greets.
+
+The door zone also tells when someone goes in: a person whose track ends there
+during a visit, with nobody else left on the porch, walked into the house. That's
+the household coming home (or someone they let in), so ``on_went_inside`` tells
+the visit, which stops if they haven't said anything. Not after a doorbell press.
 """
 
 from __future__ import annotations
@@ -73,6 +78,7 @@ class SessionTracker:
         leaving_cooldown_seconds: float = 15.0,
         return_window_seconds: float = 120.0,
         on_not_greeted: Callable[[str, str], None] = lambda event_id, outcome: None,
+        on_went_inside: Callable[[str], None] = lambda visit_id: None,
         spawn: Callable[[Callable[[], None]], None] = spawn_thread,
         clock: Callable[[], float] = time.time,
     ) -> None:
@@ -88,12 +94,15 @@ class SessionTracker:
         self.return_window_seconds = return_window_seconds
         # Called with (event_id, "left" or "returned") for people not greeted.
         self._on_not_greeted = on_not_greeted
+        # Called with the visit's id when the person it's for went in by the door.
+        self._on_went_inside = on_went_inside
         self._run_visit = run_visit
         self._spawn = spawn
         self._clock = clock
         self._lock = threading.Lock()
         self.sessions: dict[str, Session] = {}
         self._active_visit: str | None = None
+        self._active_pressed = False  # the doorbell was pressed for the active visit
         self._last_visit: str | None = None
         self._cooldown_until = 0.0
         self._last_left: str | None = None
@@ -129,8 +138,12 @@ class SessionTracker:
             with self._lock:
                 session = self.sessions.pop(event.id, None)
                 why = self._why_not_started(session, now) if session else None
+                visit = self._went_inside(event, session)
             if why:
                 log.info("person event %s ended before a visit: %s", event.id, why)
+            if visit:
+                log.info("person event %s went in by the door during visit %s", event.id, visit)
+                self._on_went_inside(visit)
 
     def maybe_start(self, event_id: str) -> bool:
         """Start the visit for ``event_id`` if its dwell time has passed."""
@@ -172,6 +185,7 @@ class SessionTracker:
             else:
                 session.in_progress = True
                 self._active_visit = event_id
+                self._active_pressed = session.trigger == "button"
 
         if verdict == "left":
             log.info("person event %s came out of the door and walked away: not greeted", event_id)
@@ -200,11 +214,29 @@ class SessionTracker:
         """Does Frigate still see someone (in a trigger zone, if any are set)?
         Its "end" event drops a person a few seconds after they've left."""
         with self._lock:
-            # "press-..." sessions are doorbell presses with no one seen yet.
-            sessions = [s for eid, s in self.sessions.items() if not eid.startswith("press-")]
+            return self._present()
+
+    def _present(self) -> bool:
+        # "press-..." sessions are doorbell presses with no one seen yet.
+        sessions = [s for eid, s in self.sessions.items() if not eid.startswith("press-")]
         if not self.trigger_zones:
             return bool(sessions)
         return any(self.trigger_zones & s.current_zones for s in sessions)
+
+    def _went_inside(self, event: FrigateEvent, session: Session | None) -> str | None:
+        """The active visit's id if the person whose event just ended went in by the
+        door: their track ended in the door zone, they were this visit's (its own
+        event, or one merged into it), nobody pressed the doorbell, and nobody else
+        is left on the porch."""
+        visit = self._active_visit
+        if session is None or visit is None or self.door is None or self._active_pressed:
+            return None
+        if visit not in (event.id, session.merged_into):
+            return None
+        last = event.path[-1] if event.path else session.path_now
+        if last is None or not self.door(last) or self._present():
+            return None
+        return visit
 
     def _door_verdict(self, session: Session, now: float) -> str:
         """For a person due a greeting: "greet"; "watch" (they appeared at the door:
@@ -261,6 +293,8 @@ class SessionTracker:
             )
             if merge_into:
                 log.info("doorbell pressed during visit %s", merge_into)
+                if merge_into == self._active_visit:
+                    self._active_pressed = True
                 return "merged", merge_into
             waiting = [
                 (s.first_seen, eid)
