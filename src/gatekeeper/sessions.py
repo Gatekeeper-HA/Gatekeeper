@@ -125,8 +125,12 @@ class SessionTracker:
             self.maybe_start(event.id)
 
         elif event.type == "end":
+            now = self._clock()
             with self._lock:
-                self.sessions.pop(event.id, None)
+                session = self.sessions.pop(event.id, None)
+                why = self._why_not_started(session, now) if session else None
+            if why:
+                log.info("person event %s ended before a visit: %s", event.id, why)
 
     def maybe_start(self, event_id: str) -> bool:
         """Start the visit for ``event_id`` if its dwell time has passed."""
@@ -224,6 +228,29 @@ class SessionTracker:
     def _in_trigger_zone(self, zones: frozenset[str]) -> bool:
         return not self.trigger_zones or bool(zones & self.trigger_zones)
 
+    def _why_not_started(self, session: Session, now: float) -> str | None:
+        """Why a person in a trigger zone was dropped without a visit (their event ended
+        or expired), for the daily report's arrivals not greeted. None if they weren't
+        due one: already handled, not a person, or never in a trigger zone."""
+        if session.handled or session.in_progress or session.trigger != "person":
+            return None
+        if not self._in_trigger_zone(session.zones):
+            return None
+        at_door = (
+            self.door is not None
+            and session.path_start is not None
+            and self.door(session.path_start)
+        )
+        if at_door and now - session.created < self.leaving_watch_seconds:
+            return (
+                f"appeared at the door {now - session.created:.1f} s before, "
+                "still watching whether they walk out"
+            )
+        in_zone = now - session.first_seen
+        if in_zone < self.dwell_seconds:
+            return f"{in_zone:.1f} s in the trigger zone, under the {self.dwell_seconds:g} s dwell"
+        return f"{in_zone:.1f} s in the trigger zone, not started"
+
     def press(self) -> tuple[str, str]:
         """Handle a doorbell press. Returns ``("started", visit_id)`` if a visit
         starts now, or ``("merged", visit_id)`` if one is running or just ended."""
@@ -269,9 +296,17 @@ class SessionTracker:
             expired = [
                 eid for eid, s in self.sessions.items() if now - s.last_seen > self.ttl_seconds
             ]
-            for eid in expired:
-                del self.sessions[eid]
+            dropped = [(eid, self._why_not_started(self.sessions.pop(eid), now)) for eid in expired]
             pending = list(self.sessions)
+
+        for eid, why in dropped:
+            if why:
+                log.info(
+                    "person event %s ended before a visit: no news from Frigate for %.0f s; %s",
+                    eid,
+                    self.ttl_seconds,
+                    why,
+                )
 
         for eid in pending:
             self.maybe_start(eid)

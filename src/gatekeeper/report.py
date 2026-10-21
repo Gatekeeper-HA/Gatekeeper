@@ -94,6 +94,8 @@ DOORSTEP_CHECKED = re.compile(r"doorstep checked: (\d+) change")
 DOORSTEP_NOT_CHECKED = re.compile(r"doorstep not checked: (.*)$")
 DOORSTEP_RETRY = re.compile(r"doorstep not checked yet")
 DOORSTEP_SCORE = re.compile(r"doorstep change at .*: package score ([\d.]+) \(before ([\d.]+)\)")
+# sessions.py's lines on a person event not greeted (merged, left, returned, ended).
+PERSON_EVENT = re.compile(r"person event (?P<id>\S+) (?P<why>.+)$")
 # How long after someone left by the door the next person to walk up is listed
 # (return_gaps): the data for tuning RETURN_WINDOW_SECONDS.
 RETURN_GAP_SECONDS = 30 * 60
@@ -136,6 +138,27 @@ def return_gaps(visits: list[dict], within: float = RETURN_GAP_SECONDS) -> list[
                 gaps.append({"seconds": round(seconds), "greeted": v.get("outcome") != "returned"})
             left_at = None
     return gaps
+
+
+def missed_why(missed: list[dict], lines: list[str]) -> list[dict]:
+    """For each porch arrival not greeted: how long Frigate saw the person, and the last
+    thing Gatekeeper logged about their event (None: nothing, e.g. Gatekeeper never saw
+    them in a trigger zone, or its log starts later)."""
+    said: dict[str, str] = {}
+    for line in lines:
+        if (m := GATEKEEPER_LINE.match(line)) and (p := PERSON_EVENT.search(m["message"])):
+            said[p["id"]] = p["why"]
+    out = []
+    for e in missed:
+        end = e.get("end_time")
+        out.append(
+            {
+                "start": local(e["start_time"]),
+                "seconds": round(end - e["start_time"], 1) if end else None,
+                "gatekeeper": said.get(e.get("id", "")),
+            }
+        )
+    return out
 
 
 def utc_timestamp(iso: str) -> float | None:
@@ -550,6 +573,7 @@ def build(i: Inputs) -> dict:
         "arrivals": {
             "total": len(arrivals) if i.arrivals is not None else None,
             "missed": [local(e["start_time"]) for e in missed],
+            "why": missed_why(missed, sources.get("gatekeeper", [])),
         },
         "notifications": {
             "tracked": len(tracked),
@@ -615,6 +639,13 @@ def summary_lines(report: dict) -> list[str]:
         f"not greeted {len(report['arrivals']['missed'])}"
         + (f"; {', '.join(household)} (not greeted, on purpose)" if household else ""),
         f"Notified: {n['notified']}/{n['tracked']}, slowest {n['slowest_seconds']:.2f} s",
+    ]
+    # Each arrival not greeted, right under the arrivals.
+    lines[3:3] = [
+        f"Not greeted at {m['start']}: Frigate saw them "
+        + (f"{m['seconds']:g} s" if m["seconds"] is not None else "(still going)")
+        + f"; Gatekeeper: {m['gatekeeper'] or 'nothing logged'}"
+        for m in report["arrivals"].get("why", [])
     ]
     if counts.get("return_gaps"):
         lines.append(
