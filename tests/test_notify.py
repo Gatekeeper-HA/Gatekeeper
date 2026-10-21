@@ -271,3 +271,10 @@ def test_compose_package_alerts(monkeypatch):
     assert taken.title == "Package picked up at the front door"
     assert taken.message.startswith("It had been there since 14:05.")
     assert taken.priority == 4
+
+
+def test_compose_someone_who_went_inside_is_quiet():
+    n = compose(visit(outcome="entered", classification="no_response"))
+    assert n.title == "Someone went inside by the front door"
+    assert n.priority == 2  # low: no sound for the household coming home
+    assert n.tags == ["house"]

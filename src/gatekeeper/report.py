@@ -84,9 +84,10 @@ ERROR_LEVELS = {"ERROR", "CRITICAL", "TRACEBACK"}
 MAX_LOG_KINDS = 20
 # Visit outcomes that are the household, deliberately not greeted (the door zone).
 NOT_GREETED = {"left", "returned"}
-# Records in the visit log that aren't visits: the household (above), and the
-# resident's quick replies to a visit (quick_reply.py).
-NOT_VISITS = NOT_GREETED | {"quick_reply", "package_delivered", "package_picked_up"}
+# Records in the visit log that aren't visits: the household (above, and those who
+# went in by the door: greeted, then stopped), and the resident's quick replies to a
+# visit (quick_reply.py).
+NOT_VISITS = NOT_GREETED | {"entered", "quick_reply", "package_delivered", "package_picked_up"}
 # Visit outcomes where the doorbell speaker didn't connect: nobody at the door heard a thing.
 SPEAKER_DOWN = {"talkback_failed", "talkback_unavailable"}
 # packages.py's log lines.
@@ -411,6 +412,7 @@ def build(i: Inputs) -> dict:
     # greeted or notified (the door zone): counted on their own.
     left = [v for v in i.visits if v.get("outcome") == "left"]
     returned = [v for v in i.visits if v.get("outcome") == "returned"]
+    entered = [v for v in i.visits if v.get("outcome") == "entered"]
     visits = [v for v in i.visits if v.get("outcome") not in NOT_VISITS]
     quick = quick_reply_info([v for v in i.visits if v.get("outcome") == "quick_reply"])
     outcomes = collections.Counter(v.get("outcome") for v in visits)
@@ -542,6 +544,7 @@ def build(i: Inputs) -> dict:
             "visits": len(visits),
             "left_by_door": len(left),
             "returned": len(returned),
+            "went_inside": len(entered),
             "return_gaps": return_gaps(i.visits),
             "triggers": dict(collections.Counter(v.get("trigger", "person") for v in visits)),
             "classifications": dict(collections.Counter(classification(v) for v in visits)),
@@ -616,6 +619,11 @@ def summary_lines(report: dict) -> list[str]:
         + (f"; {', '.join(household)} (not greeted, on purpose)" if household else ""),
         f"Notified: {n['notified']}/{n['tracked']}, slowest {n['slowest_seconds']:.2f} s",
     ]
+    if counts.get("went_inside"):
+        lines.append(
+            f"Went inside without answering: {counts['went_inside']} "
+            "(greeted, then stopped; quiet notification)"
+        )
     if counts.get("return_gaps"):
         lines.append(
             "Next arrival after someone left by the door: "

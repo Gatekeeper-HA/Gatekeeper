@@ -177,3 +177,8 @@ def test_ntfy_replies_retries_after_losing_the_connection():
 def test_no_buttons_on_a_package_alert():
     q = quick(FakeClock(), [])
     assert q.buttons(Visit("package-1.0", "front_door", trigger="package")) == []
+
+
+def test_no_buttons_for_someone_who_went_inside():
+    q = quick(FakeClock(), [])
+    assert q.buttons(Visit(EID, "front_door", outcome="entered")) == []

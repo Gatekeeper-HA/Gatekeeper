@@ -561,3 +561,21 @@ def test_ffmpeg_fixing_timestamps_after_a_dropout_is_noise():
 
     assert logs["ignored"] == 2
     assert logs["sources"]["frigate"]["errors"] == 1  # the dropout itself still shows
+
+
+def test_the_household_going_in_by_the_door_is_counted_apart():
+    went_in = visit(NOW - 1800, NOW - 1790, outcome="entered", classification="no_response")
+    r = build(
+        inputs(
+            visits=[went_in],
+            window_visits=[went_in],
+            arrivals=[{"start_time": NOW - 1800}],
+            notifications=[],
+        )
+    )
+    assert failing(r) == {}  # greeted, and not a visit to notify (it got a quiet one anyway)
+    assert (r["counts"]["visits"], r["counts"]["went_inside"]) == (0, 1)
+    assert (
+        "Went inside without answering: 1 (greeted, then stopped; quiet notification)"
+        in render_text(r)
+    )

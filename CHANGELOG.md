@@ -34,6 +34,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     `package_delivered` and `package_picked_up`. The daily report counts the packages and
     how the day's checks went, for tuning.
 
+- **The household going inside isn't talked to any more** (`DOOR_ZONE`). Most people
+  Gatekeeper greets are the household coming home, who walk straight in. When someone it
+  greeted goes in by the front door without saying anything, and nobody else is on the
+  porch, Gatekeeper stops talking (no second "please state your purpose") and sends a
+  quiet notification, *Someone went inside by the front door*, instead of *Someone at the
+  front door*. A doorbell press or an answer always gets the full visit.
+  - **On the rig:** in a week, 43 of the 60 unanswered visits Frigate tracked ended in the
+    door zone, a median 9.7 s after the person appeared and before the notification went out.
+  - **Visit log and report:** the outcome is `entered`; Home Assistant's last visitor isn't
+    updated. The daily report counts them apart, as the household: *Went inside without
+    answering*.
+
 ### Fixed
 - **Daily report: packages "not checked" counts visits, not retries** (#35). A visit whose
   lighting changed was counted once per retry (every minute for up to 10 minutes), and
