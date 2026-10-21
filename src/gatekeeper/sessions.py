@@ -29,6 +29,11 @@ The door zone also tells when someone goes in: a person whose track ends there
 during a visit, with nobody else left on the porch, walked into the house. That's
 the household coming home (or someone they let in), so ``on_went_inside`` tells
 the visit, which stops if they haven't said anything. Not after a doorbell press.
+
+With face recognition (face_watch.py), a person whose face matched someone the owner
+enrolled ``face_min_matches`` times is them: not greeted if their visit hasn't
+started (``on_household``), and their visit stops if it has (``on_recognized``).
+A doorbell press still greets.
 """
 
 from __future__ import annotations
@@ -37,7 +42,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from gatekeeper.frigate import FrigateEvent, Point
 
@@ -57,6 +62,8 @@ class Session:
     created: float = 0.0  # when Frigate first reported the person
     path_start: Point | None = None  # where they appeared
     path_now: Point | None = None  # where they are now
+    faces: dict[str, int] = field(default_factory=dict)  # face matches by name
+    known: str | None = None  # who they are, once their face matched often enough
 
 
 def spawn_thread(fn: Callable[[], None]) -> None:
@@ -79,6 +86,9 @@ class SessionTracker:
         return_window_seconds: float = 120.0,
         on_not_greeted: Callable[[str, str], None] = lambda event_id, outcome: None,
         on_went_inside: Callable[[str], None] = lambda visit_id: None,
+        face_min_matches: int = 2,
+        on_household: Callable[[str, str], None] = lambda event_id, name: None,
+        on_recognized: Callable[[str, str], None] = lambda visit_id, name: None,
         spawn: Callable[[Callable[[], None]], None] = spawn_thread,
         clock: Callable[[], float] = time.time,
     ) -> None:
@@ -96,6 +106,11 @@ class SessionTracker:
         self._on_not_greeted = on_not_greeted
         # Called with the visit's id when the person it's for went in by the door.
         self._on_went_inside = on_went_inside
+        self.face_min_matches = face_min_matches
+        # Called with (event id, name) for someone recognized before their greeting,
+        # and (visit id, name) for someone recognized during their visit.
+        self._on_household = on_household
+        self._on_recognized = on_recognized
         self._run_visit = run_visit
         self._spawn = spawn
         self._clock = clock
@@ -109,6 +124,8 @@ class SessionTracker:
         self._left_until = 0.0
         self._left_at = 0.0
         self._return_until = 0.0
+        self._last_household: str | None = None
+        self._household_until = 0.0
 
     def handle_event(self, event: FrigateEvent) -> None:
         if event.camera != self.camera or event.label != "person":
@@ -164,10 +181,30 @@ class SessionTracker:
                 session.merged_into = merge_into
                 log.info("person event %s merged into visit %s", event_id, merge_into)
                 return False
-            verdict = self._door_verdict(session, now) if session.trigger == "person" else "greet"
+            if session.trigger != "person":
+                verdict = "greet"
+            elif session.known:
+                verdict = "household"
+            elif now < self._household_until:
+                verdict = "after_household"
+            else:
+                verdict = self._door_verdict(session, now)
             if verdict == "watch":
                 return False
-            if verdict == "after_left":
+            if verdict == "after_household":
+                session.handled = True
+                session.merged_into = self._last_household
+                log.info(
+                    "person event %s merged into %s, who was just recognized",
+                    event_id,
+                    self._last_household,
+                )
+                return False
+            if verdict == "household":
+                session.handled = True
+                self._last_household = event_id
+                self._household_until = now + self.leaving_cooldown_seconds
+            elif verdict == "after_left":
                 session.handled = True
                 session.merged_into = self._last_left
                 log.info(
@@ -176,7 +213,7 @@ class SessionTracker:
                     self._last_left,
                 )
                 return False
-            if verdict in ("left", "returned"):
+            elif verdict in ("left", "returned"):
                 session.handled = True
                 if verdict == "left":
                     self._last_left, self._left_at = event_id, now
@@ -198,6 +235,10 @@ class SessionTracker:
         if verdict in ("left", "returned"):
             self._on_not_greeted(event_id, verdict)
             return False
+        if verdict == "household":
+            log.info("person event %s is %s: not greeted", event_id, session.known)
+            self._on_household(event_id, session.known)
+            return False
 
         trigger = session.trigger
 
@@ -209,6 +250,42 @@ class SessionTracker:
 
         self._spawn(worker)
         return True
+
+    def people(self) -> list[tuple[str, float, float | None]]:
+        """Everyone Frigate sees now (for face_watch): their event id, when Frigate first
+        reported them, and the x of where they are (a fraction of the width, or None)."""
+        with self._lock:
+            return [
+                (eid, s.created, s.path_now[0] if s.path_now else None)
+                for eid, s in self.sessions.items()
+                if not eid.startswith("press-")
+            ]
+
+    def face_seen(self, event_id: str, name: str | None) -> None:
+        """face_watch: a face of person event ``event_id``, matching ``name`` (None: no
+        one enrolled). Once it has matched the same name ``face_min_matches`` times,
+        they're that person."""
+        if not name:
+            return
+        with self._lock:
+            session = self.sessions.get(event_id)
+            if session is None or session.known or session.trigger != "person":
+                return
+            session.faces[name] = session.faces.get(name, 0) + 1
+            if session.faces[name] < self.face_min_matches:
+                return
+            session.known = name
+            visit = self._active_visit
+            during = (
+                visit is not None
+                and visit in (event_id, session.merged_into)
+                and not self._active_pressed
+            )
+        log.info("person event %s recognized as %s", event_id, name)
+        if during:
+            self._on_recognized(visit, name)
+        else:
+            self.maybe_start(event_id)  # due a greeting now? Then they won't get one
 
     def person_present(self) -> bool:
         """Does Frigate still see someone (in a trigger zone, if any are set)?

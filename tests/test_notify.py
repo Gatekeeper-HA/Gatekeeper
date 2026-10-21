@@ -278,3 +278,13 @@ def test_compose_someone_who_went_inside_is_quiet():
     assert n.title == "Someone went inside by the front door"
     assert n.priority == 2  # low: no sound for the household coming home
     assert n.tags == ["house"]
+
+
+
+def test_compose_someone_recognized_is_quiet_and_named():
+    n = compose(visit(outcome="household", details={"name": "Alex", "greeted": False}))
+    assert n.title == "Alex at the front door"
+    assert n.message == "Recognized by face, so not greeted."
+    assert n.priority == 2
+    n = compose(visit(outcome="household", details={"name": "Alex", "greeted": True}))
+    assert n.message == "Recognized by face, after the greeting started."

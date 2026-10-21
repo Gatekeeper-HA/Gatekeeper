@@ -18,7 +18,7 @@ from gatekeeper.config import Settings
 from gatekeeper.eventlog import EventLog
 from gatekeeper.frigate import FrigateEvent, Zone, fetch_config, parse_event
 from gatekeeper.health import Health, serve
-from gatekeeper.interaction import Interaction, Visit
+from gatekeeper.interaction import HOUSEHOLD_OUTCOMES, Interaction, Visit
 from gatekeeper.logs import setup_logging
 from gatekeeper.notify import Notifier, NtfyBackend, frigate_snapshot
 from gatekeeper.packages import (
@@ -153,6 +153,52 @@ def start_packages(settings: Settings, tracker, notifier, interaction, publisher
     start_thread("packages", watcher.run_forever)
 
 
+def start_faces(settings: Settings, tracker):
+    """Face recognition (face_watch.py): the video tap and the watcher, each on its own
+    thread. The models download on first use. Returns the watcher."""
+    from gatekeeper import faces
+    from gatekeeper.face_watch import FaceWatcher
+    from gatekeeper.video_tap import VideoTap
+
+    tap = VideoTap(settings.face_rtsp_url)
+    watcher = FaceWatcher(
+        tap,
+        detector=None,
+        embedder=None,
+        gallery=faces.Gallery(settings.gallery_file),
+        people=tracker.people,
+        on_face=lambda seen: tracker.face_seen(seen.event_id, seen.name),
+        threshold=settings.face_match_threshold,
+        min_width=settings.face_min_width,
+        candidate_dir=settings.candidate_dir,
+        candidate_days=settings.face_candidate_days,
+    )
+
+    def run() -> None:
+        delay = 10.0
+        while True:
+            try:
+                watcher.set_models(
+                    faces.Detector(
+                        faces.fetch_model(faces.DETECTOR_MODEL, settings.face_model_dir)
+                    ),
+                    faces.Embedder(
+                        faces.fetch_model(faces.EMBEDDER_MODEL, settings.face_model_dir)
+                    ),
+                )
+                break
+            except Exception as e:
+                log.warning("face recognition models not ready (%s); retrying in %.0f s", e, delay)
+                time.sleep(delay)
+                delay = min(delay * 2, 600.0)
+        log.info("face recognition on: %d people enrolled", len(watcher.gallery.names))
+        start_thread("video-tap", tap.run_forever)
+        watcher.run_forever()
+
+    start_thread("face-watch", run)
+    return watcher
+
+
 def main() -> None:
     settings = Settings()
     setup_logging(settings.log_level, settings.log_format)
@@ -265,14 +311,23 @@ def main() -> None:
         on_logged=[publisher.visit],
     )
 
+    watcher = None  # face recognition, once the tracker exists
+
     def run_visit(event_id: str, trigger: str) -> None:
         health.visit_started()
         publisher.conversation(True)
         try:
-            interaction.run(event_id, trigger)
+            visit = interaction.run(event_id, trigger)
+            if watcher and visit.outcome in HOUSEHOLD_OUTCOMES:
+                watcher.keep(event_id, visit.outcome)  # their faces, for enrollment
         finally:
             publisher.conversation(False)
             health.visit_finished()
+
+    def on_household(event_id: str, name: str) -> None:
+        interaction.log_household(event_id, name)
+        if watcher:
+            watcher.keep(event_id, "household")
 
     door = None
     if settings.door_zone:
@@ -293,8 +348,13 @@ def main() -> None:
         return_window_seconds=settings.return_window_seconds,
         on_not_greeted=interaction.log_not_greeted,
         on_went_inside=interaction.went_inside,
+        face_min_matches=settings.face_min_matches,
+        on_household=on_household,
+        on_recognized=interaction.recognized,
         run_visit=run_visit,
     )
+    if settings.face_recognition:
+        watcher = start_faces(settings, tracker)
     start_thread(
         "sweep", tracker.sweep_forever, settings.sweep_interval_seconds, on_sweep=health.sweep_done
     )

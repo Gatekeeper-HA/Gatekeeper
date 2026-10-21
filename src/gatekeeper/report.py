@@ -84,10 +84,18 @@ ERROR_LEVELS = {"ERROR", "CRITICAL", "TRACEBACK"}
 MAX_LOG_KINDS = 20
 # Visit outcomes that are the household, deliberately not greeted (the door zone).
 NOT_GREETED = {"left", "returned"}
-# Records in the visit log that aren't visits: the household (above, and those who
-# went in by the door: greeted, then stopped), and the resident's quick replies to a
-# visit (quick_reply.py).
-NOT_VISITS = NOT_GREETED | {"entered", "quick_reply", "package_delivered", "package_picked_up"}
+# Records in the visit log that aren't visits: the household (above; those who went
+# in by the door, greeted then stopped; and those recognized by face), and the
+# resident's quick replies to a visit (quick_reply.py).
+NOT_VISITS = NOT_GREETED | {
+    "entered",
+    "household",
+    "quick_reply",
+    "package_delivered",
+    "package_picked_up",
+}
+# face_watch.py's summary of each time someone was on camera.
+FACE_WATCH = re.compile(r"face watch: .*?(\d+) face\(s\), best match ([\d.]+)")
 # Visit outcomes where the doorbell speaker didn't connect: nobody at the door heard a thing.
 SPEAKER_DOWN = {"talkback_failed", "talkback_unavailable"}
 # packages.py's log lines.
@@ -160,6 +168,25 @@ def missed_why(missed: list[dict], lines: list[str]) -> list[dict]:
             }
         )
     return out
+
+
+def recognized_info(records: list[dict], lines: list[str]) -> dict:
+    """The household recognized by face (``household`` records), and how often the
+    face watch saw a face at all (its log lines), for tuning."""
+    names = collections.Counter((r.get("details") or {}).get("name") or "?" for r in records)
+    watches = [FACE_WATCH.search(line) for line in lines]
+    watches = [m for m in watches if m]
+    return {
+        "count": len(records),
+        "not_greeted": sum(1 for r in records if not (r.get("details") or {}).get("greeted")),
+        "stopped": sum(1 for r in records if (r.get("details") or {}).get("greeted")),
+        "names": dict(names),
+        "watches": len(watches),
+        "with_faces": sum(1 for m in watches if int(m.group(1))),
+        "best_scores": sorted(
+            (float(m.group(2)) for m in watches if int(m.group(1))), reverse=True
+        )[:10],
+    }
 
 
 def utc_timestamp(iso: str) -> float | None:
@@ -436,6 +463,7 @@ def build(i: Inputs) -> dict:
     left = [v for v in i.visits if v.get("outcome") == "left"]
     returned = [v for v in i.visits if v.get("outcome") == "returned"]
     entered = [v for v in i.visits if v.get("outcome") == "entered"]
+    household = [v for v in i.visits if v.get("outcome") == "household"]
     visits = [v for v in i.visits if v.get("outcome") not in NOT_VISITS]
     quick = quick_reply_info([v for v in i.visits if v.get("outcome") == "quick_reply"])
     outcomes = collections.Counter(v.get("outcome") for v in visits)
@@ -568,6 +596,7 @@ def build(i: Inputs) -> dict:
             "left_by_door": len(left),
             "returned": len(returned),
             "went_inside": len(entered),
+            "recognized": recognized_info(household, sources.get("gatekeeper", [])),
             "return_gaps": return_gaps(i.visits),
             "triggers": dict(collections.Counter(v.get("trigger", "person") for v in visits)),
             "classifications": dict(collections.Counter(classification(v) for v in visits)),
@@ -643,6 +672,16 @@ def summary_lines(report: dict) -> list[str]:
         + (f"; {', '.join(household)} (not greeted, on purpose)" if household else ""),
         f"Notified: {n['notified']}/{n['tracked']}, slowest {n['slowest_seconds']:.2f} s",
     ]
+    rec = counts.get("recognized") or {}
+    if rec.get("count") or rec.get("watches"):
+        names = ", ".join(f"{n} {k}" for n, k in rec.get("names", {}).items())
+        lines.append(
+            f"Recognized by face: {rec.get('count', 0)} (not greeted {rec.get('not_greeted', 0)}, "
+            f"stopped during the visit {rec.get('stopped', 0)})"
+            + (f": {names}" if names else "")
+            + f"; faces seen on {rec.get('with_faces', 0)} of {rec.get('watches', 0)} "
+            "times someone was on camera"
+        )
     if counts.get("went_inside"):
         lines.append(
             f"Went inside without answering: {counts['went_inside']} "

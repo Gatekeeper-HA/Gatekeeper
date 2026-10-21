@@ -96,6 +96,16 @@ def compose(visit: Visit) -> Notification:
             tags=["house"],
             priority=2,
         )
+    if visit.outcome == "household":
+        # Someone the owner enrolled, by their face: as quiet as going inside.
+        name = visit.details.get("name") or "Someone you know"
+        when = "after the greeting started" if visit.details.get("greeted") else "so not greeted"
+        return Notification(
+            title=f"{name} at the {place}",
+            message=f"Recognized by face, {when}.",
+            tags=["house"],
+            priority=2,
+        )
     if visit.outcome == "pressed_during_visit":
         return Notification(
             title=f"Doorbell pressed at the {place}",

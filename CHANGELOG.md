@@ -46,6 +46,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     updated. The daily report counts them apart, as the household: *Went inside without
     answering*.
 
+- **Household faces** (`FACE_RECOGNITION`, off by default). Gatekeeper recognizes the
+  people the owner enrolls. Someone recognized before their greeting isn't greeted, and
+  their visit stops if it had started, with a quiet notification, *Alex at the front door*.
+  A doorbell press always gets a full visit.
+  - **Our own pipeline,** not Frigate's: YuNet and SFace (OpenCV Zoo, MIT and Apache-2.0),
+    on the CPU, on faces read from the camera's high-resolution stream. A video tap keeps
+    its last few seconds and decodes only while someone is on camera.
+  - **Enrolling:** `python -m gatekeeper.face_admin`. Gatekeeper keeps the faces of people
+    who went in by the door, groups them, and the owner names the groups, with that
+    person's consent (`--consent`). `forget` and `purge` delete faces for good. Nobody
+    else's face is stored.
+  - **On the rig:** of a week's 70 greeted visits, replayed with a gallery from the other
+    days, 16 were recognized, 12 of them before the greeting, and nobody was taken for
+    someone else.
+  - **Visit log and report:** the outcome is `household`, with `details.name` and
+    `details.greeted`. The daily report counts recognitions by name, and how often a face
+    was seen at all.
+
 ### Fixed
 - **Daily report: packages "not checked" counts visits, not retries** (#35). A visit whose
   lighting changed was counted once per retry (every minute for up to 10 minutes), and

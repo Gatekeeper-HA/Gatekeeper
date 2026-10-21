@@ -609,3 +609,36 @@ def test_each_arrival_not_greeted_says_what_gatekeeper_did_with_it():
     assert f"Not greeted at {first['start']}: Frigate saw them 1.9 s; Gatekeeper: ended" in text
     assert f"Not greeted at {second['start']}: Frigate saw them (still going); " in text
     assert "Gatekeeper: nothing logged" in text
+
+
+def test_the_household_recognized_by_face_is_counted_apart():
+    before = visit(
+        NOW - 3000, NOW - 2998, outcome="household", details={"name": "Alex", "greeted": False}
+    )
+    during = visit(
+        NOW - 2000, NOW - 1990, outcome="household", details={"name": "Sam", "greeted": True}
+    )
+    log = "### gatekeeper\n" + "".join(
+        f"2026-10-13 18:0{k}:00,100 INFO    gatekeeper.face_watch [-] face watch: 9 s, "
+        f"30 frame(s), {n} face(s), best match {best}\n"
+        for k, (n, best) in enumerate([(4, "0.61"), (0, "0.00"), (2, "0.38")])
+    )
+    r = build(
+        inputs(
+            visits=[before, during],
+            window_visits=[before, during],
+            arrivals=[{"start_time": NOW - 3000}, {"start_time": NOW - 2000}],
+            notifications=[],
+            log_text=log,
+        )
+    )
+    assert failing(r) == {}
+    rec = r["counts"]["recognized"]
+    assert (rec["count"], rec["not_greeted"], rec["stopped"]) == (2, 1, 1)
+    assert rec["names"] == {"Alex": 1, "Sam": 1}
+    assert (rec["watches"], rec["with_faces"], rec["best_scores"]) == (3, 2, [0.61, 0.38])
+    assert r["counts"]["visits"] == 0
+    assert (
+        "Recognized by face: 2 (not greeted 1, stopped during the visit 1): Alex 1, Sam 1; "
+        "faces seen on 2 of 3 times someone was on camera" in render_text(r)
+    )

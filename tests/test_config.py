@@ -77,3 +77,13 @@ def test_package_alerts_are_off_without_a_zone(monkeypatch):
     monkeypatch.delenv("PACKAGE_ZONE", raising=False)
     assert Settings().package_zone == ""
     assert Settings(log_dir="/logs").package_state_file == Path("/logs/packages.json")
+
+
+def test_face_recognition_is_off_and_reads_the_main_stream(monkeypatch):
+    for var in ("FACE_RECOGNITION", "FACE_RTSP_URL", "AUDIO_RTSP_URL", "CAMERA_NAME", "FACE_DIR"):
+        monkeypatch.delenv(var, raising=False)
+    s = Settings()
+    assert s.face_recognition is False  # biometric: the owner turns it on
+    assert s.face_rtsp_url == "rtsp://go2rtc:8554/front_door"
+    assert s.gallery_file == Path("/faces/gallery.json")
+    assert s.candidate_dir == Path("/faces/candidates")
