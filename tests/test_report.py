@@ -277,7 +277,7 @@ def test_collect_reads_the_logs_and_asks_frigate(settings):
     r = build(report.collect(settings, HOST, "", now, fetch=fetch))
 
     assert r["counts"]["visits"] == 1
-    assert r["arrivals"] == {"total": 1, "missed": []}
+    assert r["arrivals"] == {"total": 1, "missed": [], "why": []}
     assert failing(r) == {}
     assert "labels=person" in asked[0] and asked[1].endswith("/api/stats")
 
@@ -579,3 +579,33 @@ def test_the_household_going_in_by_the_door_is_counted_apart():
         "Went inside without answering: 1 (greeted, then stopped; quiet notification)"
         in render_text(r)
     )
+
+
+def test_each_arrival_not_greeted_says_what_gatekeeper_did_with_it():
+    log = (
+        "### gatekeeper\n"
+        "2026-10-13 18:01:00,100 INFO    gatekeeper.sessions [-] person event 1.5-short "
+        "ended before a visit: 0.4 s in the trigger zone, under the 1 s dwell\n"
+    )
+    r = build(
+        inputs(
+            arrivals=[
+                {"id": "1.5-short", "start_time": NOW - 7200, "end_time": NOW - 7198.1},
+                {"id": "2.5-unknown", "start_time": NOW - 5400, "end_time": None},
+                {"id": "3.5-greeted", "start_time": NOW - 3601, "end_time": NOW - 3570},
+            ],
+            log_text=log,
+        )
+    )
+
+    assert failing(r) == {"arrivals_greeted": "2 porch arrival(s) not greeted"}
+    first, second = r["arrivals"]["why"]
+    assert first["seconds"] == 1.9
+    assert first["gatekeeper"] == (
+        "ended before a visit: 0.4 s in the trigger zone, under the 1 s dwell"
+    )
+    assert second["seconds"] is None and second["gatekeeper"] is None
+    text = render_markdown(r)
+    assert f"Not greeted at {first['start']}: Frigate saw them 1.9 s; Gatekeeper: ended" in text
+    assert f"Not greeted at {second['start']}: Frigate saw them (still going); " in text
+    assert "Gatekeeper: nothing logged" in text

@@ -532,3 +532,62 @@ def test_not_while_the_door_zone_is_unknown(clock):
     greeted(h, clock)
     h.tracker.handle_event(walk("A", (0.6, 0.9), (0.85, 0.97), type_="end"))
     assert h.inside == []
+
+
+# Why a person in a trigger zone was dropped without a visit (the report's missed arrivals).
+
+
+def ended_lines(caplog):
+    return [r.getMessage() for r in caplog.records if "ended before a visit" in r.getMessage()]
+
+
+def test_a_person_gone_before_the_dwell_is_logged(clock, caplog):
+    caplog.set_level("INFO", logger="gatekeeper.sessions")
+    h = Harness(clock, dwell=2)
+    h.tracker.trigger_zones = frozenset({"porch"})
+    h.tracker.handle_event(zoned("A", ["porch"], type_="new"))
+    clock.advance(0.5)
+    h.tracker.handle_event(zoned("A", ["porch"], type_="end"))
+    assert h.workers == []
+    assert ended_lines(caplog) == [
+        "person event A ended before a visit: 0.5 s in the trigger zone, under the 2 s dwell"
+    ]
+
+
+def test_people_never_due_a_visit_are_not_logged(clock, caplog):
+    caplog.set_level("INFO", logger="gatekeeper.sessions")
+    h = Harness(clock, dwell=0)
+    h.tracker.trigger_zones = frozenset({"porch"})
+    h.tracker.handle_event(zoned("A", ["sidewalk"], type_="new"))  # never on the porch
+    h.tracker.handle_event(zoned("A", ["sidewalk"], type_="end"))
+    h.tracker.handle_event(zoned("B", ["porch"], type_="new"))  # greeted
+    h.run_workers()
+    h.tracker.handle_event(zoned("B", ["porch"], type_="end"))
+    assert h.started == ["B"]
+    assert ended_lines(caplog) == []
+
+
+def test_someone_at_the_door_whose_event_ends_during_the_watch_is_logged(clock, caplog):
+    caplog.set_level("INFO", logger="gatekeeper.sessions")
+    h = DoorHarness(clock)
+    h.tracker.handle_event(walk("A", (0.85, 0.99), type_="new"))
+    clock.advance(1.5)
+    h.tracker.handle_event(walk("A", (0.85, 0.99), type_="end"))
+    assert h.workers == [] and h.not_greeted == []
+    assert ended_lines(caplog) == [
+        "person event A ended before a visit: appeared at the door 1.5 s before, "
+        "still watching whether they walk out"
+    ]
+
+
+def test_an_expired_session_is_logged(clock, caplog):
+    caplog.set_level("INFO", logger="gatekeeper.sessions")
+    h = Harness(clock, dwell=1000, ttl=120)
+    h.tracker.handle_event(zoned("A", type_="new"))
+    clock.advance(121)
+    h.tracker.sweep()
+    assert h.tracker.sessions == {}
+    assert ended_lines(caplog) == [
+        "person event A ended before a visit: no news from Frigate for 120 s; "
+        "121.0 s in the trigger zone, under the 1000 s dwell"
+    ]
