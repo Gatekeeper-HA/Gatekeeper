@@ -60,6 +60,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   camera stream comes back after a dropout, ffmpeg corrects its timestamps in a burst of
   these lines (97 of a sub-minute dropout's 153 errors on the rig). They're now counted as
   ignored; the dropout still shows in the watchdog's lines.
+- **Daily report: each porch arrival not greeted says why** (#45). A person in a trigger
+  zone whose Frigate event ended (or expired) before a visit started was dropped without a
+  log line, so the report could only list the time. Gatekeeper now logs `person event <id>
+  ended before a visit: …` (under the dwell, still in the door's leaving watch, or not
+  started), and the report lists each arrival not greeted with how long Frigate saw the
+  person and what Gatekeeper logged about it (`arrivals.why`).
 
 ## [0.3.0] - 2026-10-14
 
