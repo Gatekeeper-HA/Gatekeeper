@@ -22,3 +22,14 @@ notify() {
 gatekeeper_image() {
   docker inspect -f '{{.Config.Image}}' gatekeeper 2>/dev/null || echo gatekeeper:local
 }
+
+# Is a visit in progress? Gatekeeper's /healthz says how old the current one is.
+visit_in_progress() {
+  docker exec gatekeeper python -c '
+import json, urllib.error, urllib.request
+try:
+    r = urllib.request.urlopen("http://127.0.0.1:'"${HEALTH_PORT:-8099}"'/healthz", timeout=5)
+except urllib.error.HTTPError as e:
+    r = e
+print(json.load(r).get("visit_age_seconds") is not None)' 2>/dev/null | grep -qx True
+}

@@ -532,7 +532,7 @@ from cron, as a user in the `docker` group:
 ```
 # Deploy every merge to main, within a minute or two
 * * * * * /docker/stack/scripts/rig/deploy.sh >> ~/.local/state/gatekeeper/deploy.log 2>&1
-# The daily report, and an hourly check that recordings have audio
+# The daily report, and an hourly check that recordings have audio (it restarts Frigate)
 0 1 * * * /docker/stack/scripts/rig/daily-report.sh >> ~/.local/state/gatekeeper/rig.log 2>&1
 7 * * * * /docker/stack/scripts/rig/audio-check.sh >> ~/.local/state/gatekeeper/rig.log 2>&1
 ```
@@ -550,6 +550,11 @@ from cron, as a user in the `docker` group:
   errors grouped by kind (a container recreated by a deploy only has its log since then, and
   the report says so). It sends the summary via ntfy and keeps the full report (JSON and
   Markdown) in `~/.local/state/gatekeeper/reports/`.
+- **Recording audio** (`audio-check.sh`): after a short camera dropout, Frigate's
+  recordings can lose their audio until Frigate restarts. The hourly check restarts it
+  then, once no visit is in progress, and sends a quiet notification when that brings the
+  audio back. If it doesn't, the camera's own stream is likely broken, and you get an
+  alert. It restarts Frigate at most every 6 h, and alerts at most every 6 h.
 - **Publishing** (`publish-report.sh`): with `RIG_REPORTS_REPO` in `.env` (the SSH URL of a
   **private** repository), each report is pushed there with a deploy key
   (`~/.ssh/gatekeeper-reports`, or `RIG_REPORTS_KEY`). Reports hold visit times and what
