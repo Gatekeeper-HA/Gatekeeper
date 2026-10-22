@@ -64,6 +64,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     `details.greeted`. The daily report counts recognitions by name, and how often a face
     was seen at all.
 
+### Changed
+- **The compose stack doesn't greet someone back within 4 minutes of leaving**
+  (`RETURN_WINDOW_SECONDS` 240, was 120). In 8 days on the rig, all 41 people who walked
+  up within 30 minutes of someone leaving by the door were the household. The 2-minute
+  window caught 19 of them, and 5 more came back between 2 and 3 minutes and were greeted.
+  The doorbell button still greets anyone.
+
 ### Fixed
 - **Daily report: packages "not checked" counts visits, not retries** (#35). A visit whose
   lighting changed was counted once per retry (every minute for up to 10 minutes), and

@@ -169,6 +169,10 @@ services:
       # Don't greet the household coming out: people who appear in Frigate's door
       # zone and walk out of it.
       DOOR_ZONE: "door"
+      # Someone walking up this soon after someone left by the door is them coming back
+      # (car, mailbox): not greeted. On the rig the household's quick returns took up to
+      # 178 s (8 days, 2026-10-14 to 10-21), and no outside visitor came that soon.
+      RETURN_WINDOW_SECONDS: "240"
       # Recognize the household by face: off unless FACE_RECOGNITION=1 in .env (faces
       # are biometric data; enroll people with their consent, see the README).
       FACE_RECOGNITION: "${FACE_RECOGNITION:-0}"

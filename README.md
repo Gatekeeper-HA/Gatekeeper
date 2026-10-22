@@ -123,7 +123,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `LEAVING_WATCH_SECONDS` | `3` | How long someone who appears in the door zone has to walk out of it. On the rig, 90% of the people leaving did within 2.9 s |
 | `LEAVING_COOLDOWN_SECONDS` | `15` | After someone leaves by the door, person events this soon count as them too (Frigate sometimes splits one person's track) |
 | `PACKAGE_ZONE` | *(none)* | A Frigate zone where packages are left (e.g. `porch`): [package alerts](#package-alerts). The compose stack sets `porch` |
-| `RETURN_WINDOW_SECONDS` | `120` | Someone who walks up this soon after someone left by the door is most likely them coming back in (from the car or the mailbox): not greeted or notified, logged as `returned`. A doorbell press still greets. `0` turns it off |
+| `RETURN_WINDOW_SECONDS` | `120` | Someone who walks up this soon after someone left by the door is most likely them coming back in (from the car or the mailbox): not greeted or notified, logged as `returned`. A doorbell press still greets. `0` turns it off. The compose stack sets `240`: on the rig, the household's quick returns took up to 3 minutes |
 | `FACE_RECOGNITION` | `false` | Recognize the household by face: [household faces](#household-faces). Off by default (biometric data); the compose stack reads it from `.env` |
 | `FACE_MATCH_THRESHOLD` | `0.5` | Cosine similarity (0–1) to an enrolled face that counts as a match. On the rig, different people in the household never scored above 0.45 |
 | `FACE_MIN_MATCHES` | `2` | Matches to the same person that make someone them |
