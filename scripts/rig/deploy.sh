@@ -106,16 +106,6 @@ isn't healthy after rolling back to $(short "$current") either." 5 rotating_ligh
   fi
 }
 
-visit_in_progress() {
-  docker exec gatekeeper python -c '
-import json, urllib.error, urllib.request
-try:
-    r = urllib.request.urlopen("http://127.0.0.1:'"${HEALTH_PORT:-8099}"'/healthz", timeout=5)
-except urllib.error.HTTPError as e:
-    r = e
-print(json.load(r).get("visit_age_seconds") is not None)' 2>/dev/null | grep -qx True
-}
-
 healthy() {
   for _ in $(seq 60); do
     [ "$(docker inspect -f '{{.State.Health.Status}}' gatekeeper 2>/dev/null)" = healthy ] \

@@ -65,6 +65,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     was seen at all.
 
 ### Fixed
+- **Rig: recordings that lose their audio are fixed without you.** After a short camera
+  dropout, Frigate's recordings could stay silent until Frigate restarted. On 10-21 that
+  was 19 hours of alerts that nobody acted on. `scripts/rig/audio-check.sh` now restarts
+  Frigate itself (at most every 6 h, after any visit in progress, never during a deploy),
+  sends a quiet notification when the audio is back, and alerts only when the restart
+  didn't help.
 - **Daily report: packages "not checked" counts visits, not retries** (#35). A visit whose
   lighting changed was counted once per retry (every minute for up to 10 minutes), and
   the visits it gave up on weren't counted at all. Retries are now counted apart, as
