@@ -96,6 +96,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   ended before a visit: …` (under the dwell, still in the door's leaving watch, or not
   started), and the report lists each arrival not greeted with how long Frigate saw the
   person and what Gatekeeper logged about it (`arrivals.why`).
+- **Daily report: an arrival while Gatekeeper wasn't listening says so** (#49). After a
+  deploy, someone who walked up while Gatekeeper was still starting (before it connected to
+  MQTT) was listed as "nothing logged", the same as an event Gatekeeper dropped silently.
+  The report now says `not listening yet (Gatekeeper starting)`, `not listening (MQTT
+  disconnected)` or `before Gatekeeper's log starts (container recreated)` instead.
 
 ## [0.3.0] - 2026-10-14
 
