@@ -642,3 +642,58 @@ def test_the_household_recognized_by_face_is_counted_apart():
         "Recognized by face: 2 (not greeted 1, stopped during the visit 1): Alex 1, Sam 1; "
         "faces seen on 2 of 3 times someone was on camera" in render_text(r)
     )
+
+
+def stamp(ts: float) -> str:
+    """A time as Gatekeeper's log writes it (local time)."""
+    return report.datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S") + ",100"
+
+
+def test_an_arrival_while_gatekeeper_wasnt_listening_says_so():
+    log = (
+        "### gatekeeper\n"
+        f"{stamp(NOW - 7300)} INFO    gatekeeper.app [-] Gatekeeper 0.3.0 starting: "
+        "camera=front_door zones=porch mqtt=mosquitto:1883 go2rtc=http://go2rtc:1984\n"
+        f"{stamp(NOW - 7200)} INFO    gatekeeper.app [-] connected to MQTT rc=Success\n"
+        f"{stamp(NOW - 5000)} WARNING gatekeeper.app [-] disconnected from MQTT: "
+        "Unspecified error\n"
+        f"{stamp(NOW - 4900)} INFO    gatekeeper.app [-] connected to MQTT rc=Success\n"
+    )
+    recreated = report.datetime.datetime.fromtimestamp(NOW - 7300, report.datetime.UTC)
+    r = build(
+        inputs(
+            arrivals=[
+                {"id": "1-before", "start_time": NOW - 7400, "end_time": NOW - 7390},
+                {"id": "2-starting", "start_time": NOW - 7250, "end_time": NOW - 7237},
+                {"id": "3-up", "start_time": NOW - 6000, "end_time": NOW - 5990},
+                {"id": "4-mqtt", "start_time": NOW - 4950, "end_time": NOW - 4940},
+                {"id": "5-greeted", "start_time": NOW - 3601, "end_time": NOW - 3570},
+            ],
+            log_text=log,
+            host={**HOST, "created": {"gatekeeper": recreated.strftime("%Y-%m-%dT%H:%M:%S")}},
+        )
+    )
+
+    assert [m["gatekeeper"] for m in r["arrivals"]["why"]] == [
+        "before Gatekeeper's log starts (container recreated)",
+        "not listening yet (Gatekeeper starting)",
+        None,  # up and listening: a real "nothing logged"
+        "not listening (MQTT disconnected)",
+    ]
+    text = render_markdown(r)
+    assert "Gatekeeper: not listening yet (Gatekeeper starting)" in text
+    assert "Gatekeeper: nothing logged" in text
+
+
+def test_an_arrival_after_a_start_that_never_connected_wasnt_listened_for():
+    log = (
+        "### gatekeeper\n"
+        f"{stamp(NOW - 600)} INFO    gatekeeper.app [-] Gatekeeper 0.3.0 starting: camera=x\n"
+    )
+    r = build(
+        inputs(
+            arrivals=[{"id": "1-late", "start_time": NOW - 300, "end_time": NOW - 290}],
+            log_text=log,
+        )
+    )
+    assert r["arrivals"]["why"][0]["gatekeeper"] == "not listening yet (Gatekeeper starting)"

@@ -105,6 +105,10 @@ DOORSTEP_RETRY = re.compile(r"doorstep not checked yet")
 DOORSTEP_SCORE = re.compile(r"doorstep change at .*: package score ([\d.]+) \(before ([\d.]+)\)")
 # sessions.py's lines on a person event not greeted (merged, left, returned, ended).
 PERSON_EVENT = re.compile(r"person event (?P<id>\S+) (?P<why>.+)$")
+# app.py's lines on when Gatekeeper starts and stops listening for Frigate's events.
+GATEKEEPER_STARTING = re.compile(r"^Gatekeeper \S+ starting: ")
+MQTT_CONNECTED = re.compile(r"^connected to MQTT ")
+MQTT_DISCONNECTED = re.compile(r"^disconnected from MQTT")
 # How long after someone left by the door the next person to walk up is listed
 # (return_gaps): the data for tuning RETURN_WINDOW_SECONDS.
 RETURN_GAP_SECONDS = 30 * 60
@@ -149,22 +153,55 @@ def return_gaps(visits: list[dict], within: float = RETURN_GAP_SECONDS) -> list[
     return gaps
 
 
-def missed_why(missed: list[dict], lines: list[str]) -> list[dict]:
+def not_listening(lines: list[str]) -> list[tuple[float, float, str]]:
+    """When Gatekeeper wasn't listening for Frigate's events, from its log: from starting
+    up (or losing MQTT) to connecting to MQTT. A stretch still open at the end of the log
+    runs to the end of time."""
+    gaps, began, why = [], None, ""
+    for line in lines:
+        if not (m := GATEKEEPER_LINE.match(line)):
+            continue
+        message = m["message"]
+        if GATEKEEPER_STARTING.match(message):
+            began, why = log_time(m["time"]), "not listening yet (Gatekeeper starting)"
+        elif MQTT_DISCONNECTED.match(message) and began is None:
+            began, why = log_time(m["time"]), "not listening (MQTT disconnected)"
+        elif MQTT_CONNECTED.match(message) and began is not None:
+            gaps.append((began, log_time(m["time"]), why))
+            began = None
+    if began is not None:
+        gaps.append((began, math.inf, why))
+    return gaps
+
+
+def log_time(text: str) -> float:
+    """A time in Gatekeeper's log (the container's local time)."""
+    return datetime.datetime.strptime(text, "%Y-%m-%d %H:%M:%S").timestamp()
+
+
+def missed_why(missed: list[dict], lines: list[str], log_start: float | None = None) -> list[dict]:
     """For each porch arrival not greeted: how long Frigate saw the person, and the last
-    thing Gatekeeper logged about their event (None: nothing, e.g. Gatekeeper never saw
-    them in a trigger zone, or its log starts later)."""
+    thing Gatekeeper logged about their event, or why it couldn't have (it started before
+    Gatekeeper's log, or while Gatekeeper wasn't listening). None: nothing, e.g. Gatekeeper
+    never saw them in a trigger zone."""
     said: dict[str, str] = {}
     for line in lines:
         if (m := GATEKEEPER_LINE.match(line)) and (p := PERSON_EVENT.search(m["message"])):
             said[p["id"]] = p["why"]
+    gaps = not_listening(lines)
     out = []
     for e in missed:
-        end = e.get("end_time")
+        start, end = e["start_time"], e.get("end_time")
+        why = said.get(e.get("id", ""))
+        if why is None and log_start is not None and start < log_start:
+            why = "before Gatekeeper's log starts (container recreated)"
+        if why is None:
+            why = next((w for a, b, w in gaps if a <= start <= b), None)
         out.append(
             {
-                "start": local(e["start_time"]),
-                "seconds": round(end - e["start_time"], 1) if end else None,
-                "gatekeeper": said.get(e.get("id", "")),
+                "start": local(start),
+                "seconds": round(end - start, 1) if end else None,
+                "gatekeeper": why,
             }
         )
     return out
@@ -486,11 +523,12 @@ def build(i: Inputs) -> dict:
     frigate = frigate_info(i.stats, i.camera)
     deploys = host.get("deploys", [])
     # A recreated container (a deploy) starts a new log: what came before is gone.
-    logs["since"] = {
-        name: local(ts)
-        for name, created in host.get("created", {}).items()
-        if (ts := utc_timestamp(created)) and ts > since
+    created = {
+        name: ts
+        for name, iso in host.get("created", {}).items()
+        if (ts := utc_timestamp(iso)) and ts > since
     }
+    logs["since"] = {name: local(ts) for name, ts in created.items()}
     hangs = outcomes.get("timeout", 0) + host.get("hang_exits", 0) + host.get("restarts", 0)
 
     checks: list[dict] = []
@@ -605,7 +643,7 @@ def build(i: Inputs) -> dict:
         "arrivals": {
             "total": len(arrivals) if i.arrivals is not None else None,
             "missed": [local(e["start_time"]) for e in missed],
-            "why": missed_why(missed, sources.get("gatekeeper", [])),
+            "why": missed_why(missed, sources.get("gatekeeper", []), created.get("gatekeeper")),
         },
         "notifications": {
             "tracked": len(tracked),
