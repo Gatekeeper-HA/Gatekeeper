@@ -72,6 +72,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   The doorbell button still greets anyone.
 
 ### Fixed
+- **Package alerts when the light changes during a visit.** The doorstep is compared before
+  and after each visit, which needs the same light. When someone switched a light on (or
+  the camera's night mode or a doorbell's white LED changed), the check retried for 10
+  minutes and then gave up. The frame after the visit, package and all, then became the
+  "empty" doorstep, so the package was never reported.
+  - **Now** it compares with the last frame from before the visit in the same light. One
+    is kept per kind of light (night mode or colour, by brightness), learned by itself for
+    each camera and kept for two days.
+  - **A light it has never seen:** the visit waits up to 12 hours for the light from before
+    to come back.
+  - **Found by** the owner's test box, left just as the porch light came on.
+  - **Also:** Frigate's frame keeps its shape (854x480 for a 16:9 camera) instead of being
+    squeezed to 640x480.
 - **Rig: recordings that lose their audio are fixed without you.** After a short camera
   dropout, Frigate's recordings could stay silent until Frigate restarted. On 10-21 that
   was 19 hours of alerts that nobody acted on. `scripts/rig/audio-check.sh` now restarts
