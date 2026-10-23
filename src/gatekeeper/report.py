@@ -3,8 +3,8 @@ checked against what Gatekeeper should do.
 
 It runs inside the gatekeeper container (``python -m gatekeeper.report``), so the report
 always comes from the code that's deployed. ``scripts/rig/daily-report.sh`` passes in what
-only the host can see (restarts, recording audio, deploys, when each container was
-created) as JSON in ``REPORT_HOST``,
+only the host can see (restarts, recording audio and what ``audio-check.sh`` did,
+deploys, when each container was created) as JSON in ``REPORT_HOST``,
 and the containers' logs on stdin. The report is printed as JSON; ``--render text`` or
 ``--render markdown`` turns that JSON into the notification or the published page.
 
@@ -232,6 +232,35 @@ def utc_timestamp(iso: str) -> float | None:
         return datetime.datetime.fromisoformat(iso[:19]).replace(tzinfo=datetime.UTC).timestamp()
     except (TypeError, ValueError):
         return None
+
+
+# audio-check.sh's lines in rig.log (ISO time, then what it did), by what they mean.
+AUDIO_CHECK = {
+    "recordings silent, restarting Frigate": "restarted",
+    "recordings have audio again": "audio_back",
+    "recordings silent, alerting": "alerted",
+    "recordings silent; a deploy or the report held the lock": "lock_busy",
+}
+
+
+def audio_check_info(lines: list[str], since: float) -> dict:
+    """What ``audio-check.sh`` did since ``since``: when it restarted Frigate, how often
+    that brought the audio back, when it alerted, and how often the lock was busy."""
+    info: dict = {"restarted": [], "audio_back": 0, "alerted": [], "lock_busy": 0}
+    for line in lines:
+        stamp, _, message = line.strip().partition(" ")
+        try:
+            ts = datetime.datetime.fromisoformat(stamp).timestamp()
+        except ValueError:
+            continue
+        kind = next((k for text, k in AUDIO_CHECK.items() if message.startswith(text)), None)
+        if ts < since or kind is None:
+            continue
+        if isinstance(info[kind], list):
+            info[kind].append(local(ts))
+        else:
+            info[kind] += 1
+    return info
 
 
 def percentile(values: list[float], share: float) -> float:
@@ -551,7 +580,15 @@ def build(i: Inputs) -> dict:
         f"{speaker_down} visit(s) where the doorbell speaker didn't connect",
     )
     silent = host.get("silent_audio_hours", [])
-    check("recording_audio", not silent, f"no recording audio in {len(silent)} hour(s)")
+    audio_check = audio_check_info(host.get("audio_check", []), since)
+    # An alert means restarting Frigate didn't bring the audio back.
+    check(
+        "recording_audio",
+        not silent and not audio_check["alerted"],
+        f"no recording audio in {len(silent)} hour(s)"
+        if silent
+        else "audio check alerted: restarting Frigate didn't bring the audio back",
+    )
     check(
         "healthy", host.get("health", "healthy") == "healthy", f"Gatekeeper is {host.get('health')}"
     )
@@ -657,7 +694,7 @@ def build(i: Inputs) -> dict:
             "watchdog_exits": host.get("hang_exits", 0),
             "restarts": host.get("restarts", 0),
         },
-        "recording_audio": {"silent_hours": silent},
+        "recording_audio": {"silent_hours": silent, "audio_check": audio_check},
         "whisper": whisper,
         "replies": replies,
         "quick_replies": quick,
@@ -830,7 +867,18 @@ def summary_lines(report: dict) -> list[str]:
             + ", ".join(f"{d.get('to', '')[:7]} {d.get('result')}" for d in report["deploys"])
         )
     silent = report["recording_audio"]["silent_hours"]
-    lines.append("Recording audio: " + ("OK" if not silent else "missing at " + ", ".join(silent)))
+    audio = "OK" if not silent else "missing at " + ", ".join(silent)
+    if ac := report["recording_audio"].get("audio_check"):
+        done = [
+            f"restarted Frigate at {', '.join(ac['restarted'])} (audio back {ac['audio_back']})"
+            if ac["restarted"]
+            else "",
+            f"alerted at {', '.join(ac['alerted'])}" if ac["alerted"] else "",
+            f"lock busy {ac['lock_busy']} time(s)" if ac["lock_busy"] else "",
+        ]
+        if done := [d for d in done if d]:
+            audio += "; audio check " + ", ".join(done)
+    lines.append("Recording audio: " + audio)
     lines.append(
         f"Gatekeeper {gk['version']} ({(gk['commit'] or '?')[:7]}), "
         f"{gk['health']}, up since {gk['up_since_utc']} UTC"
