@@ -70,6 +70,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   up within 30 minutes of someone leaving by the door were the household. The 2-minute
   window caught 19 of them, and 5 more came back between 2 and 3 minutes and were greeted.
   The doorbell button still greets anyone.
+- **The daily report shows what the rig's audio check did:** when it restarted Frigate,
+  whether that brought the recordings' audio back, its alerts, and when a deploy held it
+  off. Before, only the silent hours showed, so an automatic restart looked like a manual
+  one. An alert now fails the `recording_audio` check.
 
 ### Fixed
 - **Rig: recordings that lose their audio are fixed without you.** After a short camera

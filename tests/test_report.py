@@ -697,3 +697,38 @@ def test_an_arrival_after_a_start_that_never_connected_wasnt_listened_for():
         )
     )
     assert r["arrivals"]["why"][0]["gatekeeper"] == "not listening yet (Gatekeeper starting)"
+
+
+def test_what_the_audio_check_did_is_reported():
+    def at(seconds_ago):
+        return report.datetime.datetime.fromtimestamp(NOW - seconds_ago).astimezone().isoformat()
+
+    lines = [
+        f"{at(90000)} recordings silent, alerting",  # before the window
+        f"{at(7200)} recordings silent, restarting Frigate",
+        f"{at(7100)} recordings have audio again",
+        f"{at(3600)} recordings silent; a deploy or the report held the lock for 15 min",
+    ]
+    r = build(inputs(host={**HOST, "audio_check": lines}))
+
+    assert r["recording_audio"]["audio_check"] == {
+        "restarted": [report.local(NOW - 7200)],
+        "audio_back": 1,
+        "alerted": [],
+        "lock_busy": 1,
+    }
+    assert "recording_audio" not in failing(r)
+    assert (
+        f"Recording audio: OK; audio check restarted Frigate at {report.local(NOW - 7200)} "
+        "(audio back 1), lock busy 1 time(s)"
+    ) in render_text(r)
+
+
+def test_an_audio_check_alert_fails_the_recording_audio_check():
+    alert = report.datetime.datetime.fromtimestamp(NOW - 600).astimezone().isoformat()
+    r = build(inputs(host={**HOST, "audio_check": [f"{alert} recordings silent, alerting"]}))
+
+    assert failing(r)["recording_audio"] == (
+        "audio check alerted: restarting Frigate didn't bring the audio back"
+    )
+    assert f"audio check alerted at {report.local(NOW - 600)}" in render_text(r)

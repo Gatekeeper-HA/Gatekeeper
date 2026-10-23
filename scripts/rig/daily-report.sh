@@ -56,6 +56,10 @@ for h in $(seq 0 23); do
   fi
 done
 
+# What audio-check.sh did: its lines in rig.log (the report keeps the last 24 h).
+audio_check=$({ grep -a ' recordings ' "$state/rig.log" 2>/dev/null || true; } | tail -n 200 \
+  | jq -Rsc 'split("\n") | map(select(length > 0))')
+
 # Deploys in the last 24 h (deploy.sh).
 since=$(( $(date +%s) - 86400 ))
 deploys='[]'
@@ -65,12 +69,14 @@ if [ -s "$state/deploys.jsonl" ]; then  # jq prints [] and fails on a missing fi
 fi
 
 host=$(jq -nc --argjson hang_exits "$hang_exits" --argjson restarts "$restarts" \
-  --argjson silent "$silent" --arg started "$started" --arg health "$health" \
+  --argjson silent "$silent" --argjson audio_check "$audio_check" \
+  --arg started "$started" --arg health "$health" \
   --arg commit "$(git rev-parse HEAD)" --arg subject "$(git log -1 --format=%s)" \
   --arg image "$image" --argjson deploys "$deploys" \
   --arg gk_created "$created" \
   --arg frigate_created "$(docker inspect -f '{{.Created}}' frigate 2>/dev/null || true)" \
   '{hang_exits: $hang_exits, restarts: $restarts, silent_audio_hours: $silent,
+    audio_check: $audio_check,
     started: $started, health: $health, commit: $commit, subject: $subject, image: $image,
     deploys: $deploys, created: {gatekeeper: $gk_created, frigate: $frigate_created}}')
 
