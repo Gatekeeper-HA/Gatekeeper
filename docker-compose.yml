@@ -140,6 +140,9 @@ services:
       - go2rtc
       - ntfy
     shm_size: "1gb"
+    ports:
+      # The household faces page (behind GATEKEEPER_WEB_PASSWORD; nothing listens without it).
+      - "${SERVER_IP:?set SERVER_IP in .env}:8098:8098"
     environment:
       TZ: "${TZ:-America/Chicago}"
       MQTT_HOST: "mqtt"
@@ -177,6 +180,8 @@ services:
       # are biometric data; enroll people with their consent, see the README).
       FACE_RECOGNITION: "${FACE_RECOGNITION:-0}"
       FACE_DIR: "/faces"
+      # The household faces page on :8098, off unless GATEKEEPER_WEB_PASSWORD is set.
+      WEB_PASSWORD: "${GATEKEEPER_WEB_PASSWORD:-}"
       LISTEN_SECONDS: "4"
       WHISPER_MODEL: "base.en"
       WHISPER_COMPUTE_TYPE: "int8"

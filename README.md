@@ -83,6 +83,7 @@ Only services that require a login are published, on `SERVER_IP`:
 | 8971 | Frigate UI and API | HTTPS, Frigate login |
 | 1883 | MQTT | Per-account passwords (see [MQTT](#mqtt)) |
 | 8090 | ntfy notifications | Gatekeeper token / `phone` user; anyone may post a quick reply (signed, see [Quick replies](#quick-replies)) |
+| 8098 | Gatekeeper's [household faces](#household-faces) page | `GATEKEEPER_WEB_PASSWORD` (plain HTTP; off without a password) |
 | 8123 | Home Assistant (optional `ha` profile) | Home Assistant login |
 
 Frigate's unauthenticated API (5000) and go2rtc (API/UI, RTSP restream, WebRTC) are used
@@ -130,6 +131,8 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `FACE_MIN_WIDTH` | `80` | Faces narrower than this, in pixels of the high-resolution frame, are too small to tell |
 | `FACE_RTSP_URL` | `AUDIO_RTSP_URL` | The camera's high-resolution stream (video) |
 | `FACE_DIR` | `/faces` | Enrolled faces (`gallery.json`) and faces kept for enrollment (`candidates/`) |
+| `WEB_PORT` | `8098` | The [household faces](#household-faces) page |
+| `WEB_PASSWORD` | *(none)* | Its password (HTTP Basic, any user name). Without one the page is off. The compose stack reads `GATEKEEPER_WEB_PASSWORD` from `.env` |
 | `FACE_CANDIDATE_DAYS` | `14` | How long the faces of people who went in by the door are kept for you to enroll |
 | `LISTEN_SECONDS` | `4` | How long to wait for the visitor to start answering after the greeting (or, without the audio tap, how long to record after it) |
 | `AUDIO_TAP` | `true` | Read the camera's audio all the time and stop listening when the visitor stops talking. `false`: record a fixed window per prompt |
@@ -423,7 +426,18 @@ a face is big enough to recognize while they're still on the walkway.
 
 **Enrolling.** Only enroll people who agreed to be recognized. Faces are biometric data,
 regulated in some places (Illinois, Texas, Washington, the EU and the UK). After a few days
-of the household coming and going:
+of the household coming and going, open the faces page: `http://<SERVER_IP>:8098/`, with
+`GATEKEEPER_WEB_PASSWORD` in `.env` (any user name).
+- **Faces to enroll:** the kept faces, grouped by person. Untick any face that isn't them,
+  pick or type their name, tick that they agreed, and enroll. Faces that aren't the
+  household can be deleted.
+- **Enrolled:** who is enrolled, each with *Forget*. *Delete every face* purges everything.
+
+The page has no scripts and works on a phone. Every change needs a token from the page,
+so another website can't make one through your browser. It's plain HTTP on your network,
+so don't publish its port beyond it.
+
+The same from the command line:
 
 ```bash
 docker exec -it gatekeeper python -m gatekeeper.face_admin candidates

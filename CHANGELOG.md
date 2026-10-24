@@ -64,6 +64,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     `details.greeted`. The daily report counts recognitions by name, and how often a face
     was seen at all.
 
+- **The household faces page** (`WEB_PORT` 8098, behind `WEB_PASSWORD`). Enrolling no
+  longer needs a shell.
+  - **What it shows:** the faces kept from people who went in by the front door, grouped
+    by person. Untick any that aren't them, pick or type their name, confirm they agreed,
+    and enroll. Faces that aren't the household can be deleted, and it lists who is
+    enrolled, with *Forget* and *Delete every face*.
+  - **How it's built:** plain HTML with no scripts, so it works on a phone. Relative links
+    work behind Home Assistant's ingress. Each change needs a token from the page, and
+    nothing is cached.
+  - **Compose:** publishes 8098 on `SERVER_IP` and reads `GATEKEEPER_WEB_PASSWORD` from
+    `.env`.
+  - **Also:** grouping kept faces is vectorized, so two weeks' worth (hundreds) groups in
+    well under a second, with the same groups as before.
+
 ### Changed
 - **The compose stack doesn't greet someone back within 4 minutes of leaving**
   (`RETURN_WINDOW_SECONDS` 240, was 120). In 8 days on the rig, all 41 people who walked
