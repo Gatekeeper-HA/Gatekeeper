@@ -16,6 +16,13 @@ isn't watched all the time; it's compared before and after each visit:
 4. A package whose patch changed, and no longer looks like one, after someone
    came and went: "Package picked up".
 
+When the light changed during a visit (a light switched on, the camera's night mode
+or a doorbell's white LED) the frame from before can't be compared. The doorstep is
+then compared with the last frame from before the visit in the same light
+(``Baselines``: one per kind of light seen lately, learned as they come, nothing
+assumed about the camera or the porch). If there's none yet, the visit waits, up to
+``PENDING_SECONDS``, for its light to come back.
+
 Each check is logged with its scores, for tuning. The day's numbers are in the
 daily report.
 """
@@ -24,6 +31,8 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import os
 import time
 import urllib.parse
 import urllib.request
@@ -53,6 +62,12 @@ DELIVERED_SCORE = 0.45  # looks like a package now...
 DELIVERED_RISE = 0.25  # ...and that much more than before
 GONE_SHARE = 0.4  # a package's patch with this share of its cells changed...
 GONE_SCORE = 0.3  # ...that scores under this is gone
+# Kinds of light (Baselines): frames are filed by the camera's mode, colour or
+# monochrome (infrared night mode), and by brightness, in steps of MAX_EXPOSURE_RATIO.
+MONO_CHROMA = 4.0  # a mean |red - blue| under this: a monochrome frame
+BASELINE_MAX_AGE = 2 * 86400  # older doorstep frames aren't compared with
+PENDING_SECONDS = 12 * 3600  # how long a visit not checked waits for its light
+MAX_PENDING = 5
 
 
 @dataclass
@@ -78,8 +93,9 @@ class Comparison:
     changed: np.ndarray | None = None  # changed cells (rows x cols)
 
 
-def decode_jpeg(data: bytes, width: int = 640, height: int = 480) -> np.ndarray | None:
-    """RGB pixels of a JPEG, scaled to ``width`` x ``height`` (PyAV decodes it)."""
+def decode_jpeg(data: bytes, height: int = 480) -> np.ndarray | None:
+    """RGB pixels of a JPEG, scaled to ``height`` rows, keeping its shape (640 wide for
+    a 4:3 camera, 854 for 16:9). PyAV decodes it."""
     import io
 
     import av
@@ -87,6 +103,7 @@ def decode_jpeg(data: bytes, width: int = 640, height: int = 480) -> np.ndarray 
     try:
         with av.open(io.BytesIO(data)) as container:
             frame = next(container.decode(video=0))
+            width = round(frame.width * height / frame.height / 2) * 2
             return frame.reformat(width, height, format="rgb24").to_ndarray()
     except Exception as e:
         log.warning("couldn't decode a frame: %s", e)
@@ -294,6 +311,90 @@ class PackageModel:
         return float(p[: len(self.PACKAGE)].sum() / p.sum())
 
 
+def light(rgb: np.ndarray) -> tuple[str, int]:
+    """The kind of light a frame was taken in: the camera's mode ("colour", or "mono"
+    for infrared night mode) and its brightness, in steps that compare() can even out."""
+    small = rgb[::8, ::8].astype(np.float32)
+    chroma = float(np.abs(small[..., 0] - small[..., 2]).mean())
+    level = max(float(np.median(_gray(small))), 1.0)
+    return ("mono" if chroma < MONO_CHROMA else "colour"), round(
+        math.log(level) / math.log(MAX_EXPOSURE_RATIO)
+    )
+
+
+def alike(a: tuple[str, int], b: tuple[str, int]) -> bool:
+    """Are two kinds of light close enough to compare frames in (same mode, about as
+    bright)? compare() still has the last word."""
+    return a[0] == b[0] and abs(a[1] - b[1]) <= 1
+
+
+class Baselines:
+    """The doorstep with nobody there, in each kind of light it was seen in lately
+    (``light``): daylight, dusk, a light switched on, the camera's night mode. Nothing
+    about the camera or the porch is assumed; they're learned as they come. Kept as
+    JPEGs in ``directory`` (if given), so a restart doesn't lose them."""
+
+    def __init__(
+        self,
+        directory: Path | None = None,
+        *,
+        clock: Callable[[], float] = time.time,
+        decode: Callable[[bytes], np.ndarray | None] = decode_jpeg,
+        max_age: float = BASELINE_MAX_AGE,
+    ) -> None:
+        self._dir = directory
+        self._clock = clock
+        self.max_age = max_age
+        self._shots: dict[tuple[str, int], tuple[float, Shot]] = {}
+        if directory is not None and directory.exists():
+            for path in directory.glob("*.jpg"):
+                data = path.read_bytes()
+                rgb = decode(data)
+                if rgb is not None:
+                    self._shots[light(rgb)] = (path.stat().st_mtime, Shot(rgb, data))
+        self._prune()
+
+    def add(self, shot: Shot, at: float) -> None:
+        key = light(shot.rgb)
+        self._shots[key] = (at, shot)
+        self._prune()
+        if self._dir is not None:
+            self._dir.mkdir(parents=True, exist_ok=True)
+            path = self._dir / f"{key[0]}{key[1]:+d}.jpg"
+            path.write_bytes(shot.jpeg)
+            os.utime(path, (at, at))
+
+    def like(self, shot: Shot, before: float) -> list[tuple[float, Shot]]:
+        """Frames taken before ``before`` in light like ``shot``'s, the most alike (then
+        the latest) first."""
+        key = light(shot.rgb)
+        found = [
+            (abs(k[1] - key[1]), -at, at, s)
+            for k, (at, s) in self._shots.items()
+            if alike(k, key) and at < before
+        ]
+        return [(at, s) for *_, at, s in sorted(found, key=lambda f: f[:2])]
+
+    def before(self, t: float) -> list[tuple[float, Shot]]:
+        """Every frame taken before ``t`` (kept by a visit waiting for its light)."""
+        return [(at, s) for at, s in self._shots.values() if at < t]
+
+    def _prune(self) -> None:
+        now = self._clock()
+        for key in [k for k, (at, _) in self._shots.items() if now - at > self.max_age]:
+            del self._shots[key]
+            if self._dir is not None:
+                (self._dir / f"{key[0]}{key[1]:+d}.jpg").unlink(missing_ok=True)
+
+
+@dataclass
+class _Pending:
+    """A visit whose doorstep couldn't be compared: it waits for the light it had before."""
+
+    came: float
+    baselines: list[tuple[float, Shot]]  # the doorstep before the visit, by kind of light
+
+
 # on_change(kind ("delivered" or "picked_up"), the package, the frame after the
 # visit, when the visit started)
 OnChange = Callable[[str, Package, Shot, float], None]
@@ -309,6 +410,7 @@ class PackageWatcher:
         score: Callable[[np.ndarray, Box], float],
         on_change: OnChange,
         state_file: Path | None = None,
+        baselines: Baselines | None = None,
         clock: Callable[[], float] = time.time,
         sleep: Callable[[float], None] = time.sleep,
         interval: float = 5.0,
@@ -338,6 +440,8 @@ class PackageWatcher:
         self._before_at = 0.0
         self._came: float | None = None  # someone is (or was just) there, since
         self._seen = 0.0
+        self.baselines = baselines or Baselines(clock=clock)
+        self._pending: list[_Pending] = []
         self.packages: list[Package] = self._load()
 
     def run_forever(self) -> None:
@@ -361,8 +465,8 @@ class PackageWatcher:
             after = self._frame()
             if after is None:
                 return  # try again next time
-            if self._before is not None and not self._judge(self._before, after, self._came):
-                # One "not checked" line per visit (the daily report counts them).
+            if self._before is not None and not self._check(after, self._came):
+                # One "not checked" line per visit, at the end (the daily report counts them).
                 if now - self._seen < self.give_up_seconds:
                     self._retry_at = now + self.retry_seconds
                     log.info(
@@ -371,16 +475,69 @@ class PackageWatcher:
                         self.retry_seconds,
                     )
                     return
-                log.info("doorstep not checked: the lighting didn't settle (%s)", self._unjudged)
+                self._wait_for_light(self._came)
             self._came, self._retry_at = None, 0.0
             self._before, self._before_at = after, now
+            self.baselines.add(after, now)
         elif self._before is None or now - self._before_at >= self.refresh_seconds:
             shot = self._frame()
             if shot is not None:
                 self._before, self._before_at = shot, now
+                self.baselines.add(shot, now)
+                self._recheck(shot, now)
 
-    def _judge(self, before: Shot, after: Shot, came: float) -> bool:
-        """Compare; False if the frames couldn't be compared (the lighting changed)."""
+    def _check(self, after: Shot, came: float) -> bool:
+        """Compare the doorstep after a visit with the one before; if the light changed,
+        with the last frame from before the visit in the same light. False if neither
+        could be compared."""
+        if self._judge(self._before, after, came):
+            return True
+        reason = self._unjudged
+        for at, shot in self.baselines.like(after, came):
+            if self._judge(shot, after, came, against=f"the doorstep at {_hhmm(at)}"):
+                return True
+        self._unjudged = reason
+        return False
+
+    def _wait_for_light(self, came: float) -> None:
+        """The light didn't settle, and the doorstep was never seen in this light before:
+        keep the frames from before the visit, and compare once the light is like one of
+        them again (``_recheck``)."""
+        self._pending.append(_Pending(came, self.baselines.before(came)))
+        log.info(
+            "doorstep not checked yet (%s, a light it wasn't seen in before): "
+            "waiting up to %.0f h for the light from before the visit",
+            self._unjudged,
+            PENDING_SECONDS / 3600,
+        )
+        while len(self._pending) > MAX_PENDING:
+            self._give_up(self._pending.pop(0))
+
+    def _recheck(self, shot: Shot, now: float) -> None:
+        """Compare the doorstep now with visits that are still waiting for their light."""
+        for pending in list(self._pending):
+            if now - pending.came > PENDING_SECONDS:
+                self._pending.remove(pending)
+                self._give_up(pending)
+                continue
+            key = light(shot.rgb)
+            for at, base in pending.baselines:
+                if not alike(light(base.rgb), key):
+                    continue
+                visit = f"the doorstep at {_hhmm(at)}, before a visit at {_hhmm(pending.came)}"
+                if self._judge(base, shot, pending.came, against=visit):
+                    self._pending.remove(pending)
+                    break
+
+    def _give_up(self, pending: _Pending) -> None:
+        log.info(
+            "doorstep not checked: the lighting didn't come back (a visit at %s)",
+            _hhmm(pending.came),
+        )
+
+    def _judge(self, before: Shot, after: Shot, came: float, against: str = "") -> bool:
+        """Compare; False if the frames couldn't be compared (the lighting changed).
+        ``against``: what ``before`` is, when it isn't the doorstep just before the visit."""
         polygon = self._zone()
         if polygon is None:
             log.info("doorstep not checked: the package zone isn't known yet")
@@ -391,7 +548,11 @@ class PackageWatcher:
         if not comparison.judged:
             self._unjudged = comparison.reason  # step() logs it: trying again, or giving up
             return False
-        log.info("doorstep checked: %d change(s)", len(comparison.patches))
+        log.info(
+            "doorstep checked: %d change(s)%s",
+            len(comparison.patches),
+            f" (against {against}, in the same light)" if against else "",
+        )
         for package in list(self.packages):
             share = changed_share(comparison.changed, package.box)
             if share < GONE_SHARE:
@@ -434,3 +595,7 @@ class PackageWatcher:
             return
         data = [{**asdict(p), "box": list(p.box)} for p in self.packages]
         self._state_file.write_text(json.dumps(data), encoding="utf-8")
+
+
+def _hhmm(ts: float) -> str:
+    return time.strftime("%H:%M", time.localtime(ts))

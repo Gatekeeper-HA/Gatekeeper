@@ -289,6 +289,11 @@ class Settings(BaseSettings):
         return self.log_dir / "packages.json"
 
     @property
+    def package_baseline_dir(self) -> Path:
+        """The doorstep in each kind of light lately (packages.Baselines)."""
+        return self.log_dir / "package-baselines"
+
+    @property
     def quick_reply_list(self) -> list[str]:
         return [k.strip() for k in self.quick_replies.split(",") if k.strip()]
 

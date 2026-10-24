@@ -372,7 +372,12 @@ all the time. It's compared before and after each visit:
 2. Once whoever came has been gone 15 s, it takes another frame and compares the zone in
    the two, after evening out the camera's exposure.
    - If the lighting changed while they were there (a porch light, the camera's night
-     mode), it compares again every minute for up to 10 minutes.
+     mode, a doorbell's white LED), it compares with the last frame from before the visit
+     in the same light instead. Gatekeeper keeps one per kind of light it has seen in the
+     last two days: night mode, colour, and each brightness. It learns them by itself,
+     whatever the camera and lighting.
+   - If it has never seen this light, it compares again every minute for 10 minutes, then
+     waits up to 12 hours for the light from before the visit to come back.
 3. A small open image model scores each changed patch as a package or not, before and
    after. The model is CLIP ViT-B/32 (MIT license): about 150 MB, downloaded once and
    cached with the other models, and about 0.2 s per patch on the CPU. A patch that looks
@@ -380,12 +385,15 @@ all the time. It's compared before and after each visit:
 4. After a later visit, a package whose patch changed and no longer looks like a package
    has been picked up.
 
-Packages at the door are kept in `packages.json` (next to the visit log) across restarts.
+Packages at the door are kept in `packages.json` (next to the visit log) across restarts,
+and the doorstep frames for each kind of light in `package-baselines/`.
 Home Assistant gets a *Package* binary sensor (see [MQTT](#mqtt)).
 
 **How well it works depends on your camera's view of the doorstep.** On the rig's 189 visits
 in a week with no package, it raised no alert. Packages left out of the camera's view
-can't be seen. To check yours, leave a box in the zone and walk away, by day and at night.
+can't be seen, and a small one at the edge of the frame may be too few pixels: on the rig,
+a shoebox in the corner by the door was about 32 px in Frigate's 640x480 frame, right at
+the limit. To check yours, leave a box in the zone and walk away, by day and at night.
 The log shows each check's scores (`doorstep change at …: package score …`), and the daily
 report has the day's numbers.
 

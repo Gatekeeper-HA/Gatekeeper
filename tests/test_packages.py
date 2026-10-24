@@ -7,12 +7,15 @@ import pytest
 from conftest import FakeClock
 from gatekeeper.packages import (
     CELL,
+    Baselines,
     Package,
     PackageModel,
     PackageWatcher,
     Shot,
+    alike,
     changed_share,
     compare,
+    light,
     square_crop,
     zone_cells,
 )
@@ -215,11 +218,79 @@ def test_a_visit_whose_lighting_never_settles_counts_once_in_the_report(tmp_path
     caplog.set_level(logging.INFO, logger="gatekeeper.packages")
     porch = Porch(tmp_path)
     porch.run(10)
-    # Night mode came on during the visit, and stays on.
+    # Night mode came on during the visit, and stays on for good.
     porch.visit(Shot(doorstep(1, brightness=1.8), b"night"))
     porch.run(700)
     lines = [r.getMessage() for r in caplog.records]
+    assert package_info([], lines)["not_checked"] == {}  # still waiting for its light
+    porch.run(12 * 3600)
+    lines = [r.getMessage() for r in caplog.records]
     info = package_info([], lines)
     assert info["not_checked"] == {"lighting": 1}  # one visit, not one per retry
-    assert info["retries"] >= 9  # every minute for 10 minutes
+    assert info["retries"] >= 10  # every minute for 10 minutes, then waiting
     assert info["checked"] == 0
+
+
+# When the light changed during the visit (Baselines).
+
+
+def test_a_light_seen_before_is_compared_with_the_last_frame_in_it(tmp_path, caplog):
+    caplog.set_level(logging.INFO, logger="gatekeeper.packages")
+    porch = Porch(tmp_path)
+    porch.scene = Shot(doorstep(0, brightness=1.6), b"lit, empty")  # a light on, earlier
+    porch.run(70)
+    porch.scene = Shot(doorstep(0), b"dark, empty")
+    porch.run(70)
+    # A delivery switches the light on, and it stays on.
+    porch.visit(Shot(with_package(doorstep(1, brightness=1.6)), b"lit, with package"))
+    assert [(c[0], c[1], c[2]) for c in porch.changes] == [("delivered", BOX, b"lit, with package")]
+    assert "in the same light" in caplog.text
+    assert "not checked yet" not in caplog.text  # no need to wait
+
+
+def test_a_light_never_seen_waits_for_the_light_from_before_the_visit(tmp_path):
+    porch = Porch(tmp_path)
+    porch.run(10)
+    came = porch.clock.now
+    porch.visit(Shot(with_package(doorstep(1, brightness=1.6)), b"lit"))
+    porch.run(3600)  # the light stays on for an hour: not compared yet
+    assert porch.changes == []
+    porch.scene = Shot(with_package(doorstep(2)), b"dark again")
+    porch.run(120)
+    ((kind, box, jpeg, since),) = porch.changes
+    assert (kind, box, jpeg, since) == ("delivered", BOX, b"dark again", came)
+
+
+def test_the_kind_of_light_is_the_cameras_mode_and_the_brightness():
+    mono, colour = doorstep(0), doorstep(0).copy()
+    colour[..., 0] = np.clip(colour[..., 0].astype(int) + 40, 0, 255)  # warmer: a lamp
+    assert light(mono)[0] == "mono" and light(colour)[0] == "colour"
+    assert alike(light(mono), light(doorstep(1, brightness=1.2)))
+    assert not alike(light(mono), light(doorstep(1, brightness=1.8)))
+    assert not alike(light(mono), light(colour))
+
+
+def test_frames_in_each_light_are_kept_across_restarts(tmp_path):
+    clock = FakeClock(1_000_000.0)
+    frames = {b"dark": doorstep(0), b"lit": doorstep(0, brightness=1.6)}
+    keep = Baselines(tmp_path / "b", clock=clock, decode=frames.get)
+    keep.add(Shot(frames[b"dark"], b"dark"), clock.now - 60)
+    keep.add(Shot(frames[b"lit"], b"lit"), clock.now - 3 * 86400)  # too old: dropped
+    keep.add(Shot(frames[b"lit"], b"lit"), clock.now - 30)
+    again = Baselines(tmp_path / "b", clock=clock, decode=frames.get)
+    found = again.like(Shot(doorstep(1, brightness=1.6), b"x"), clock.now)
+    assert [(round(at), s.jpeg) for at, s in found] == [(round(clock.now - 30), b"lit")]
+    assert len(list((tmp_path / "b").glob("*.jpg"))) == 2
+
+    clock.now += 3 * 86400
+    assert Baselines(tmp_path / "b", clock=clock, decode=frames.get).before(clock.now) == []
+
+
+def test_frigates_frame_keeps_its_shape(tmp_path):
+    pytest.importorskip("av")
+    from gatekeeper.face_admin import write_jpeg
+    from gatekeeper.packages import decode_jpeg
+
+    path = tmp_path / "wide.jpg"
+    write_jpeg(path, np.zeros((720, 1280, 3), np.uint8))  # a 16:9 camera
+    assert decode_jpeg(path.read_bytes()).shape == (480, 854, 3)

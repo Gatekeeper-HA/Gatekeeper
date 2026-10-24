@@ -22,6 +22,7 @@ from gatekeeper.interaction import HOUSEHOLD_OUTCOMES, Interaction, Visit
 from gatekeeper.logs import setup_logging
 from gatekeeper.notify import Notifier, NtfyBackend, frigate_snapshot
 from gatekeeper.packages import (
+    Baselines,
     PackageModel,
     PackageWatcher,
     frigate_frame,
@@ -148,6 +149,7 @@ def start_packages(settings: Settings, tracker, notifier, interaction, publisher
         score=model.score,
         on_change=on_change,
         state_file=settings.package_state_file,
+        baselines=Baselines(settings.package_baseline_dir),
     )
     publisher.package(bool(watcher.packages))
     start_thread("packages", watcher.run_forever)
