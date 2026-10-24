@@ -38,6 +38,14 @@ YOLOX_TINY = (
     "427cc366d34e27ff7a03e2899b5e3671425c262ea2291f88bb942bc1cc70b0f7",
 )
 NMS_IOU = 0.5
+# On an NVIDIA GPU: a cheap first choice of convolution algorithms (the exhaustive search
+# takes seconds at startup for a model this small), and a cap on the memory it takes from
+# Frigate and Whisper.
+CUDA_OPTIONS = {
+    "cudnn_conv_algo_search": "HEURISTIC",
+    "arena_extend_strategy": "kSameAsRequested",
+    "gpu_mem_limit": str(512 * 1024 * 1024),
+}
 MOTION_SIZE = (160, 120)  # the motion check works on a small grey copy
 MOTION_LEVEL = 25  # grey levels a pixel must change by...
 MOTION_SHARE = 0.002  # ...on this share of the frame: something moved
@@ -66,17 +74,27 @@ class Detection:
 class Yolox:
     """YOLOX on onnxruntime: people in a BGR frame. The official export takes the image
     letterboxed into a square (top-left, padded with grey 114), BGR 0-255, and gives a
-    grid of boxes per stride, with objectness and class scores already through a sigmoid."""
+    grid of boxes per stride, with objectness and class scores already through a sigmoid.
 
-    def __init__(self, model: Path, threshold: float = 0.25, threads: int = 2) -> None:
+    ``device``: "cuda" or "auto" use an NVIDIA GPU when onnxruntime has CUDA (the GPU
+    image) and it works; ``self.device`` is where it runs."""
+
+    def __init__(
+        self, model: Path, threshold: float = 0.25, threads: int = 2, device: str = "cpu"
+    ) -> None:
         import onnxruntime as ort
 
         options = ort.SessionOptions()
         options.intra_op_num_threads = threads
         options.log_severity_level = 3
-        self._session = ort.InferenceSession(
-            str(model), options, providers=["CPUExecutionProvider"]
-        )
+        providers: list = ["CPUExecutionProvider"]
+        if device != "cpu" and "CUDAExecutionProvider" in ort.get_available_providers():
+            providers.insert(0, ("CUDAExecutionProvider", CUDA_OPTIONS))
+        self._session = ort.InferenceSession(str(model), options, providers=providers)
+        on_gpu = self._session.get_providers()[0] == "CUDAExecutionProvider"
+        self.device = "cuda" if on_gpu else "cpu"
+        if device == "cuda" and not on_gpu:
+            log.warning("own perception: the detector couldn't run on the GPU; it runs on the CPU")
         self.size = self._session.get_inputs()[0].shape[2]
         self.threshold = threshold
         self._grid, self._stride = grid(self.size)
@@ -206,8 +224,9 @@ class Track:
 class Tracker:
     """People across frames, as tracks: a detection joins the track whose last box it
     overlaps most (IoU), or else the nearest one close enough. A track needs ``min_hits``
-    detections before it's reported (one stray box isn't a person), and ends after
-    ``max_age`` seconds without one (Frigate's default: 25 frames at 5 fps). A track is
+    detections before it's reported (one stray box isn't a person: unless it's seen again
+    within ``max_age_unconfirmed`` it's dropped), and ends after ``max_age`` seconds
+    without one (Frigate's default: 25 frames at 5 fps). A track is
     in a zone once its feet have been in it for ``zone_seconds``, frame after frame
     (Frigate's "inertia", 3 frames at 5 fps; in seconds, so it's the same at any frame
     rate): someone close to the camera is cut off at the bottom of the frame, and for a
@@ -222,6 +241,7 @@ class Tracker:
         min_iou: float = 0.2,
         min_hits: int = 2,
         max_age: float = 5.0,
+        max_age_unconfirmed: float = 1.0,
         min_move: float = 0.02,
         zone_seconds: float = 0.3,
     ) -> None:
@@ -230,6 +250,7 @@ class Tracker:
         self.min_iou = min_iou
         self.min_hits = min_hits
         self.max_age = max_age
+        self.max_age_unconfirmed = max_age_unconfirmed
         self.min_move = min_move
         self.zone_seconds = zone_seconds
         self.tracks: list[Track] = []
@@ -255,12 +276,15 @@ class Tracker:
             if self.min_hits <= 1:
                 track.confirmed = True
                 events.append(self._event("new", track))
-        for track in [t for t in self.tracks if now - t.last > self.max_age]:
+        for track in [t for t in self.tracks if now - t.last > self._max_age(t)]:
             self.tracks.remove(track)
             if track.confirmed:
                 events.append(self._event("end", track))
                 self.ended.append(track)
         return events
+
+    def _max_age(self, track: Track) -> float:
+        return self.max_age if track.confirmed else self.max_age_unconfirmed
 
     def _match(self, detections: list[Detection]) -> list[tuple[int, int]]:
         """(track, detection) pairs: by overlap first; then, for someone who moved more
@@ -455,11 +479,12 @@ class OwnPerception:
         ms = 1000 * float(np.median(self._detect_seconds)) if self._detect_seconds else 0.0
         log.info(
             "own perception stats: %d frames in %.0f s, %d through the detector "
-            "(median %.0f ms), %d track(s) now",
+            "(median %.0f ms on %s), %d track(s) now",
             self.frames,
             now - self._stats_from,
             self.detected,
             ms,
+            getattr(self.detector, "device", "cpu"),
             len(self.tracker.tracks),
         )
         self.frames = self.detected = 0

@@ -809,13 +809,13 @@ def test_own_perception_is_compared_with_frigates_arrivals():
             NOW - 100,
             "own_perception",
             "own perception stats: 7200 frames in 3600 s, 600 through the detector "
-            "(median 180 ms), 0 track(s) now",
+            "(median 180 ms on cuda), 0 track(s) now",
         ),
         (
             NOW - 50,
             "own_perception",
             "own perception stats: 0 frames in 3600 s, 0 through the detector "
-            "(median 0 ms), 0 track(s) now",
+            "(median 0 ms on cuda), 0 track(s) now",
         ),
     )
     r = build(
@@ -839,12 +839,13 @@ def test_own_perception_is_compared_with_frigates_arrivals():
         1.7,
         190,
     )
+    assert own["device"] == "cuda"  # the older line above has none
     assert "own_perception" not in failing(r)
     assert (
         f"Own perception (shadow, since {report.local(NOW - 8000)}): saw 1 of 3 porch arrivals "
         f"in the zone, 1 elsewhere, missed {report.local(NOW - 3000)}; 3 track(s), 1 on the "
         f"porch Frigate didn't have ({report.local(NOW - 3500)}); 1.7 fps, detector on 1500 "
-        "of 18000 frames, median 190 ms" in render_text(r)
+        "of 18000 frames, median 190 ms on cuda" in render_text(r)
     )
 
 

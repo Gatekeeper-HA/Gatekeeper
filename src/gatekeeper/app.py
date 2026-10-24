@@ -215,6 +215,7 @@ def start_own_perception(settings: Settings, perception: Perception):
                     own.fetch_model(own.YOLOX_TINY, settings.model_dir),
                     settings.own_perception_threshold,
                     settings.own_perception_threads,
+                    settings.own_perception_device,
                 )
                 break
             except Exception as e:
@@ -222,9 +223,10 @@ def start_own_perception(settings: Settings, perception: Perception):
                 time.sleep(delay)
                 delay = min(delay * 2, 600.0)
         log.info(
-            "own perception on (shadow): %s, zones %s",
+            "own perception on (shadow): %s, zones %s, detector on %s",
             settings.own_perception_url.split("@")[-1],
             ", ".join(zones) or "none",
+            service.detector.device,
         )
         service.start(start_thread)
 
