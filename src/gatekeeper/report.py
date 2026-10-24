@@ -109,6 +109,19 @@ PERSON_EVENT = re.compile(r"person event (?P<id>\S+) (?P<why>.+)$")
 GATEKEEPER_STARTING = re.compile(r"^Gatekeeper \S+ starting: ")
 MQTT_CONNECTED = re.compile(r"^connected to MQTT ")
 MQTT_DISCONNECTED = re.compile(r"^disconnected from MQTT")
+# own_perception.py's lines (shadow mode): each person track that ended, and every hour
+# how much it looked.
+OWN_ON = re.compile(r"^own perception on \(shadow\)")
+OWN_TRACK = re.compile(
+    r"own perception: person track (?P<id>\S+) start=(?P<start>[\d.]+) end=(?P<end>[\d.]+) "
+    r"zones=(?P<zones>\S+)"
+)
+OWN_STATS = re.compile(
+    r"own perception stats: (?P<frames>\d+) frames in (?P<seconds>\d+) s, "
+    r"(?P<detected>\d+) through the detector \(median (?P<ms>\d+) ms\)"
+)
+# A track and a Frigate event this close in time are the same person.
+OWN_SLACK_SECONDS = 5.0
 # How long after someone left by the door the next person to walk up is listed
 # (return_gaps): the data for tuning RETURN_WINDOW_SECONDS.
 RETURN_GAP_SECONDS = 30 * 60
@@ -223,6 +236,70 @@ def recognized_info(records: list[dict], lines: list[str]) -> dict:
         "best_scores": sorted(
             (float(m.group(2)) for m in watches if int(m.group(1))), reverse=True
         )[:10],
+    }
+
+
+def own_perception_info(
+    arrivals: list[dict], lines: list[str], zones: list[str], now: float
+) -> dict | None:
+    """Our own perception in shadow mode next to Frigate (own_perception.py): of Frigate's
+    porch arrivals since it started, those it saw in the same zones, saw elsewhere, or
+    missed; its porch tracks Frigate had no arrival for; and how much it looked. None
+    when it logged nothing (off)."""
+    started, tracks, stats = None, [], []
+    for line in lines:
+        m = GATEKEEPER_LINE.match(line)
+        message = m["message"] if m else line
+        if OWN_ON.match(message) and started is None and m:
+            started = log_time(m["time"])
+        elif t := OWN_TRACK.search(message):
+            zones_seen = set() if t["zones"] == "-" else set(t["zones"].split(","))
+            tracks.append((float(t["start"]), float(t["end"]), zones_seen))
+        elif st := OWN_STATS.search(message):
+            stats.append({k: int(v) for k, v in st.groupdict().items()})
+    if started is None and not tracks and not stats:
+        return None
+
+    def in_zone(seen: set[str]) -> bool:
+        return bool(seen & set(zones)) if zones else True
+
+    def near(a0: float, a1: float, b0: float, b1: float) -> bool:
+        return a0 - OWN_SLACK_SECONDS <= b1 and b0 - OWN_SLACK_SECONDS <= a1
+
+    # Arrivals before it started (the log's first line, if it started before the log).
+    since = started if started is not None else min((t[0] for t in tracks), default=now)
+    compared = [e for e in arrivals if e["start_time"] >= since]
+    seen, elsewhere, missed = [], [], []
+    for e in compared:
+        start, end = e["start_time"], e.get("end_time") or now
+        overlapping = [t for t in tracks if near(start, end, t[0], t[1])]
+        if any(in_zone(t[2]) for t in overlapping):
+            seen.append(e)
+        elif overlapping:
+            elsewhere.append(e)
+        else:
+            missed.append(e)
+    extra = [
+        t
+        for t in tracks
+        if in_zone(t[2])
+        and not any(near(e["start_time"], e.get("end_time") or now, t[0], t[1]) for e in arrivals)
+    ]
+    frames = sum(st["frames"] for st in stats)
+    busy = [st["ms"] for st in stats if st["detected"]]  # hours the detector ran
+    detected = sum(st["detected"] for st in stats)
+    return {
+        "since": local(since),
+        "arrivals": len(compared),
+        "seen": len(seen),
+        "seen_elsewhere": [local(e["start_time"]) for e in elsewhere],
+        "missed": [local(e["start_time"]) for e in missed],
+        "tracks": len(tracks),
+        "extra": [local(t[0]) for t in extra],
+        "frames": frames,
+        "detected": detected,
+        "fps": round(frames / sum(st["seconds"] for st in stats), 1) if stats else None,
+        "detector_ms": sorted(busy)[len(busy) // 2] if busy else None,
     }
 
 
@@ -517,6 +594,8 @@ class Inputs:
     camera: str = "front_door"
     cooldown: float = 90.0
     whisper_device: str = "auto"  # the WHISPER_DEVICE setting
+    trigger_zones: tuple[str, ...] = ()  # the TRIGGER_ZONES setting
+    own_perception: str = "off"  # the OWN_PERCEPTION setting
     version: str = "?"
     hours: int = HOURS
 
@@ -650,6 +729,9 @@ def build(i: Inputs) -> dict:
     if quick["count"]:
         failed = quick["results"].get("failed", 0)
         check("quick_replies", not failed, f"{failed} quick reply(ies) couldn't be said")
+    own = own_perception_info(arrivals, sources.get("gatekeeper", []), list(i.trigger_zones), i.now)
+    if i.own_perception != "off":
+        check("own_perception", own is not None, "own perception is on but logged nothing")
     failed_deploys = [d for d in deploys if d.get("result") not in ("deployed", "moved")]
     check("deploys", not failed_deploys, f"{len(failed_deploys)} failed deploy(s)")
 
@@ -709,6 +791,7 @@ def build(i: Inputs) -> dict:
             sources.get("gatekeeper", []),
         ),
         "frigate": frigate,
+        "own_perception": own,
         "deploys": deploys,
         "logs": logs,
     }
@@ -849,6 +932,21 @@ def summary_lines(report: dict) -> list[str]:
             + (
                 f" (audio tap down for {r['tap_down_turns']} turn(s))"
                 if r["tap_down_turns"]
+                else ""
+            )
+        )
+    if own := report.get("own_perception"):
+        lines.append(
+            f"Own perception (shadow, since {own['since']}): saw {own['seen']} of "
+            f"{own['arrivals']} porch arrivals in the zone"
+            + (f", {len(own['seen_elsewhere'])} elsewhere" if own["seen_elsewhere"] else "")
+            + (f", missed {', '.join(own['missed'])}" if own["missed"] else "")
+            + f"; {own['tracks']} track(s), {len(own['extra'])} on the porch Frigate didn't have"
+            + (f" ({', '.join(own['extra'][:10])})" if own["extra"] else "")
+            + (
+                f"; {own['fps']} fps, detector on {own['detected']} of {own['frames']} "
+                f"frames, median {own['detector_ms']} ms"
+                if own["fps"] is not None
                 else ""
             )
         )
@@ -999,6 +1097,8 @@ def collect(
         camera=settings.camera_name,
         cooldown=settings.cooldown_seconds,
         whisper_device=settings.whisper_device,
+        trigger_zones=tuple(settings.trigger_zone_list),
+        own_perception=settings.own_perception,
         version=__version__,
         hours=hours,
     )

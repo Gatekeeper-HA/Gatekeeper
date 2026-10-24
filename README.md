@@ -132,6 +132,12 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `FACE_MIN_WIDTH` | `80` | Faces narrower than this, in pixels of the high-resolution frame, are too small to tell |
 | `FACE_RTSP_URL` | `AUDIO_RTSP_URL` | The camera's high-resolution stream (video) |
 | `FACE_DIR` | `/faces` | Enrolled faces (`gallery.json`) and faces kept for enrollment (`candidates/`) |
+| `OWN_PERCEPTION` | `off` | `shadow`: Gatekeeper also finds and tracks people itself, next to Frigate, and only logs them: [own perception](#own-perception-shadow). The compose stack reads it from `.env` |
+| `OWN_PERCEPTION_URL` | `AUDIO_RTSP_URL` + `_sub` | The camera's low-resolution stream (go2rtc's `<CAMERA_NAME>_sub`) |
+| `OWN_PERCEPTION_FPS` | `5` | Frames looked at per second, at most. The compose stack sets `3` |
+| `OWN_PERCEPTION_THRESHOLD` | `0.3` | The detector's score (0–1) that counts as a person |
+| `OWN_PERCEPTION_THREADS` | `2` | CPU threads for the detector |
+| `MODEL_DIR` | `~/.cache/gatekeeper/models` | Where the detector's model is downloaded (once) |
 | `WEB_PORT` | `8098` | The [household faces](#household-faces) page |
 | `WEB_PASSWORD` | *(none)* | Its password (HTTP Basic, any user name). Without one the page is off. The compose stack reads `GATEKEEPER_WEB_PASSWORD` from `.env` |
 | `FACE_CANDIDATE_DAYS` | `14` | How long the faces of people who went in by the door are kept for you to enroll |
@@ -467,6 +473,34 @@ were recognized, 12 of them before the greeting. Nobody was taken for someone el
 daylight the rig's camera looks into a bright sky, and faces on the walkway are often too
 dark to recognize. At night, under the porch light, they're clear. The daily report counts
 the recognitions and how often a face was seen.
+
+## Own perception (shadow)
+
+Today Frigate tells Gatekeeper where people are. Gatekeeper is getting its own perception,
+so that our hub needn't carry Frigate and its GPL model. `OWN_PERCEPTION=shadow` runs it
+next to Frigate: it logs what it sees and changes nothing about visits.
+
+**How it works.** It reads the camera's low-resolution stream (640x480) and keeps only the
+newest frame, so a slow CPU skips frames and never falls behind. A few times a second, a
+cheap motion check looks at the frame. Only if something moved, or someone is being
+tracked, does the frame go to the person detector: YOLOX-tiny (Apache-2.0, 20 MB,
+downloaded once and checked). On the rig's footage it was as good as Frigate's YOLOv9.
+Detections become tracks, and each track walks through Gatekeeper's zones, outlined in
+Frigate's config for now. When a track ends, the log says so:
+
+```
+own perception: person track 1792847770.909771-own3 start=1792847770.9 end=1792847790.2 zones=porch,door path=(0.31,0.62)->(0.86,0.97) best=0.88 hits=41
+```
+
+Every hour it logs how many frames it looked at and how long the detector took. The daily
+report compares the tracks with Frigate's porch arrivals: those it saw in the zone, saw
+elsewhere, or missed, and its porch tracks that Frigate had no arrival for. It runs on the
+CPU. On the rig's 2015 desktop CPU the detector takes about 265 ms a frame, and the whole
+thing uses about 0.15 of a core while nobody is around.
+
+**How well it matches Frigate on the rig.** Frigate's clips of 60 recent person events were
+replayed through it at 3 frames a second. All 45 porch arrivals were seen on the porch, and
+39 of the 40 people Frigate saw at the door were seen there too.
 
 ## MQTT
 

@@ -191,6 +191,47 @@ def start_faces(settings: Settings, tracker):
     return watcher
 
 
+def start_own_perception(settings: Settings, perception: Perception):
+    """Our own perception in shadow mode (own_perception.py): it logs each person track,
+    with the zones it walked through, next to Frigate's events. The zones are those
+    Gatekeeper uses, outlined in Frigate's config for now. The model downloads on first
+    use. Returns the OwnPerception."""
+    from gatekeeper import own_perception as own
+
+    names = settings.trigger_zone_list + [settings.door_zone, settings.package_zone]
+    zones = {name: perception.zone(name) for name in dict.fromkeys(n for n in names if n)}
+    tracker = own.Tracker(
+        settings.camera_name, lambda: {name: zone.polygon for name, zone in zones.items()}
+    )
+    service = own.OwnPerception(
+        settings.own_perception_url, None, tracker, fps=settings.own_perception_fps
+    )
+
+    def run() -> None:
+        delay = 10.0
+        while True:
+            try:
+                service.detector = own.Yolox(
+                    own.fetch_model(own.YOLOX_TINY, settings.model_dir),
+                    settings.own_perception_threshold,
+                    settings.own_perception_threads,
+                )
+                break
+            except Exception as e:
+                log.warning("own perception model not ready (%s); retrying in %.0f s", e, delay)
+                time.sleep(delay)
+                delay = min(delay * 2, 600.0)
+        log.info(
+            "own perception on (shadow): %s, zones %s",
+            settings.own_perception_url.split("@")[-1],
+            ", ".join(zones) or "none",
+        )
+        service.start(start_thread)
+
+    start_thread("own-perception-start", run)
+    return service
+
+
 def main() -> None:
     settings = Settings()
     setup_logging(settings.log_level, settings.log_format)
@@ -370,6 +411,8 @@ def main() -> None:
     )
     if settings.package_zone:
         start_packages(settings, perception, tracker, notifier, interaction, publisher)
+    if settings.own_perception == "shadow":
+        start_own_perception(settings, perception)
     start_thread("retention", Retention(settings).run_forever)
 
     def on_press() -> None:
