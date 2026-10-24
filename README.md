@@ -569,8 +569,9 @@ from cron, as a user in the `docker` group:
   - every deploy went through.
 
   It lists every visit with what was heard and the reply, and the log's warnings and
-  errors grouped by kind (a container recreated by a deploy only has its log since then, and
-  the report says so). It sends the summary via ntfy and keeps the full report (JSON and
+  errors grouped by kind. A deploy that recreates a container keeps its old log first
+  (`~/.local/state/gatekeeper/logs/`, two days), so the report still covers the whole day; a
+  container recreated by hand only has its log since then, and the report says so. It sends the summary via ntfy and keeps the full report (JSON and
   Markdown) in `~/.local/state/gatekeeper/reports/`.
 - **Recording audio** (`audio-check.sh`): after a short camera dropout, Frigate's
   recordings can lose their audio until Frigate restarts. The hourly check restarts it

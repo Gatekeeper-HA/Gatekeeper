@@ -25,8 +25,9 @@ if [ "$(docker inspect -f '{{.State.Running}}' gatekeeper 2>/dev/null)" != true 
   exit 1
 fi
 
-# Watchdog exits survive container restarts (same container, same log).
-hang_exits=$(docker logs --since 24h gatekeeper 2>&1 | grep -c "internal hang" || true)
+# Watchdog exits survive container restarts (same container, same log), and day_log adds
+# the log of a container a deploy replaced (keep_logs in lib.sh).
+hang_exits=$(day_log gatekeeper | grep -c "internal hang" || true)
 started=$(docker inspect -f '{{.State.StartedAt}}' gatekeeper | cut -c1-16)
 health=$(docker inspect -f '{{.State.Health.Status}}' gatekeeper)
 
@@ -73,20 +74,21 @@ host=$(jq -nc --argjson hang_exits "$hang_exits" --argjson restarts "$restarts" 
   --arg started "$started" --arg health "$health" \
   --arg commit "$(git rev-parse HEAD)" --arg subject "$(git log -1 --format=%s)" \
   --arg image "$image" --argjson deploys "$deploys" \
-  --arg gk_created "$created" \
+  --arg gk_created "$created" --argjson kept "$(kept_logs)" \
   --arg frigate_created "$(docker inspect -f '{{.Created}}' frigate 2>/dev/null || true)" \
   '{hang_exits: $hang_exits, restarts: $restarts, silent_audio_hours: $silent,
     audio_check: $audio_check,
     started: $started, health: $health, commit: $commit, subject: $subject, image: $image,
-    deploys: $deploys, created: {gatekeeper: $gk_created, frigate: $frigate_created}}')
+    deploys: $deploys, created: {gatekeeper: $gk_created, frigate: $frigate_created},
+    kept_logs: $kept}')
 
 if {
   echo "### whisper"
   docker logs gatekeeper 2>&1 | grep -E "loading Whisper model|couldn't run on the GPU" || true
   echo "### gatekeeper"
-  docker logs --since 24h gatekeeper 2>&1
+  day_log gatekeeper
   echo "### frigate"
-  docker logs --since 24h frigate 2>&1
+  day_log frigate
 } | docker exec -i -e REPORT_HOST="$host" gatekeeper python -m gatekeeper.report --logs - \
     --notify > "$out.json" 2> "$out.err"; then
   docker exec -i gatekeeper python -m gatekeeper.report --render markdown < "$out.json" > "$out.md"
