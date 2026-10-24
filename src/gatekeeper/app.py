@@ -1,4 +1,4 @@
-"""Entry point: wire Frigate MQTT events to visits."""
+"""Entry point: wire the perception's person events (Frigate, today) to visits."""
 
 from __future__ import annotations
 
@@ -16,18 +16,13 @@ from gatekeeper.audio_tap import AudioTap
 from gatekeeper.button import DoorbellButton
 from gatekeeper.config import Settings
 from gatekeeper.eventlog import EventLog
-from gatekeeper.frigate import FrigateEvent, Zone, fetch_config, parse_event
+from gatekeeper.frigate import FrigatePerception
 from gatekeeper.health import Health, serve
 from gatekeeper.interaction import HOUSEHOLD_OUTCOMES, Interaction, Visit
 from gatekeeper.logs import setup_logging
-from gatekeeper.notify import Notifier, NtfyBackend, frigate_snapshot
-from gatekeeper.packages import (
-    Baselines,
-    PackageModel,
-    PackageWatcher,
-    frigate_frame,
-    person_snapshot,
-)
+from gatekeeper.notify import Notifier, NtfyBackend
+from gatekeeper.packages import Baselines, PackageModel, PackageWatcher
+from gatekeeper.perception import Perception
 from gatekeeper.publish import QUICK_REPLY_TOPIC, Publisher
 from gatekeeper.quick_reply import NtfyReplies, QuickReplies
 from gatekeeper.retention import Retention
@@ -44,12 +39,12 @@ def ensure_dirs(settings: Settings) -> None:
 def build_mqtt_client(
     settings: Settings,
     *,
-    on_event: Callable[[FrigateEvent], None],
     health: Health | None = None,
     on_connected: Callable[[], None] | None = None,
     commands: dict[str, Callable[[bytes], None]] | None = None,
 ) -> mqtt.Client:
-    """``commands``: handlers for topics other than Frigate's events, by topic."""
+    """``commands``: a handler for each topic to follow (the perception's events, quick
+    replies), by topic; it gets the payload."""
     commands = commands or {}
     client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
     if settings.mqtt_username:
@@ -60,7 +55,6 @@ def build_mqtt_client(
             log.error("MQTT connection refused: %s", reason_code)
             return
         log.info("connected to MQTT rc=%s", reason_code)
-        client.subscribe(settings.mqtt_topic)
         for topic in commands:
             client.subscribe(topic)
         if health:
@@ -75,12 +69,9 @@ def build_mqtt_client(
 
     def on_message(client, userdata, msg):
         try:
-            if msg.topic in commands:
-                commands[msg.topic](msg.payload)
-                return
-            event = parse_event(msg.payload)
-            if event:
-                on_event(event)
+            handler = commands.get(msg.topic)
+            if handler:
+                handler(msg.payload)
         except Exception:
             log.exception("error handling MQTT message on %s", msg.topic)
 
@@ -115,12 +106,11 @@ def start_thread(name: str, target, *args, **kwargs) -> None:
     threading.Thread(target=target, args=args, kwargs=kwargs, name=name, daemon=True).start()
 
 
-def start_packages(settings: Settings, tracker, notifier, interaction, publisher) -> None:
+def start_packages(
+    settings: Settings, perception: Perception, tracker, notifier, interaction, publisher
+) -> None:
     """Package alerts: check the doorstep after each visit (packages.py)."""
-    zone = Zone(
-        settings.package_zone, settings.camera_name, lambda: fetch_config(settings.frigate_api)
-    )
-    start_thread("package-zone", zone.load_until_known)
+    zone = perception.zone(settings.package_zone)
     model = PackageModel()
 
     def on_change(kind, package, after, came) -> None:
@@ -134,7 +124,7 @@ def start_packages(settings: Settings, tracker, notifier, interaction, publisher
         # Delivered: the doorstep with the package. Picked up: who came for it.
         image = after.jpeg
         if kind == "picked_up":
-            image = person_snapshot(settings.frigate_api, settings.camera_name, came) or image
+            image = perception.person_snapshot(came) or image
         path = settings.snapshot_dir / f"{visit.event_id}-{kind}.jpg"
         path.write_bytes(image)
         visit.image = path
@@ -144,7 +134,7 @@ def start_packages(settings: Settings, tracker, notifier, interaction, publisher
 
     watcher = PackageWatcher(
         present=tracker.person_present,
-        frame=lambda: frigate_frame(settings.frigate_api, settings.camera_name),
+        frame=perception.latest_frame,
         zone=lambda: zone.polygon,
         score=model.score,
         on_change=on_change,
@@ -269,11 +259,18 @@ def main() -> None:
         )
         commands[QUICK_REPLY_TOPIC.format(camera=settings.camera_name)] = quick.from_mqtt
 
-    # The callbacks reference `tracker` and `publisher`, defined below; no
-    # message arrives before connect() at the end.
+    # What sees the door: Frigate, today (perception.py). Its person events go to the
+    # tracker (defined below; no message arrives before connect() at the end).
+    perception = FrigatePerception(
+        settings.frigate_api,
+        settings.camera_name,
+        topic=settings.mqtt_topic,
+        subscribe=commands.__setitem__,
+    )
+    perception.start(lambda event: tracker.handle_event(event))
+    # The callbacks reference `publisher`, defined below.
     client = build_mqtt_client(
         settings,
-        on_event=lambda event: tracker.handle_event(event),
         health=health,
         on_connected=lambda: publisher.announce(),
         commands=commands,
@@ -290,7 +287,7 @@ def main() -> None:
 
     notifier = Notifier(
         build_notify_backends(settings),
-        snapshot=lambda visit: frigate_snapshot(settings.frigate_api, visit),
+        snapshot=lambda visit: perception.snapshot(visit.event_id),
         log_to=EventLog(settings.notification_log_file),
         actions=quick.buttons if quick else lambda visit: [],
     )
@@ -340,13 +337,8 @@ def main() -> None:
         if watcher:
             watcher.keep(event_id, "household")
 
-    door = None
-    if settings.door_zone:
-        # Someone appearing here is the household coming out (SessionTracker).
-        door = Zone(
-            settings.door_zone, settings.camera_name, lambda: fetch_config(settings.frigate_api)
-        )
-        start_thread("door-zone", door.load_until_known)
+    # Someone appearing at the door is the household coming out (SessionTracker).
+    door = perception.zone(settings.door_zone) if settings.door_zone else None
     tracker = SessionTracker(
         camera=settings.camera_name,
         dwell_seconds=settings.dwell_seconds,
@@ -370,7 +362,7 @@ def main() -> None:
         "sweep", tracker.sweep_forever, settings.sweep_interval_seconds, on_sweep=health.sweep_done
     )
     if settings.package_zone:
-        start_packages(settings, tracker, notifier, interaction, publisher)
+        start_packages(settings, perception, tracker, notifier, interaction, publisher)
     start_thread("retention", Retention(settings).run_forever)
 
     def on_press() -> None:

@@ -3,10 +3,10 @@
 A package only appears or goes when someone comes to the door, so the doorstep
 isn't watched all the time; it's compared before and after each visit:
 
-1. While nobody is on the porch, ``PackageWatcher`` keeps a recent frame from
-   Frigate.
+1. While nobody is on the porch, ``PackageWatcher`` keeps a recent frame from the
+   camera (the perception's latest frame).
 2. Once whoever came has been gone ``settle_seconds``, it takes another and
-   compares the package zone (PACKAGE_ZONE, a Frigate zone) in the two
+   compares the package zone (PACKAGE_ZONE, a perception zone) in the two
    (``compare``): grid cells whose brightness changed, after evening out the
    camera's exposure, grouped into patches. A change across the whole frame (a
    light switched on, the camera's night mode) isn't judged.
@@ -34,21 +34,19 @@ import logging
 import math
 import os
 import time
-import urllib.parse
-import urllib.request
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
 
-from gatekeeper.frigate import Point, inside
+from gatekeeper.perception import Point, Shot, decode_jpeg, inside  # noqa: F401 (re-exported)
 
 log = logging.getLogger(__name__)
 
 Box = tuple[int, int, int, int]  # x0, y0, x1, y1, in pixels
 
-# Comparing the doorstep (on Frigate's 640x480 frames).
+# Comparing the doorstep (on frames ~480 rows high: 640x480 on the rig).
 CELL = 16  # pixels; the grid compared
 MIN_CELLS = 4  # a patch smaller than this is noise (leaves, a moth)
 CHANGE_LEVEL = 20.0  # gray levels a cell must change by...
@@ -71,14 +69,6 @@ MAX_PENDING = 5
 
 
 @dataclass
-class Shot:
-    """A frame: RGB pixels, and the JPEG they came from (to attach to a notification)."""
-
-    rgb: np.ndarray
-    jpeg: bytes
-
-
-@dataclass
 class Package:
     box: Box
     since: float  # when the visit that left it started
@@ -91,57 +81,6 @@ class Comparison:
     reason: str = ""  # why not judged
     patches: list[Box] | None = None
     changed: np.ndarray | None = None  # changed cells (rows x cols)
-
-
-def decode_jpeg(data: bytes, height: int = 480) -> np.ndarray | None:
-    """RGB pixels of a JPEG, scaled to ``height`` rows, keeping its shape (640 wide for
-    a 4:3 camera, 854 for 16:9). PyAV decodes it."""
-    import io
-
-    import av
-
-    try:
-        with av.open(io.BytesIO(data)) as container:
-            frame = next(container.decode(video=0))
-            width = round(frame.width * height / frame.height / 2) * 2
-            return frame.reformat(width, height, format="rgb24").to_ndarray()
-    except Exception as e:
-        log.warning("couldn't decode a frame: %s", e)
-        return None
-
-
-def frigate_frame(api: str, camera: str, timeout: float = 10.0) -> Shot | None:
-    """Frigate's latest frame of ``camera`` (its detect stream, 640x480 on the rig)."""
-    url = f"{api.rstrip('/')}/api/{urllib.parse.quote(camera)}/latest.jpg?h=480&quality=90"
-    try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
-            data = resp.read()
-    except Exception as e:
-        log.warning("couldn't get a frame from Frigate: %s", e)
-        return None
-    rgb = decode_jpeg(data)
-    return None if rgb is None else Shot(rgb, data)
-
-
-def person_snapshot(api: str, camera: str, since: float, timeout: float = 10.0) -> bytes | None:
-    """Frigate's snapshot of the first person seen on ``camera`` since ``since``: who
-    came for a package."""
-    base = api.rstrip("/")
-    query = urllib.parse.urlencode(
-        {"camera": camera, "label": "person", "after": f"{since - 10:.0f}", "limit": 20}
-    )
-    try:
-        with urllib.request.urlopen(f"{base}/api/events?{query}", timeout=timeout) as resp:
-            events = json.load(resp)
-        if not events:
-            return None
-        first = min(events, key=lambda e: e["start_time"])
-        url = f"{base}/api/events/{urllib.parse.quote(first['id'])}/snapshot.jpg?quality=85"
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
-            return resp.read()
-    except Exception as e:
-        log.warning("no snapshot of who picked the package up: %s", e)
-        return None
 
 
 def _gray(rgb: np.ndarray) -> np.ndarray:

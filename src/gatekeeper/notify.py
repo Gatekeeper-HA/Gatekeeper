@@ -3,7 +3,7 @@
 The Notifier runs as an ``Interaction.on_notify`` callback, once per visit:
 right after the visitor's answer is classified (before the reply plays), or
 when the visit fails. Sending happens on a background thread so the visit
-isn't delayed; the Frigate snapshot of the visitor is attached when available.
+isn't delayed; a snapshot of the visitor (from the perception) is attached when available.
 With quick replies (quick_reply.py), ntfy notifications carry their buttons.
 
 Backends: ntfy (self-hosted or ntfy.sh). Home Assistant notify can be added as
@@ -241,28 +241,6 @@ class NtfyBackend:
     def send(self, notification: Notification, image: bytes | None) -> None:
         with urllib.request.urlopen(self.request(notification, image), timeout=self.timeout):
             pass
-
-
-def _fetch(url: str, timeout: float) -> bytes | None:
-    try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
-            return resp.read()
-    except (urllib.error.URLError, OSError) as e:
-        log.warning("no snapshot from %s: %s", url, e)
-        return None
-
-
-def frigate_snapshot(api: str, visit: Visit, timeout: float = 3.0) -> bytes | None:
-    """The best snapshot of the visit's Frigate event so far (works while it's in
-    progress), else the camera's latest frame (e.g. a doorbell press before
-    Frigate saw anyone)."""
-    base = api.rstrip("/")
-    q = urllib.parse.quote
-    if not visit.event_id.startswith("press-"):
-        image = _fetch(f"{base}/api/events/{q(visit.event_id)}/snapshot.jpg?quality=85", timeout)
-        if image:
-            return image
-    return _fetch(f"{base}/api/{q(visit.camera)}/latest.jpg?h=720&quality=85", timeout)
 
 
 class Notifier:

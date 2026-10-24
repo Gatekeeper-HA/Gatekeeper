@@ -5,6 +5,7 @@ from pydantic import SecretStr
 from conftest import load_fixture
 from gatekeeper.app import build_mqtt_client, ensure_dirs
 from gatekeeper.config import Settings
+from gatekeeper.frigate import FrigatePerception
 from gatekeeper.health import Health
 from gatekeeper.sessions import SessionTracker
 
@@ -13,20 +14,32 @@ def message(payload: bytes):
     return SimpleNamespace(topic="frigate/events", payload=payload)
 
 
+def wired(settings, on_event=lambda e: None, commands=(), **kw):
+    """The MQTT client as app.main wires it: the perception (Frigate, here) follows its
+    events topic, next to any other topics."""
+    topics = {}
+    perception = FrigatePerception(
+        settings.frigate_api, settings.camera_name, subscribe=topics.__setitem__
+    )
+    perception.start(on_event)
+    topics.update(dict(commands))
+    return build_mqtt_client(settings, commands=topics, **kw)
+
+
 def test_mqtt_messages_reach_the_tracker(settings, clock):
     started = []
     tracker = SessionTracker(
         camera="front_door", dwell_seconds=0, ttl_seconds=120,
         run_visit=lambda eid, trigger: started.append(eid), spawn=lambda fn: fn(), clock=clock,
     )  # fmt: skip
-    client = build_mqtt_client(settings, on_event=tracker.handle_event)
+    client = wired(settings, on_event=tracker.handle_event)
     client.on_message(client, None, message(load_fixture("frigate/person_new.json")))
     assert started == ["1727712000.123456-abc123"]
 
 
 def test_bad_messages_do_not_raise(settings):
     events = []
-    client = build_mqtt_client(settings, on_event=events.append)
+    client = wired(settings, on_event=events.append)
     for payload in (b"garbage", b"[]", b'{"type": "new"}'):
         client.on_message(client, None, message(payload))
     assert events == []
@@ -36,15 +49,13 @@ def test_handler_errors_do_not_raise(settings):
     def boom(event):
         raise RuntimeError("tracker bug")
 
-    client = build_mqtt_client(settings, on_event=boom)
+    client = wired(settings, on_event=boom)
     client.on_message(client, None, message(load_fixture("frigate/person_new.json")))
 
 
 def test_on_connect_subscribes_and_announces(settings):
     connected = []
-    client = build_mqtt_client(
-        settings, on_event=lambda e: None, on_connected=lambda: connected.append(True)
-    )
+    client = wired(settings, on_event=lambda e: None, on_connected=lambda: connected.append(True))
     subscribed = []
     fake = SimpleNamespace(subscribe=subscribed.append)
     client.on_connect(fake, None, {}, 0, None)
@@ -54,9 +65,7 @@ def test_on_connect_subscribes_and_announces(settings):
 
 def test_refused_connection_does_not_announce(settings):
     connected = []
-    client = build_mqtt_client(
-        settings, on_event=lambda e: None, on_connected=lambda: connected.append(True)
-    )
+    client = wired(settings, on_event=lambda e: None, on_connected=lambda: connected.append(True))
     client.on_connect(SimpleNamespace(subscribe=lambda t: None), None, {}, 5, None)
     assert connected == []
 
@@ -64,19 +73,19 @@ def test_refused_connection_does_not_announce(settings):
 def test_credentials_are_used_when_set(settings):
     settings.mqtt_username = "gatekeeper"
     settings.mqtt_password = SecretStr("s3cret")
-    client = build_mqtt_client(settings, on_event=lambda e: None)
+    client = wired(settings, on_event=lambda e: None)
     assert client._username == b"gatekeeper"
     assert client._password == b"s3cret"
 
 
 def test_no_credentials_by_default(settings):
-    client = build_mqtt_client(settings, on_event=lambda e: None)
+    client = wired(settings, on_event=lambda e: None)
     assert client._username is None
 
 
 def test_mqtt_connection_state_feeds_health(settings):
     health = Health(sweep_max_age=10, visit_max_age=90)
-    client = build_mqtt_client(settings, on_event=lambda e: None, health=health)
+    client = wired(settings, on_event=lambda e: None, health=health)
     fake = SimpleNamespace(subscribe=lambda topic: None)
     client.on_connect(fake, None, {}, 5, None)  # refused (not authorized)
     assert not health.mqtt_connected
@@ -105,7 +114,7 @@ def test_notify_backends_from_settings(settings):
 
 def test_command_topics_are_subscribed_and_handled_apart_from_events(settings):
     events, replies = [], []
-    client = build_mqtt_client(
+    client = wired(
         settings,
         on_event=events.append,
         commands={"gatekeeper/front_door/quick_reply": replies.append},

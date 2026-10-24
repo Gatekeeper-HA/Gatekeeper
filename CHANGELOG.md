@@ -79,6 +79,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     well under a second, with the same groups as before.
 
 ### Changed
+- **Frigate is behind a perception interface** (`gatekeeper.perception`, inside the code,
+  no change in behaviour). Person events, zones, the camera's latest frame and snapshots
+  come from a `Perception`, which Frigate provides today (`frigate.FrigatePerception`).
+  It's the first step to running on our own hub without Frigate (design doc 03).
 - **The compose stack doesn't greet someone back within 4 minutes of leaving**
   (`RETURN_WINDOW_SECONDS` 240, was 120). In 8 days on the rig, all 41 people who walked
   up within 30 minutes of someone leaving by the door were the household. The 2-minute

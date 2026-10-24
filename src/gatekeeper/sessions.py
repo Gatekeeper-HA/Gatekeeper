@@ -44,7 +44,7 @@ import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 
-from gatekeeper.frigate import FrigateEvent, Point
+from gatekeeper.perception import PersonEvent, Point
 
 log = logging.getLogger(__name__)
 
@@ -127,7 +127,7 @@ class SessionTracker:
         self._last_household: str | None = None
         self._household_until = 0.0
 
-    def handle_event(self, event: FrigateEvent) -> None:
+    def handle_event(self, event: PersonEvent) -> None:
         if event.camera != self.camera or event.label != "person":
             return
 
@@ -300,7 +300,7 @@ class SessionTracker:
             return bool(sessions)
         return any(self.trigger_zones & s.current_zones for s in sessions)
 
-    def _went_inside(self, event: FrigateEvent, session: Session | None) -> str | None:
+    def _went_inside(self, event: PersonEvent, session: Session | None) -> str | None:
         """The active visit's id if the person whose event just ended went in by the
         door: their track ended in the door zone, they were this visit's (its own
         event, or one merged into it), nobody pressed the doorbell, and nobody else
