@@ -182,6 +182,11 @@ services:
       FACE_DIR: "/faces"
       # The household faces page on :8098, off unless GATEKEEPER_WEB_PASSWORD is set.
       WEB_PASSWORD: "${GATEKEEPER_WEB_PASSWORD:-}"
+      # Gatekeeper's own person detection, next to Frigate's: off unless
+      # OWN_PERCEPTION=shadow in .env. It only logs its tracks; the daily report compares
+      # them with Frigate's. The rig's CPU takes ~265 ms a frame through the detector.
+      OWN_PERCEPTION: "${OWN_PERCEPTION:-off}"
+      OWN_PERCEPTION_FPS: "3"
       LISTEN_SECONDS: "4"
       WHISPER_MODEL: "base.en"
       WHISPER_COMPUTE_TYPE: "int8"

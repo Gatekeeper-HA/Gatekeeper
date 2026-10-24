@@ -88,10 +88,14 @@ def fetch_model(model: tuple[str, str], cache: Path) -> Path:
     """The model file (OpenCV Zoo path, SHA-256), downloaded into ``cache`` the first
     time and checked."""
     path, sha256 = model
-    target = cache / Path(path).name
+    return download(ZOO.format(commit=ZOO_COMMIT, path=path), sha256, cache)
+
+
+def download(url: str, sha256: str, cache: Path) -> Path:
+    """The file at ``url``, downloaded into ``cache`` the first time and checked."""
+    target = cache / url.rsplit("/", 1)[-1]
     if not target.exists():
         cache.mkdir(parents=True, exist_ok=True)
-        url = ZOO.format(commit=ZOO_COMMIT, path=path)
         log.info("downloading %s", url)
         fd, tmp = tempfile.mkstemp(dir=cache, suffix=".part")
         os.close(fd)

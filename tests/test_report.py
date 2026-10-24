@@ -770,3 +770,87 @@ def test_the_household_stepping_out_is_counted_and_covers_its_arrival():
     assert failing(r) == {}  # not an arrival "not greeted"
     assert (r["counts"]["visits"], r["counts"]["stepped_out"]) == (0, 1)
     assert "1 came out and went back in (not greeted, on purpose)" in render_text(r)
+
+
+def own_log(*lines):
+    return "### gatekeeper\n" + "".join(
+        f"{stamp(ts)} INFO    gatekeeper.{logger} [-] {message}\n" for ts, logger, message in lines
+    )
+
+
+def own_track(start, end, zones):
+    return (
+        end + 3,
+        "own_perception",
+        f"own perception: person track {start:.6f}-own1 start={start:.1f} end={end:.1f} "
+        f"zones={zones} path=(0.20,0.50)->(0.70,0.90) best=0.88 hits=12",
+    )
+
+
+def test_own_perception_is_compared_with_frigates_arrivals():
+    arrivals = [
+        {"start_time": NOW - 9000, "end_time": NOW - 8990},  # before it started
+        {"start_time": NOW - 5000, "end_time": NOW - 4980},  # seen on the porch
+        {"start_time": NOW - 4000, "end_time": NOW - 3990},  # seen, but not on the porch
+        {"start_time": NOW - 3000, "end_time": None},  # missed (still going)
+    ]
+    log = own_log(
+        (NOW - 8000, "app", "own perception on (shadow): go2rtc:8554/front_door_sub, zones porch"),
+        own_track(NOW - 4997, NOW - 4975, "porch,door"),
+        own_track(NOW - 3993, NOW - 3985, "-"),
+        own_track(NOW - 3500, NOW - 3490, "porch"),  # Frigate had nobody then
+        (
+            NOW - 1000,
+            "own_perception",
+            "own perception stats: 10800 frames in 3600 s, 900 through the detector "
+            "(median 190 ms), 0 track(s) now",
+        ),
+        (
+            NOW - 100,
+            "own_perception",
+            "own perception stats: 7200 frames in 3600 s, 600 through the detector "
+            "(median 180 ms), 0 track(s) now",
+        ),
+        (
+            NOW - 50,
+            "own_perception",
+            "own perception stats: 0 frames in 3600 s, 0 through the detector "
+            "(median 0 ms), 0 track(s) now",
+        ),
+    )
+    r = build(
+        inputs(
+            arrivals=arrivals,
+            log_text=log,
+            trigger_zones=("porch",),
+            own_perception="shadow",
+            window_visits=[],
+            visits=[],
+        )
+    )
+    own = r["own_perception"]
+    assert (own["arrivals"], own["seen"], own["tracks"]) == (3, 1, 3)
+    assert own["seen_elsewhere"] == [report.local(NOW - 4000)]
+    assert own["missed"] == [report.local(NOW - 3000)]
+    assert own["extra"] == [report.local(NOW - 3500)]
+    assert (own["frames"], own["detected"], own["fps"], own["detector_ms"]) == (
+        18000,
+        1500,
+        1.7,
+        190,
+    )
+    assert "own_perception" not in failing(r)
+    assert (
+        f"Own perception (shadow, since {report.local(NOW - 8000)}): saw 1 of 3 porch arrivals "
+        f"in the zone, 1 elsewhere, missed {report.local(NOW - 3000)}; 3 track(s), 1 on the "
+        f"porch Frigate didn't have ({report.local(NOW - 3500)}); 1.7 fps, detector on 1500 "
+        "of 18000 frames, median 190 ms" in render_text(r)
+    )
+
+
+def test_own_perception_on_but_silent_fails_a_check():
+    assert build(inputs())["own_perception"] is None
+    assert "own_perception" not in failing(build(inputs()))
+    assert failing(build(inputs(own_perception="shadow")))["own_perception"] == (
+        "own perception is on but logged nothing"
+    )

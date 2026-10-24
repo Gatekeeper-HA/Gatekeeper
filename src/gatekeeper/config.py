@@ -92,6 +92,22 @@ class Settings(BaseSettings):
     face_candidate_days: float = 14.0
     face_model_dir: Path = Path.home() / ".cache" / "gatekeeper" / "faces"
 
+    # Gatekeeper's own perception (own_perception.py): it reads the camera's
+    # low-resolution stream and finds and tracks people itself (YOLOX), to replace
+    # Frigate on our hub. "shadow": it runs next to Frigate and only logs its tracks,
+    # for the daily report to compare; Frigate still drives the visits.
+    own_perception: Literal["off", "shadow"] = "off"
+    # The camera's low-resolution stream. Defaults to audio_rtsp_url + "_sub" (go2rtc's
+    # <camera_name>_sub).
+    own_perception_url: str = ""
+    # Frames looked at per second, at most: the detector runs on those where something
+    # moved, or while someone is tracked.
+    own_perception_fps: float = 5.0
+    # The detector's score (0-1) for a person.
+    own_perception_threshold: float = 0.3
+    own_perception_threads: int = 2
+    model_dir: Path = Path.home() / ".cache" / "gatekeeper" / "models"
+
     # Listening. With the audio tap, Gatekeeper reads the camera's audio all the
     # time and stops listening when the visitor stops talking (voice activity
     # detection); without it, it records a fixed window per prompt.
@@ -246,6 +262,8 @@ class Settings(BaseSettings):
             self.audio_rtsp_url = f"rtsp://go2rtc:8554/{self.camera_name}"
         if not self.face_rtsp_url:
             self.face_rtsp_url = self.audio_rtsp_url
+        if not self.own_perception_url:
+            self.own_perception_url = f"{self.audio_rtsp_url}_sub"
         if not self.ntfy_public_url:
             self.ntfy_public_url = self.ntfy_url
         if not self.ntfy_reply_topic:

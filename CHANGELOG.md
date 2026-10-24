@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Own perception, in shadow** (`OWN_PERCEPTION=shadow`, off by default). This is step 2
+  of replacing Frigate on our hub: Gatekeeper finds and tracks people itself, next to
+  Frigate, and only logs them.
+  - **How it works:** it reads the camera's low-resolution stream and keeps only the newest
+    frame. A motion check gates the person detector, YOLOX-tiny (Apache-2.0), which was
+    picked by testing on the rig's footage. Detections become tracks that walk through
+    Gatekeeper's zones and give the same person events as Frigate's.
+  - **Daily report:** each track is logged when it ends, and the report compares the tracks
+    with Frigate's porch arrivals: seen in the zone, seen elsewhere, missed, and porch tracks
+    Frigate didn't have. It also reports frames per second and the detector's time. Its
+    `own_perception` check fails if it's on but logged nothing.
+  - **New settings:** `OWN_PERCEPTION`, `OWN_PERCEPTION_URL`, `OWN_PERCEPTION_FPS`,
+    `OWN_PERCEPTION_THRESHOLD`, `OWN_PERCEPTION_THREADS`, `MODEL_DIR`.
+
 - **Quick replies** (Phase 1): the doorbell notification has buttons, *I'm coming*,
   *Not now* and *No thanks*, that make Gatekeeper say that line at the door. Before, you
   couldn't answer from your phone at all. It works within 5 minutes of the notification,
