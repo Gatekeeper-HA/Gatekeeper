@@ -3,7 +3,8 @@ import os
 
 import numpy as np
 
-from gatekeeper.face_watch import KEEP_PER_EVENT, FaceWatcher, owner
+from gatekeeper import face_admin
+from gatekeeper.face_watch import KEEP_PER_EVENT, FaceWatcher, display_crop, owner
 from gatekeeper.faces import TEMPLATE, Face, Gallery
 
 
@@ -81,6 +82,7 @@ def watcher(tmp_path, detector, embedder, people, seen, tap=None, clock=lambda: 
         candidate_dir=tmp_path / "candidates",
         candidate_days=14,
         clock=clock,
+        encode=lambda bgr: b"JPEG %dx%d" % bgr.shape[:2],
     )
     return w
 
@@ -197,3 +199,83 @@ def test_old_faces_and_candidates_are_forgotten(tmp_path):
     w.prune()
     assert not path.exists()
     assert w._faces == {}
+
+
+def test_kept_faces_carry_a_sharper_picture_from_the_full_frame(tmp_path):
+    seen = []
+    w = watcher(
+        tmp_path, Detector(face_at(100, 50, 30)), Embedder(unit(1)), lambda: [("A", 0, None)], seen
+    )
+    w.look(1000.0, Frame())
+    w.keep("A", "entered")
+    (face,) = face_admin.load_candidates(tmp_path / "candidates")
+    # The 120 px face, 1.6x wider: 192 px from the 2560x1920 frame (not 112 aligned).
+    assert face["display"] == b"JPEG 192x192"
+    assert face["face"].shape == (112, 112, 3)
+
+
+def test_a_big_face_is_scaled_down_and_kept_inside_the_frame():
+    full = np.zeros((1920, 2560, 3), np.uint8)
+    big = Face((2400, 1700, 400, 400), np.zeros((5, 2)), 0.9)  # at the corner
+    crop = display_crop(full, big)
+    assert crop.shape[0] == crop.shape[1] and crop.shape[0] <= 320 and crop.shape[0] % 2 == 0
+
+
+class Watching(Tap):
+    """A tap whose frames come while someone's on camera: keep() is called mid-watch."""
+
+    def __init__(self, frames, during):
+        super().__init__(frames)
+        self.during = during
+
+    def frames(self, since, every, stop):
+        for k, (at, frame) in enumerate(self.frames_given):
+            if k == 1:
+                self.during()
+            yield at, frame
+
+
+def test_faces_seen_after_the_decision_are_kept_too(tmp_path):
+    seen = []
+    w = None
+
+    def decide():  # e.g. "returned": decided while they're still walking up
+        assert w.keep("A", "returned") is None  # not yet: they're still on camera
+
+    tap = Watching([(1000.0 + k, Frame()) for k in range(4)], decide)
+    w = watcher(
+        tmp_path,
+        Detector(face_at(100, 50, 30)),
+        Embedder(unit(0, 1)),
+        lambda: [("A", 999.0, None)],
+        seen,
+        tap=tap,
+    )
+    w._watch_once()
+    (path,) = (tmp_path / "candidates").glob("*.npz")
+    with np.load(path) as d:
+        assert len(d["embeddings"]) == 4 and str(d["outcome"]) == "returned"
+
+
+def test_capturing_keeps_whoever_walks_up(tmp_path):
+    seen = []
+    now = [1000.0]
+    tap = Tap([(1000.0 + k, Frame()) for k in range(3)])
+    w = watcher(
+        tmp_path,
+        Detector(face_at(100, 50, 30)),
+        Embedder(unit(0, 1)),
+        lambda: [("B", 999.0, None)],
+        seen,
+        tap=tap,
+        clock=lambda: now[0],
+    )
+    assert w.capturing() == 0
+    w.capture(120)
+    assert w.capturing() == 120
+    w._watch_once()
+    (path,) = (tmp_path / "candidates").glob("*.npz")
+    with np.load(path) as d:
+        assert str(d["outcome"]) == "capture" and len(d["embeddings"]) == 3
+    now[0] += 121
+    assert w.capturing() == 0

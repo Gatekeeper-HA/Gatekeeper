@@ -295,6 +295,15 @@ class Gallery:
                 best, score = name, s
         return best, score
 
+    def resemblance(self, embeddings: Sequence[np.ndarray]) -> dict[str, float]:
+        """How much a group of faces looks like each enrolled person: the average, over
+        the faces, of the best cosine similarity to that person's faces."""
+        faces = np.asarray(embeddings, dtype=np.float64)
+        return {
+            name: float(np.mean(np.max(faces @ embs.T, axis=1)))
+            for name, embs in self._people.items()
+        }
+
     def enroll(self, name: str, embeddings: Sequence[np.ndarray]) -> None:
         data = self._read()
         person = data["people"].setdefault(name, {"embeddings": [], "added": time.time()})

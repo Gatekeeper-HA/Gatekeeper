@@ -418,9 +418,11 @@ a face is big enough to recognize while they're still on the walkway.
 
 **What's stored.**
 - **Enrolled people:** 128 numbers per face in `FACE_DIR/gallery.json`, no pictures.
-- **Faces kept for enrollment:** those of people who went in by the front door (`entered`)
-  or were recognized, up to 8 per visit, for `FACE_CANDIDATE_DAYS`, in
-  `FACE_DIR/candidates/`.
+- **Faces kept for enrollment:** for `FACE_CANDIDATE_DAYS`, in `FACE_DIR/candidates/`, up
+  to 8 per visit. They come from people who went in by the front door (`entered`), came back
+  soon after leaving (`returned`), were recognized, or walked up while you asked to capture
+  faces. Each is kept twice: aligned at 112x112 for recognition, and as a sharper picture
+  from the full frame for the page.
 - **Nobody else's face is stored.** Visitors' faces are compared in memory and forgotten.
 - **Purge:** `purge` deletes everything (below).
 
@@ -431,6 +433,12 @@ of the household coming and going, open the faces page: `http://<SERVER_IP>:8098
 - **Faces to enroll:** the kept faces, grouped by person. Untick any face that isn't them,
   pick or type their name, tick that they agreed, and enroll. Faces that aren't the
   household can be deleted.
+  - **Grouping:** one track's faces are always one person. Tracks are then grouped by how
+    alike their faces are.
+  - **Names:** once someone is enrolled, a group that clearly looks like them comes with
+    their name filled in. Otherwise the closest names are shown, and you choose.
+- **Capture at the door:** for someone the camera hasn't caught going inside. Tap it, walk
+  up to the doorbell, and look at it for a few seconds. Your faces appear on the page.
 - **Enrolled:** who is enrolled, each with *Forget*. *Delete every face* purges everything.
 
 The page has no scripts and works on a phone. Every change needs a token from the page,
