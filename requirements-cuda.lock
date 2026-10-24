@@ -1,8 +1,19 @@
 # CUDA libraries for the GPU image (Dockerfile VARIANT=cuda), Python 3.11, linux x86_64.
-# Regenerate after changing requirements-cuda.in:
-#   uv pip compile requirements-cuda.in --python-version 3.11 \
+# Regenerate after changing requirements-cuda.in, with requirements.lock as constraints
+# (without its --index-url lines, which uv doesn't take there) so shared packages match:
+#   grep -v '^--' requirements.lock > /tmp/constraints.txt
+#   uv pip compile requirements-cuda.in -c /tmp/constraints.txt --python-version 3.11 \
 #     --python-platform x86_64-manylinux_2_28 --no-header --annotation-style line \
 #     -o requirements-cuda.lock
+flatbuffers==25.12.19     # via onnxruntime-gpu, -c requirements.lock
+numpy==2.4.6              # via onnxruntime-gpu, -c requirements.lock
 nvidia-cublas-cu12==12.9.2.10  # via nvidia-cudnn-cu12, -r requirements-cuda.in
 nvidia-cuda-nvrtc-cu12==12.9.86  # via nvidia-cublas-cu12
+nvidia-cuda-runtime-cu12==12.9.79  # via -r requirements-cuda.in
 nvidia-cudnn-cu12==9.27.0.42  # via -r requirements-cuda.in
+nvidia-cufft-cu12==11.4.1.4  # via -r requirements-cuda.in
+nvidia-curand-cu12==10.3.10.19  # via -r requirements-cuda.in
+nvidia-nvjitlink-cu12==12.9.86  # via nvidia-cufft-cu12
+onnxruntime-gpu==1.30.0   # via -r requirements-cuda.in
+packaging==26.3           # via onnxruntime-gpu, -c requirements.lock
+protobuf==7.36.2          # via onnxruntime-gpu, -c requirements.lock

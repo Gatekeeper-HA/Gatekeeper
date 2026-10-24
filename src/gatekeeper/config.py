@@ -106,6 +106,9 @@ class Settings(BaseSettings):
     # The detector's score (0-1) for a person.
     own_perception_threshold: float = 0.3
     own_perception_threads: int = 2
+    # "auto": an NVIDIA GPU if onnxruntime has CUDA (the GPU image) and it works, else
+    # the CPU.
+    own_perception_device: Literal["auto", "cpu", "cuda"] = "auto"
     model_dir: Path = Path.home() / ".cache" / "gatekeeper" / "models"
 
     # Listening. With the audio tap, Gatekeeper reads the camera's audio all the

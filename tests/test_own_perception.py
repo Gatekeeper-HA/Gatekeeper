@@ -391,12 +391,17 @@ def test_app_starts_it_with_the_zones_gatekeeper_uses(monkeypatch, tmp_path):
         ),
     )
     monkeypatch.setattr(own, "fetch_model", lambda model, cache: tmp_path / "yolox_tiny.onnx")
-    monkeypatch.setattr(own, "Yolox", lambda path, threshold, threads: ("yolox", path, threshold))
+
+    class Yolox:
+        def __init__(self, path, threshold, threads, device):
+            self.args, self.device = (path, threshold, threads, device), "cpu"
+
+    monkeypatch.setattr(own, "Yolox", Yolox)
     settings = Settings(
         trigger_zones="porch", door_zone="door", package_zone="porch", model_dir=tmp_path
     )
     service = app.start_own_perception(settings, Perception())
     assert Perception.asked == ["porch", "door"]
     assert service.tracker._zones() == {"porch": PORCH, "door": None}
-    assert service.detector == ("yolox", tmp_path / "yolox_tiny.onnx", 0.3)
+    assert service.detector.args == (tmp_path / "yolox_tiny.onnx", 0.3, 2, "auto")
     assert started == ["own-perception-start", "own-perception-read", "own-perception"]

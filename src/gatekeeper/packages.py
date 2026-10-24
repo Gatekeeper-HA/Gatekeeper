@@ -220,8 +220,11 @@ class PackageModel:
 
         options = ort.SessionOptions()
         options.intra_op_num_threads = 2  # leave the rest of the CPU to Frigate
-        vision = ort.InferenceSession(fetch("onnx/vision_model_quantized.onnx"), options)
-        text = ort.InferenceSession(fetch("onnx/text_model_quantized.onnx"), options)
+        # On the CPU even where onnxruntime has CUDA (the GPU image): it's a few checks a
+        # day, and a GPU build won't guess the provider.
+        cpu = ["CPUExecutionProvider"]
+        vision = ort.InferenceSession(fetch("onnx/vision_model_quantized.onnx"), options, cpu)
+        text = ort.InferenceSession(fetch("onnx/text_model_quantized.onnx"), options, cpu)
         tokenizer = Tokenizer.from_file(fetch("tokenizer.json"))
         encoded = tokenizer.encode_batch([*self.PACKAGE, *self.OTHER])
         n = max(len(e.ids) for e in encoded)
