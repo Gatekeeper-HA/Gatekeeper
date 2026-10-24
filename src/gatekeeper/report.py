@@ -551,13 +551,17 @@ def build(i: Inputs) -> dict:
     whisper = whisper_info(sources.get("whisper", []) + sources.get("gatekeeper", []))
     frigate = frigate_info(i.stats, i.camera)
     deploys = host.get("deploys", [])
-    # A recreated container (a deploy) starts a new log: what came before is gone.
-    created = {
+    # A recreated container (a deploy) starts a new log: what came before is gone, unless
+    # deploy.sh kept it (kept_logs: the daily report prepended the replaced one's log).
+    kept = set(host.get("kept_logs", []))
+    recreated = {
         name: ts
         for name, iso in host.get("created", {}).items()
         if (ts := utc_timestamp(iso)) and ts > since
     }
+    created = {name: ts for name, ts in recreated.items() if name not in kept}
     logs["since"] = {name: local(ts) for name, ts in created.items()}
+    logs["kept"] = {name: local(ts) for name, ts in recreated.items() if name in kept}
     hangs = outcomes.get("timeout", 0) + host.get("hang_exits", 0) + host.get("restarts", 0)
 
     checks: list[dict] = []
@@ -860,6 +864,11 @@ def summary_lines(report: dict) -> list[str]:
             "Logs only since the container was recreated: "
             + ", ".join(f"{name} from {t}" for name, t in since.items())
             + " (errors and Whisper's times before then aren't counted)"
+        )
+    if kept := report["logs"].get("kept"):
+        lines.append(
+            "Logs kept across the deploy: "
+            + ", ".join(f"{name} (recreated {t})" for name, t in kept.items())
         )
     if report["deploys"]:
         lines.append(

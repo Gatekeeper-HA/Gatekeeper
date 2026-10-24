@@ -33,3 +33,44 @@ except urllib.error.HTTPError as e:
     r = e
 print(json.load(r).get("visit_age_seconds") is not None)' 2>/dev/null | grep -qx True
 }
+
+# A recreated container takes its log with it (#14, #59). keep_logs saves each container's
+# last 24 h, with Docker's timestamps, to $state/logs/<name>-<id>.log before deploy.sh
+# recreates it (overwritten if it isn't, so it's safe to run every time).
+keep_logs() {
+  local name id
+  mkdir -p "$state/logs"
+  for name in gatekeeper frigate; do
+    id=$(docker inspect -f '{{.Id}}' "$name" 2>/dev/null | cut -c1-12 || true)
+    [ -n "$id" ] || continue
+    docker logs --timestamps --since 24h "$name" > "$state/logs/$name-$id.log" 2>&1 || true
+  done
+  find "$state/logs" -name '*.log' -mtime +1 -delete 2>/dev/null || true
+}
+
+# day_log NAME: the container's last 24 h of log, after what keep_logs saved of the
+# containers it replaced (oldest first, the window's lines only, timestamps stripped).
+day_log() {
+  local name=$1 id cutoff f
+  id=$(docker inspect -f '{{.Id}}' "$name" 2>/dev/null | cut -c1-12 || true)
+  cutoff=$(date -u -d '-24 hour' +%Y-%m-%dT%H:%M:%S)
+  for f in $(ls -tr "$state/logs/$name"-*.log 2>/dev/null); do
+    [ "$f" = "$state/logs/$name-$id.log" ] && continue
+    awk -v c="$cutoff" 'substr($1, 1, 19) >= c { sub(/^[^ ]* /, ""); print }' "$f"
+  done
+  docker logs --since 24h "$name" 2>&1
+}
+
+# kept_logs: the containers whose day_log includes a replaced container's log, as JSON.
+kept_logs() {
+  local name id cutoff f out=()
+  cutoff=$(date -d '-24 hour' +%s)
+  for name in gatekeeper frigate; do
+    id=$(docker inspect -f '{{.Id}}' "$name" 2>/dev/null | cut -c1-12 || true)
+    for f in "$state/logs/$name"-*.log; do
+      [ -f "$f" ] && [ "$f" != "$state/logs/$name-$id.log" ] \
+        && [ "$(stat -c %Y "$f")" -ge "$cutoff" ] && { out+=("$name"); break; }
+    done
+  done
+  printf '%s\n' "${out[@]}" | jq -Rsc 'split("\n") | map(select(length > 0))'
+}

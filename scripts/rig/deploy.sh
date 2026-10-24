@@ -86,6 +86,7 @@ build() {
 }
 
 restart() {
+  keep_logs  # docker compose up -d takes a recreated container's log with it
   docker compose up -d
   [ -z "$services" ] || docker compose restart $services
 }

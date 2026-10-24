@@ -101,6 +101,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   whether that brought the recordings' audio back, its alerts, and when a deploy held it
   off. Before, only the silent hours showed, so an automatic restart looked like a manual
   one. An alert now fails the `recording_audio` check.
+- **A deploy no longer hides the day's log from the daily report.** Recreating a container
+  takes its log with it, so a deploy shortly before the report left it with minutes of
+  Gatekeeper's log: no face watches, package checks, Whisper times or errors from before.
+  `deploy.sh` now keeps each container's last 24 h of log before it restarts anything
+  (`~/.local/state/gatekeeper/logs/`, two days), and the report reads it back. It says
+  *Logs kept across the deploy* instead of *Logs only since…*, which now only shows when a
+  container was recreated some other way (by hand).
 
 ### Fixed
 - **Package alerts when the light changes during a visit.** The doorstep is compared before

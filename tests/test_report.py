@@ -203,6 +203,29 @@ def test_logs_that_start_after_a_deploy_say_so():
     assert build(inputs(host={**HOST, "created": {"frigate": ""}}))["logs"]["since"] == {}
 
 
+def test_logs_kept_across_a_deploy_say_so_instead():
+    recreated = report.datetime.datetime.fromtimestamp(NOW - 600, report.datetime.UTC)
+    host = {
+        **HOST,
+        "created": {"gatekeeper": recreated.strftime("%Y-%m-%dT%H:%M:%S")},
+        "kept_logs": ["gatekeeper"],
+    }
+    r = build(
+        inputs(
+            host=host,
+            arrivals=[{"id": "1-early", "start_time": NOW - 7200, "end_time": NOW - 7190}],
+        )
+    )
+
+    assert r["logs"]["since"] == {}
+    assert r["logs"]["kept"] == {"gatekeeper": report.local(NOW - 600)}
+    text = render_text(r)
+    assert "Logs only since" not in text
+    assert f"Logs kept across the deploy: gatekeeper (recreated {report.local(NOW - 600)})" in text
+    # The log before the deploy is there, so a missed arrival then isn't blamed on it.
+    assert r["arrivals"]["why"][0]["gatekeeper"] is None
+
+
 def test_detection_that_drops_frames_fails():
     stats = {"detectors": {}, "cameras": {"front_door": {"camera_fps": 5.0, "skipped_fps": 2.0}}}
     assert failing(build(inputs(stats=stats)))["detection_keeps_up"] == (
