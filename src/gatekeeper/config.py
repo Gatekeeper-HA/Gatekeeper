@@ -227,6 +227,10 @@ class Settings(BaseSettings):
     # loop stalled or a visit stuck) lasting hang_exit_seconds, exit so the
     # container restarts (0 disables).
     health_port: int = 8099
+    # The web page (web.py): the household's faces, to enroll them. Off unless
+    # web_password is set (HTTP Basic, any user name).
+    web_port: int = 8098
+    web_password: SecretStr = SecretStr("")
     hang_exit_seconds: float = 300.0
 
     # Logging

@@ -221,6 +221,15 @@ def main() -> None:
     )
     if settings.health_port:
         serve(health, settings.health_port)
+    if settings.web_password.get_secret_value():
+        from gatekeeper import web
+
+        page = web.FacesPage(
+            settings.face_dir,
+            enabled=settings.face_recognition,
+            candidate_days=settings.face_candidate_days,
+        )
+        web.serve(page, settings.web_password.get_secret_value(), settings.web_port)
 
     synth = Synthesizer(settings.kokoro_voice)
     presynth = presynth_all(

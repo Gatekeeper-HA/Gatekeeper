@@ -56,26 +56,32 @@ def load_candidates(directory: Path) -> list[dict]:
 
 
 def group(embeddings: np.ndarray, link: float = LINK) -> list[list[int]]:
-    """Faces grouped by average-linkage clustering on cosine similarity, biggest first."""
-    groups = [[i] for i in range(len(embeddings))]
-    if not groups:
+    """Faces grouped by average-linkage clustering on cosine similarity, biggest first.
+    The group-to-group similarities are updated in place (Lance-Williams), so two weeks
+    of kept faces group in a moment."""
+    n = len(embeddings)
+    if not n:
         return []
-    sim = embeddings @ embeddings.T
+    sim = (embeddings @ embeddings.T).astype(np.float64)
+    np.fill_diagonal(sim, -np.inf)
+    size = np.ones(n)
+    members: list[list[int]] = [[i] for i in range(n)]
     while True:
-        best, pair = link, None
-        for a in range(len(groups)):
-            for b in range(a + 1, len(groups)):
-                s = sim[np.ix_(groups[a], groups[b])].mean()
-                if s > best:
-                    best, pair = s, (a, b)
-        if pair is None:
+        a, b = divmod(int(np.argmax(sim)), n)
+        if sim[a, b] <= link:
             break
-        a, b = pair
-        groups[a] += groups.pop(b)
-    return sorted(groups, key=len, reverse=True)
+        merged = (sim[a] * size[a] + sim[b] * size[b]) / (size[a] + size[b])
+        sim[a], sim[:, a] = merged, merged
+        sim[a, a] = -np.inf
+        sim[b], sim[:, b] = -np.inf, -np.inf
+        size[a] += size[b]
+        members[a] += members[b]
+        members[b] = []
+    return sorted((sorted(m) for m in members if m), key=len, reverse=True)
 
 
-def write_jpeg(path: Path, bgr: np.ndarray) -> None:
+def jpeg_bytes(bgr: np.ndarray) -> bytes:
+    """A JPEG of a BGR image (PyAV encodes it)."""
     import av
 
     frame = av.VideoFrame.from_ndarray(np.ascontiguousarray(bgr), format="bgr24")
@@ -83,7 +89,11 @@ def write_jpeg(path: Path, bgr: np.ndarray) -> None:
     codec.width, codec.height = frame.width, frame.height
     codec.pix_fmt, codec.time_base = "yuvj420p", Fraction(1, 25)
     packets = codec.encode(frame.reformat(format="yuvj420p")) + codec.encode(None)
-    path.write_bytes(b"".join(bytes(p) for p in packets))
+    return b"".join(bytes(p) for p in packets)
+
+
+def write_jpeg(path: Path, bgr: np.ndarray) -> None:
+    path.write_bytes(jpeg_bytes(bgr))
     path.chmod(0o600)
 
 
@@ -137,13 +147,13 @@ def enroll(face_dir: Path, name: str, numbers: list[int]) -> int:
         f for f in load_candidates(face_dir / "candidates") if (f["file"], f["index"]) in chosen
     ]
     Gallery(face_dir / "gallery.json").enroll(name, [f["embedding"] for f in faces])
-    _drop(face_dir / "candidates", chosen)
+    drop(face_dir / "candidates", chosen)
     for n in numbers:
         (face_dir / "review" / f"group-{n}.jpg").unlink(missing_ok=True)
     return len(faces)
 
 
-def _drop(directory: Path, chosen: set[tuple[str, int]]) -> None:
+def drop(directory: Path, chosen: set[tuple[str, int]]) -> None:
     """Remove faces (file, index) from the kept ones; a file left empty is deleted."""
     for file in {f for f, _ in chosen}:
         path = directory / file
