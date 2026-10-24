@@ -221,16 +221,6 @@ def main() -> None:
     )
     if settings.health_port:
         serve(health, settings.health_port)
-    if settings.web_password.get_secret_value():
-        from gatekeeper import web
-
-        page = web.FacesPage(
-            settings.face_dir,
-            enabled=settings.face_recognition,
-            candidate_days=settings.face_candidate_days,
-        )
-        web.serve(page, settings.web_password.get_secret_value(), settings.web_port)
-
     synth = Synthesizer(settings.kokoro_voice)
     presynth = presynth_all(
         synth,
@@ -335,6 +325,11 @@ def main() -> None:
             publisher.conversation(False)
             health.visit_finished()
 
+    def on_not_greeted(event_id: str, outcome: str) -> None:
+        interaction.log_not_greeted(event_id, outcome)
+        if watcher and outcome == "returned":
+            watcher.keep(event_id, outcome)  # back soon after leaving: the household
+
     def on_household(event_id: str, name: str) -> None:
         interaction.log_household(event_id, name)
         if watcher:
@@ -357,7 +352,7 @@ def main() -> None:
         leaving_watch_seconds=settings.leaving_watch_seconds,
         leaving_cooldown_seconds=settings.leaving_cooldown_seconds,
         return_window_seconds=settings.return_window_seconds,
-        on_not_greeted=interaction.log_not_greeted,
+        on_not_greeted=on_not_greeted,
         on_went_inside=interaction.went_inside,
         face_min_matches=settings.face_min_matches,
         on_household=on_household,
@@ -366,6 +361,17 @@ def main() -> None:
     )
     if settings.face_recognition:
         watcher = start_faces(settings, tracker)
+    if settings.web_password.get_secret_value():
+        from gatekeeper import web
+
+        page = web.FacesPage(
+            settings.face_dir,
+            enabled=settings.face_recognition,
+            candidate_days=settings.face_candidate_days,
+            capture=watcher.capture if watcher else None,
+            capturing=watcher.capturing if watcher else None,
+        )
+        web.serve(page, settings.web_password.get_secret_value(), settings.web_port)
     start_thread(
         "sweep", tracker.sweep_forever, settings.sweep_interval_seconds, on_sweep=health.sweep_done
     )

@@ -6,8 +6,11 @@ on a 640x480 copy (cheaper), each is aligned from the full-resolution frame and
 matched against the gallery. A face is put down to the person whose Frigate track is
 nearest, and reported (``on_face``); the tracker decides what it means.
 
-Kept for the owner to enroll (face_admin.py): the faces of someone who went in by
-the door or was recognized, for ``FACE_CANDIDATE_DAYS``. Nobody else's face is stored.
+Kept for the owner to enroll (web.py, face_admin.py), for ``FACE_CANDIDATE_DAYS``: the
+faces of someone who went in by the door, came back soon after leaving, or was
+recognized, and of whoever walks up while the owner asked to capture faces at the door
+(``capture``). Each with a sharper crop from the full frame, for the page. Nobody
+else's face is stored.
 """
 
 from __future__ import annotations
@@ -35,6 +38,9 @@ IDLE_SECONDS = 2.0  # stop decoding once nobody's been on camera this long
 MAX_X_GAP = 0.2  # a face this far (of the frame's width) from everyone's track is no one's
 KEEP_PER_EVENT = 8  # candidate faces kept per person event: the widest
 FORGET_SECONDS = 600  # an event's faces are dropped from memory after this long
+CAPTURE_SECONDS = 120.0  # how long "capture at the door" lasts
+DISPLAY_MARGIN = 1.6  # the page's picture: the face box, this much wider...
+DISPLAY_MAX = 320  # ...at most this many pixels a side
 
 # (event id, when Frigate first reported them, where they are now: x of their track
 # as a fraction of the width, or None)
@@ -53,6 +59,7 @@ class Seen:
     width: float
     embedding: np.ndarray
     aligned: np.ndarray
+    display: bytes = b""  # a JPEG of the face from the full frame, for the page
 
 
 class FaceWatcher:
@@ -71,6 +78,7 @@ class FaceWatcher:
         candidate_days: float,
         clock: Callable[[], float] = time.time,
         sleep: Callable[[float], None] = time.sleep,
+        encode: Callable[[np.ndarray], bytes] | None = None,
     ) -> None:
         self._tap = tap
         self._detector = detector
@@ -86,6 +94,12 @@ class FaceWatcher:
         self._sleep = sleep
         self._lock = threading.Lock()
         self._faces: dict[str, list[Seen]] = {}
+        self._marked: dict[str, str] = {}  # events to keep once the watch ends: outcome
+        self._watching = False
+        self._capture_until = 0.0
+        if encode is None:
+            from gatekeeper.face_admin import jpeg_bytes as encode
+        self._encode = encode
 
     def set_models(self, detector, embedder) -> None:
         """The models, once they're loaded (they download on first use)."""
@@ -119,9 +133,18 @@ class FaceWatcher:
             return now - idle[0] > IDLE_SECONDS
 
         started, frames, seen = self._clock(), 0, []
-        for at, frame in self._tap.frames(since, FRAME_EVERY, stop):
-            frames += 1
-            seen += self.look(at, frame)
+        with self._lock:
+            self._watching = True
+        try:
+            for at, frame in self._tap.frames(since, FRAME_EVERY, stop):
+                frames += 1
+                seen += self.look(at, frame)
+        finally:
+            with self._lock:
+                self._watching = False
+                marked, self._marked = self._marked, {}
+            for event_id, outcome in marked.items():
+                self._save(event_id, outcome)
         matched = Counter(s.name for s in seen if s.name)
         best = max((s.score for s in seen), default=0.0)
         log.info(
@@ -145,6 +168,7 @@ class FaceWatcher:
             return []
         full = frame.to_ndarray(format="bgr24")
         people = self._people()
+        capturing = self.capturing() > 0
         out = []
         for face in found:
             event_id = owner(face.center[0] / frame.width, people)
@@ -163,8 +187,12 @@ class FaceWatcher:
                 face.width,
                 emb,
                 aligned,
+                self._display(full, face),
             )
             self._remember(seen)
+            if capturing:
+                with self._lock:
+                    self._marked.setdefault(event_id, "capture")
             try:
                 self._on_face(seen)
             except Exception:
@@ -179,9 +207,36 @@ class FaceWatcher:
             kept.sort(key=lambda s: -s.width)
             del kept[KEEP_PER_EVENT:]
 
+    def _display(self, full: np.ndarray, face) -> bytes:
+        """A JPEG of the face and a little around it, from the full frame."""
+        try:
+            return self._encode(display_crop(full, face))
+        except Exception as e:
+            log.debug("no picture of the face: %s", e)
+            return b""
+
+    def capture(self, seconds: float = CAPTURE_SECONDS) -> None:
+        """Keep the faces of whoever walks up in the next ``seconds`` (the owner asked,
+        to enroll someone the camera hasn't caught going inside)."""
+        self._capture_until = self._clock() + seconds
+        log.info("capturing faces at the door for %.0f s", seconds)
+
+    def capturing(self) -> float:
+        """Seconds of capturing left (0: not capturing)."""
+        return max(0.0, self._capture_until - self._clock())
+
     def keep(self, event_id: str, outcome: str) -> Path | None:
-        """Save the faces of person event ``event_id`` as candidates for enrollment
-        (they went in by the door, or were recognized). None if there were none."""
+        """Keep the faces of person event ``event_id`` as candidates for enrollment
+        (they went in by the door, came back, or were recognized). While someone is
+        still on camera that's once the watch ends, so faces seen after the decision
+        count too (returns None); otherwise now. None if there were no faces."""
+        with self._lock:
+            if self._watching:
+                self._marked[event_id] = outcome
+                return None
+        return self._save(event_id, outcome)
+
+    def _save(self, event_id: str, outcome: str) -> Path | None:
         with self._lock:
             faces = self._faces.pop(event_id, [])
         if not faces:
@@ -196,6 +251,8 @@ class FaceWatcher:
                 at=np.array([s.at for s in faces]),
                 outcome=np.array(outcome),
                 names=np.array([s.name or "" for s in faces]),
+                display=np.frombuffer(b"".join(s.display for s in faces), dtype=np.uint8),
+                display_ends=np.cumsum([len(s.display) for s in faces]),
             )
         path.chmod(0o600)
         log.info("kept %d face(s) of %s for enrollment", len(faces), event_id)
@@ -212,6 +269,21 @@ class FaceWatcher:
             for path in self.candidate_dir.glob("*.npz"):
                 if now - path.stat().st_mtime > self.candidate_days * 86400:
                     path.unlink(missing_ok=True)
+
+
+def display_crop(full: np.ndarray, face) -> np.ndarray:
+    """The face box made DISPLAY_MARGIN wider, square, inside the frame, at most
+    DISPLAY_MAX a side (every other pixel, or every third, if bigger), even-sized."""
+    h, w = full.shape[:2]
+    cx, cy = face.center
+    side = min(int(DISPLAY_MARGIN * max(face.box[2], face.box[3])), h, w)
+    x0 = int(min(max(cx - side / 2, 0), w - side))
+    y0 = int(min(max(cy - side / 2, 0), h - side))
+    crop = full[y0 : y0 + side, x0 : x0 + side]
+    step = -(-side // DISPLAY_MAX)
+    crop = crop[::step, ::step]
+    even = crop.shape[0] // 2 * 2
+    return np.ascontiguousarray(crop[:even, :even])
 
 
 def owner(x: float, people: list[tuple[str, float, float | None]]) -> str | None:

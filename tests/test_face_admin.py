@@ -37,8 +37,9 @@ def face_dir(tmp_path, monkeypatch):
 
 
 def test_kept_faces_are_grouped_by_person(face_dir):
-    kept(face_dir, "e1", [unit(1, 0.1), unit(1, 0.2), unit(0, 0, 1)])
+    kept(face_dir, "e1", [unit(1, 0.1), unit(1, 0.2)])
     kept(face_dir, "e2", [unit(1, 0.15)])
+    kept(face_dir, "e3", [unit(0, 0, 1)])  # someone else
     groups = face_admin.candidates(face_dir)
     assert [(len(g["faces"]), g["visits"]) for g in groups] == [(3, 2), (1, 1)]
     assert (face_dir / "review" / "group-1.jpg").exists()
@@ -46,8 +47,9 @@ def test_kept_faces_are_grouped_by_person(face_dir):
 
 
 def test_enrolling_a_group_needs_consent_and_moves_its_faces_to_the_gallery(face_dir, capsys):
-    kept(face_dir, "e1", [unit(1, 0.1), unit(0, 0, 1)])
+    kept(face_dir, "e1", [unit(1, 0.1)])
     kept(face_dir, "e2", [unit(1, 0.15)])
+    kept(face_dir, "e3", [unit(0, 0, 1)])  # someone else
     assert face_admin.main(["candidates"]) == 0
     assert face_admin.main(["enroll", "Alex", "1"]) == 2
     assert "consent" in capsys.readouterr().err
@@ -57,8 +59,9 @@ def test_enrolling_a_group_needs_consent_and_moves_its_faces_to_the_gallery(face
     assert "Enrolled 2 face(s) for Alex." in capsys.readouterr().out
     assert Gallery(face_dir / "gallery.json").match(unit(1, 0.12))[0] == "Alex"
     # The enrolled faces aren't kept any more; the other person's are.
+    assert not (face_dir / "candidates" / "e1.npz").exists()
     assert not (face_dir / "candidates" / "e2.npz").exists()
-    with np.load(face_dir / "candidates" / "e1.npz") as d:
+    with np.load(face_dir / "candidates" / "e3.npz") as d:
         assert len(d["embeddings"]) == 1
 
     assert face_admin.main(["list"]) == 0
@@ -90,10 +93,19 @@ def test_sheets_hold_a_grid_of_faces():
 
 
 def test_candidates_lists_people_seen_on_several_visits(face_dir, capsys):
-    kept(face_dir, "e1", [unit(1, 0.1), unit(0, 0, 1)])
+    kept(face_dir, "e1", [unit(1, 0.1)])
     kept(face_dir, "e2", [unit(1, 0.15)])
+    kept(face_dir, "e3", [unit(0, 0, 1)])  # someone else
     face_admin.main(["candidates"])
     out = capsys.readouterr().out
     assert "    1      2       2" in out and "1 more seen on one visit only" in out
     face_admin.main(["candidates", "--all"])
     assert "    2      1       1" in capsys.readouterr().out
+
+
+def test_a_tracks_faces_stay_together_however_different_they_look():
+    # One person's track: the porch light came on halfway. Another person, alike.
+    faces = np.array([unit(1, 0.1), unit(0.3, 1), unit(1, 0.12), unit(0, 0, 1)])
+    tracks = ["t1", "t1", "t2", "t3"]
+    assert face_admin.group(faces) == [[0, 2], [1], [3]]  # faces alone: the lit one splits
+    assert face_admin.group(faces, tracks=tracks) == [[0, 1, 2], [3]]

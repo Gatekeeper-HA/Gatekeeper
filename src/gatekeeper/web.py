@@ -46,6 +46,12 @@ DEFAULT_PORT = 8098
 NAME = re.compile(r"^[\w][\w .'-]{0,39}$")  # letters (any script), digits, space . ' -
 CANDIDATE_FILE = re.compile(r"^[\w.-]+\.npz$")
 MAX_BODY = 64 * 1024
+# A group's name is filled in with the enrolled person it looks most like, when it looks
+# this much like them (faces.Gallery.resemblance) and clearly more than like anyone else.
+# On the rig's first faces, the right person scored 0.45-0.53 with a margin of 0.08 or
+# more; the two wrong guesses, on groups of one or two faces, scored 0.30.
+SUGGEST_SCORE = 0.40
+SUGGEST_MARGIN = 0.05
 
 STYLE = """
 body { font: 16px/1.4 system-ui, sans-serif; margin: 0 auto; max-width: 960px;
@@ -56,8 +62,8 @@ h1 { font-size: 1.4em; } h2 { font-size: 1.15em; margin-top: 2em; }
 .group { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 12px;
   margin: 12px 0; }
 .faces { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
-.faces label { position: relative; } .faces img { width: 96px; height: 96px;
-  border-radius: 6px; display: block; }
+.faces label { position: relative; } .faces img { width: 112px; height: 112px;
+  border-radius: 6px; display: block; object-fit: cover; }
 .faces input { position: absolute; top: 4px; left: 4px; transform: scale(1.3); }
 input[type=text] { font-size: 1em; padding: 6px; width: 14em; max-width: 100%; }
 button { font-size: 1em; padding: 6px 12px; margin: 4px 4px 4px 0; }
@@ -80,11 +86,16 @@ class FacesPage:
         enabled: bool,
         candidate_days: float,
         encode: Callable[[np.ndarray], bytes] = face_admin.jpeg_bytes,
+        capture: Callable[[], None] | None = None,
+        capturing: Callable[[], float] | None = None,
     ) -> None:
         self.face_dir = face_dir
         self.enabled = enabled
         self.candidate_days = candidate_days
         self._encode = encode
+        # Capturing faces at the door (face_watch.FaceWatcher), when face recognition runs.
+        self._capture = capture
+        self._capturing = capturing
         self.token = secrets.token_urlsafe(24)  # proves a form came from this page
         self._lock = threading.Lock()  # one change at a time
 
@@ -104,17 +115,32 @@ class FacesPage:
         faces = face_admin.load_candidates(self.face_dir / "candidates")
         if not faces:
             return []
-        groups = face_admin.group(np.array([f["embedding"] for f in faces]))
+        groups = face_admin.group(
+            np.array([f["embedding"] for f in faces]), tracks=[f["file"] for f in faces]
+        )
         return [[faces[i] for i in g] for g in groups]
+
+    def suggest(self, faces: list[dict]) -> tuple[str, list[tuple[str, float]]]:
+        """The enrolled person a group looks like (or ""), and everyone it resembles,
+        most alike first."""
+        scores = self.gallery.resemblance([f["embedding"] for f in faces])
+        ranked = sorted(scores.items(), key=lambda kv: -kv[1])
+        if not ranked:
+            return "", []
+        best, score = ranked[0]
+        margin = score - (ranked[1][1] if len(ranked) > 1 else 0.0)
+        sure = score >= SUGGEST_SCORE and margin >= SUGGEST_MARGIN
+        return (best if sure else ""), ranked
 
     def face_jpeg(self, file: str, index: int) -> bytes | None:
         path = self.face_dir / "candidates" / file
         if not CANDIDATE_FILE.match(file) or not path.is_file():
             return None
-        with np.load(path) as d:
-            if not 0 <= index < len(d["faces"]):
-                return None
-            return self._encode(d["faces"][index])
+        faces = [f for f in face_admin.load_candidates(path.parent) if f["file"] == file]
+        if not 0 <= index < len(faces):
+            return None
+        # The sharper picture from the full frame; the aligned 112 px face in older files.
+        return faces[index]["display"] or self._encode(faces[index]["face"])
 
     def enroll(self, name: str, chosen: set[tuple[str, int]], consent: bool) -> str:
         """Enroll the chosen faces as ``name``. Returns what happened, for the page."""
@@ -157,6 +183,15 @@ class FacesPage:
         log.info("web: deleted %d kept face(s)", len(gone))
         return f"Deleted {len(gone)} face(s)."
 
+    def capture(self) -> str:
+        if self._capture is None:
+            raise ValueError("Face recognition is off, so faces can't be captured.")
+        self._capture()
+        return (
+            "Capturing for 2 minutes: walk up to the doorbell and look at it for a few "
+            "seconds. Your faces appear here a moment after you step away."
+        )
+
     def forget(self, name: str) -> str:
         with self._lock:
             gone = self.gallery.forget(name)
@@ -198,10 +233,23 @@ class FacesPage:
         out.append(
             "<p class=note>People enrolled here aren't greeted at the door; you get a quiet "
             "notification instead. Enroll only people who agreed to be recognized: faces "
-            "are biometric data. Faces below are of people who went in by the front door, "
-            f"kept {self.candidate_days:g} days for you to enroll. Nobody else's face is "
-            "stored.</p>"
+            "are biometric data. Faces below are of people who went in by the front door or "
+            "came back soon after leaving, or who walked up while capturing, kept "
+            f"{self.candidate_days:g} days for you to enroll. Nobody else's face is stored.</p>"
         )
+        if self._capture is not None:
+            left = self._capturing() if self._capturing else 0
+            if left > 0:
+                out.append(
+                    f"<p class=done>Capturing faces at the door: {left:.0f} s left. "
+                    '<a href="./">Reload</a> after stepping away.</p>'
+                )
+            out.append(
+                '<form method=post action="capture"><input type=hidden name=token '
+                f'value="{self.token}"><button type=submit>Capture at the door</button> '
+                "<span class=note>For someone the camera hasn't caught: tap, then walk up "
+                "to the doorbell and look at it for a few seconds.</span></form>"
+            )
         out.append("<datalist id=names>")
         out += [f'<option value="{e(n)}">' for n in names]
         out.append("</datalist>")
@@ -215,8 +263,14 @@ class FacesPage:
         for n, faces in enumerate(groups, 1):
             visits = len({f["file"] for f in faces})
             days = sorted({_day(f["at"]) for f in faces})
-            matched = sorted({f["matched"] for f in faces if f["matched"]})
-            hint = f" Looks like {e(', '.join(matched))}." if matched else ""
+            suggested, ranked = self.suggest(faces)
+            if suggested:
+                hint = f" Looks like <strong>{e(suggested)}</strong> ({ranked[0][1]:.2f})."
+            elif ranked:
+                closest = ", ".join(f"{e(n)} {s:.2f}" for n, s in ranked[:2])
+                hint = f" <span class=note>Closest: {closest}; not sure.</span>"
+            else:
+                hint = ""
             out.append(
                 f'<form class=group method=post action="enroll"><input type=hidden name=token '
                 f'value="{self.token}"><strong>Group {n}</strong>: {len(faces)} face(s), '
@@ -232,8 +286,9 @@ class FacesPage:
                 )
             out.append(
                 "</div><label>Name <input type=text name=name list=names required "
-                "maxlength=40 autocomplete=off></label> <label><input type=checkbox "
-                "name=consent value=yes> They agreed to be recognized</label><br>"
+                f'maxlength=40 autocomplete=off value="{e(suggested)}"></label> '
+                "<label><input type=checkbox name=consent value=yes> They agreed to be "
+                "recognized</label><br>"
                 "<button type=submit>Enroll the ticked faces</button>"
                 '<button type=submit formaction="discard" formnovalidate class=danger>'
                 "Not household: delete the ticked faces</button></form>"
@@ -351,6 +406,8 @@ def handler(page: FacesPage, password: str) -> type[BaseHTTPRequestHandler]:
                     done = page.discard(_chosen(form.get("face", [])))
                 elif action == "forget":
                     done = page.forget(one("name"))
+                elif action == "capture":
+                    done = page.capture()
                 elif action == "purge":
                     done = page.purge(one("confirm"))
                 else:

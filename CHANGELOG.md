@@ -75,8 +75,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     nothing is cached.
   - **Compose:** publishes 8098 on `SERVER_IP` and reads `GATEKEEPER_WEB_PASSWORD` from
     `.env`.
-  - **Also:** grouping kept faces is vectorized, so two weeks' worth (hundreds) groups in
-    well under a second, with the same groups as before.
+  - **Grouping:** a Frigate track's faces stay together, and tracks are grouped by their
+    average face. On the rig's first faces, from 3 people, that's 5 groups instead of 12,
+    with none mixed. It's also vectorized: hundreds of faces group in well under a second.
+  - **Names:** a group that clearly looks like someone enrolled comes with their name
+    filled in. Otherwise the closest names are shown.
+  - **Sharper pictures:** each kept face also keeps a picture from the full frame, up to
+    320 px, instead of only the 112 px aligned face.
+  - **More faces for enrollment:** faces seen after the decision count, so people still
+    walking up are included. People back soon after leaving (`returned`) are kept too.
+    *Capture at the door* keeps whoever walks up in the next 2 minutes: the way to enroll
+    someone the camera hasn't caught going inside.
 
 ### Changed
 - **The compose stack doesn't greet someone back within 4 minutes of leaving**

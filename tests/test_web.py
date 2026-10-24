@@ -72,8 +72,9 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 @pytest.fixture
 def faces(tmp_path):
     face_dir = tmp_path / "faces"
-    kept(face_dir, "e1", [unit(1, 0.1), unit(0, 0, 1)])
+    kept(face_dir, "e1", [unit(1, 0.1)])
     kept(face_dir, "e2", [unit(1, 0.15)])
+    kept(face_dir, "e3", [unit(0, 0, 1)])  # someone else
     page = web.FacesPage(face_dir, enabled=True, candidate_days=14, encode=lambda bgr: b"JPEG")
     client = Client(page)
     yield client
@@ -135,7 +136,7 @@ def test_changes_need_the_pages_token(faces):
 
 
 def test_faces_that_arent_the_household_can_be_deleted(faces):
-    status, _, _ = faces.post("discard", {"token": faces.page.token, "face": ["e1.npz:1"]})
+    status, _, _ = faces.post("discard", {"token": faces.page.token, "face": ["e3.npz:0"]})
     assert status == 303
     assert "Faces to enroll (2)" in faces.get()[1].decode()
 
@@ -165,3 +166,56 @@ def test_the_page_says_when_face_recognition_is_off(tmp_path):
     page = web.FacesPage(tmp_path, enabled=False, candidate_days=14)
     assert "Face recognition is off" in page.render()
     assert "None yet" in page.render()
+
+
+def test_a_group_like_someone_enrolled_is_filled_in_with_their_name(faces):
+    Gallery(faces.page.face_dir / "gallery.json").enroll("Alex", [unit(1, 0.1)])
+    Gallery(faces.page.face_dir / "gallery.json").enroll("Sam", [unit(0, 1)])
+    page = faces.get()[1].decode()
+    # e1 + e2 look like Alex: filled in. e3 (someone else) looks like no one: left blank.
+    assert "Looks like <strong>Alex</strong>" in page and 'value="Alex"' in page
+    assert page.count('value=""') == 1 and "not sure" in page
+
+
+def test_capture_at_the_door(tmp_path):
+    asked = []
+    page = web.FacesPage(
+        tmp_path,
+        enabled=True,
+        candidate_days=14,
+        capture=lambda: asked.append(1),
+        capturing=lambda: 90.0,
+    )
+    client = Client(page)
+    try:
+        status, _, headers = client.post("capture", {"token": page.token})
+        assert (
+            status == 303
+            and asked == [1]
+            and "Capturing" in urllib.parse.unquote_plus(headers["Location"])
+        )
+        assert "Capturing faces at the door: 90 s left" in client.get()[1].decode()
+    finally:
+        client.server.shutdown()
+    off = web.FacesPage(tmp_path, enabled=False, candidate_days=14)
+    assert "Capture at the door" not in off.render()
+    with pytest.raises(ValueError, match="off"):
+        off.capture()
+
+
+def test_the_page_shows_the_sharper_picture_when_there_is_one(tmp_path):
+    face_dir = tmp_path / "faces"
+    (face_dir / "candidates").mkdir(parents=True)
+    with (face_dir / "candidates" / "e9.npz").open("wb") as f:
+        np.savez_compressed(
+            f,
+            embeddings=np.array([unit(1)], np.float32),
+            faces=np.zeros((1, 112, 112, 3), np.uint8),
+            at=np.array([1.0]),
+            outcome=np.array("capture"),
+            names=np.array([""]),
+            display=np.frombuffer(b"SHARP", np.uint8),
+            display_ends=np.array([5]),
+        )
+    page = web.FacesPage(face_dir, enabled=True, candidate_days=14, encode=lambda bgr: b"SMALL")
+    assert page.face_jpeg("e9.npz", 0) == b"SHARP"
