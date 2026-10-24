@@ -605,6 +605,12 @@ The app is the `gatekeeper` Python package in `src/gatekeeper/`. The Home Assist
 ([Gatekeeper-HA](https://github.com/Gatekeeper-HA/Gatekeeper-HA)) installs the same package
 from a tagged release of this repo.
 
+**Perception.** What watches the door is behind `gatekeeper.perception`: person events,
+zones, the camera's latest frame, and snapshots. Today Frigate provides it
+(`frigate.FrigatePerception`, the only module that knows Frigate). Our own hub will have
+its own perception behind the same interface, and Frigate stays supported for installs
+that run it. New features use `perception`, not Frigate.
+
 ```bash
 python -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev]"     # core + test tools; no torch or aiortc needed

@@ -1,14 +1,17 @@
 import json
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
 from conftest import load_fixture
-from gatekeeper.frigate import FrigateEvent, Zone, inside, parse_event, zone_polygon
+from gatekeeper.frigate import FrigatePerception, Zone, parse_event, zone_polygon
+from gatekeeper.perception import Perception, PersonEvent, inside
 
 
 def test_parses_new_person_event():
     event = parse_event(load_fixture("frigate/person_new.json"))
-    assert event == FrigateEvent(
+    assert event == PersonEvent(
         type="new",
         id="1727712000.123456-abc123",
         camera="front_door",
@@ -149,3 +152,76 @@ def test_zone_loading_stays_quiet_while_frigate_restarts(caplog):
     Zone("door", "front_door", load).load_until_known(sleep=sleep, clock=lambda: now[0])
     levels = [r.levelname for r in caplog.records if "couldn't read" in r.getMessage()]
     assert levels[:30] == ["INFO"] * 30 and set(levels[30:]) == {"WARNING"}
+
+
+# FrigatePerception: Frigate's API and MQTT topic behind gatekeeper.perception.
+
+
+class FakeFrigate(BaseHTTPRequestHandler):
+    paths: list = []
+
+    def do_GET(self):
+        FakeFrigate.paths.append(self.path.split("?")[0])
+        if self.path.startswith("/api/events?"):
+            body = json.dumps([{"id": "b", "start_time": 20.0}, {"id": "a", "start_time": 10.0}])
+        else:
+            body = "JPEGDATA"
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(body.encode())
+
+    def log_message(self, *args):
+        pass
+
+
+@pytest.fixture
+def frigate():
+    FakeFrigate.paths = []
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), FakeFrigate)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    topics = {}
+    yield FrigatePerception(
+        f"http://127.0.0.1:{srv.server_address[1]}", "front_door",
+        subscribe=topics.__setitem__, spawn=lambda fn: None,
+    ), topics  # fmt: skip
+    srv.shutdown()
+    srv.server_close()
+
+
+def test_frigate_is_a_perception(frigate):
+    perception, _ = frigate
+    assert isinstance(perception, Perception)
+
+
+def test_person_events_come_from_frigates_topic(frigate):
+    perception, topics = frigate
+    events = []
+    perception.start(events.append)
+    topics["frigate/events"](load_fixture("frigate/person_new.json"))
+    topics["frigate/events"](b"garbage")
+    assert [e.type for e in events] == ["new"]
+
+
+def test_a_snapshot_of_the_event_or_of_the_camera_now(frigate):
+    perception, _ = frigate
+    assert perception.snapshot("e1") == b"JPEGDATA"
+    assert FakeFrigate.paths == ["/api/events/e1/snapshot.jpg"]
+    # A doorbell press before anyone was seen: the camera now.
+    assert perception.snapshot("press-1.0") == b"JPEGDATA"
+    assert FakeFrigate.paths[-1] == "/api/front_door/latest.jpg"
+    unreachable = FrigatePerception("http://127.0.0.1:1", "front_door", subscribe=lambda *a: None)
+    assert unreachable.snapshot("e1", timeout=0.5) is None
+
+
+def test_the_first_person_since_a_time(frigate):
+    perception, _ = frigate
+    assert perception.person_snapshot(100.0) == b"JPEGDATA"
+    assert FakeFrigate.paths == ["/api/events", "/api/events/a/snapshot.jpg"]  # the first
+
+
+def test_zones_load_in_the_background(frigate):
+    perception, _ = frigate
+    started = []
+    perception._spawn = started.append
+    zone = perception.zone("door")
+    assert zone.polygon is None and started == [zone.load_until_known]

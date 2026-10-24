@@ -1,33 +1,114 @@
-"""Parsing of Frigate ``frigate/events`` MQTT payloads, and Frigate's zones."""
+"""Frigate as Gatekeeper's perception (``FrigatePerception``): person events from its
+``frigate/events`` MQTT topic, zones from its config, frames and snapshots from its API.
+
+This is the only module that knows about Frigate (perception.py says why). Frigate
+stays supported for installs that already run it (the Home Assistant add-on); our own
+hub will have its own perception behind the same interface.
+"""
 
 from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable
+
+from gatekeeper.perception import PersonEvent, Point, Shot, decode_jpeg, inside
 
 log = logging.getLogger(__name__)
 
-Point = tuple[float, float]  # x, y as fractions of the frame (0-1)
+
+class FrigatePerception:
+    """Perception by Frigate. ``subscribe(topic, handler)`` hands an MQTT topic's
+    payloads to ``handler`` (app.py's MQTT client)."""
+
+    def __init__(
+        self,
+        api: str,
+        camera: str,
+        *,
+        topic: str = "frigate/events",
+        subscribe: Callable[[str, Callable[[bytes], None]], None],
+        spawn: Callable[[Callable[[], None]], None] | None = None,
+        timeout: float = 10.0,
+    ) -> None:
+        self.api = api.rstrip("/")
+        self.camera = camera
+        self.topic = topic
+        self._subscribe = subscribe
+        self._spawn = spawn or (lambda fn: threading.Thread(target=fn, daemon=True).start())
+        self.timeout = timeout
+
+    def start(self, on_event: Callable[[PersonEvent], None]) -> None:
+        def handle(payload: bytes) -> None:
+            event = parse_event(payload)
+            if event:
+                on_event(event)
+
+        self._subscribe(self.topic, handle)
+
+    def zone(self, name: str) -> Zone:
+        zone = Zone(name, self.camera, lambda: fetch_config(self.api))
+        self._spawn(zone.load_until_known)  # Frigate may start after us
+        return zone
+
+    def latest_frame(self) -> Shot | None:
+        """Frigate's latest frame (its detect stream, 640x480 on the rig)."""
+        url = f"{self.api}/api/{urllib.parse.quote(self.camera)}/latest.jpg?h=480&quality=90"
+        try:
+            with urllib.request.urlopen(url, timeout=self.timeout) as resp:
+                data = resp.read()
+        except Exception as e:
+            log.warning("couldn't get a frame from Frigate: %s", e)
+            return None
+        rgb = decode_jpeg(data)
+        return None if rgb is None else Shot(rgb, data)
+
+    def snapshot(self, event_id: str, timeout: float = 3.0) -> bytes | None:
+        """The best snapshot of Frigate event ``event_id`` so far (it works while the
+        event is in progress), else the camera's latest frame (a doorbell press before
+        Frigate saw anyone: "press-<time>")."""
+        q = urllib.parse.quote
+        if not event_id.startswith("press-"):
+            image = _fetch(f"{self.api}/api/events/{q(event_id)}/snapshot.jpg?quality=85", timeout)
+            if image:
+                return image
+        return _fetch(f"{self.api}/api/{q(self.camera)}/latest.jpg?h=720&quality=85", timeout)
+
+    def person_snapshot(self, since: float) -> bytes | None:
+        """Frigate's snapshot of the first person seen since ``since``."""
+        query = urllib.parse.urlencode(
+            {"camera": self.camera, "label": "person", "after": f"{since - 10:.0f}", "limit": 20}
+        )
+        try:
+            url = f"{self.api}/api/events?{query}"
+            with urllib.request.urlopen(url, timeout=self.timeout) as r:
+                events = json.load(r)
+            if not events:
+                return None
+            first = min(events, key=lambda e: e["start_time"])
+            url = f"{self.api}/api/events/{urllib.parse.quote(first['id'])}/snapshot.jpg?quality=85"
+            with urllib.request.urlopen(url, timeout=self.timeout) as r:
+                return r.read()
+        except Exception as e:
+            log.warning("no snapshot of the first person since then: %s", e)
+            return None
 
 
-@dataclass(frozen=True)
-class FrigateEvent:
-    type: str  # "new", "update" or "end"
-    id: str
-    camera: str | None
-    label: str | None
-    entered_zones: tuple[str, ...] = ()
-    current_zones: tuple[str, ...] = ()  # where the person is now
-    # Where the person has been: the bottom centre of their box, a point each time
-    # they moved a little (Frigate 0.14+). The first point is where they appeared.
-    path: tuple[Point, ...] = ()
+def _fetch(url: str, timeout: float) -> bytes | None:
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            return resp.read()
+    except (urllib.error.URLError, OSError) as e:
+        log.warning("no snapshot from %s: %s", url, e)
+        return None
 
 
-def parse_event(raw: bytes) -> FrigateEvent | None:
+def parse_event(raw: bytes) -> PersonEvent | None:
     """Return the event described by a Frigate payload, or None if it is unusable.
 
     Frigate sends ``{"type": ..., "before": {...}, "after": {...}}``; the
@@ -44,7 +125,7 @@ def parse_event(raw: bytes) -> FrigateEvent | None:
     if not isinstance(event, dict) or not event.get("id"):
         return None
 
-    return FrigateEvent(
+    return PersonEvent(
         type=payload.get("type", ""),
         id=event["id"],
         camera=event.get("camera"),
@@ -93,20 +174,6 @@ def zone_polygon(config: dict, camera: str, zone: str) -> list[Point] | None:
             return None
         numbers = [n / (width if i % 2 == 0 else height) for i, n in enumerate(numbers)]
     return list(zip(numbers[0::2], numbers[1::2], strict=True))
-
-
-def inside(polygon: Sequence[Point], point: Point) -> bool:
-    """Is ``point`` inside ``polygon`` (ray casting)?
-
-    Frigate's points are often on the frame's bottom edge (y = 1.0, feet out of
-    view), which the ray test would leave out of a zone drawn to that edge, so
-    points are nudged just inside the frame first."""
-    x, y = (min(max(v, 0.0), 0.9999) for v in point)
-    hit = False
-    for (x1, y1), (x2, y2) in zip(polygon, [*polygon[1:], polygon[0]], strict=True):
-        if (y1 > y) != (y2 > y) and x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
-            hit = not hit
-    return hit
 
 
 def fetch_config(api: str, timeout: float = 10.0) -> dict:

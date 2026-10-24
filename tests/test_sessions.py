@@ -1,7 +1,8 @@
 import pytest
 
 from conftest import load_fixture
-from gatekeeper.frigate import FrigateEvent, inside, parse_event
+from gatekeeper.frigate import parse_event
+from gatekeeper.perception import PersonEvent, inside
 from gatekeeper.sessions import SessionTracker
 
 EID = "1727712000.123456-abc123"
@@ -84,7 +85,7 @@ def test_session_marked_handled_even_if_visit_raises(clock):
         camera="front_door", dwell_seconds=0, ttl_seconds=120,
         run_visit=boom, spawn=workers.append, clock=clock,
     )  # fmt: skip
-    tracker.handle_event(FrigateEvent("new", EID, "front_door", "person"))
+    tracker.handle_event(PersonEvent("new", EID, "front_door", "person"))
     with pytest.raises(RuntimeError):
         workers.pop()()
     assert tracker.sessions[EID].handled
@@ -121,7 +122,7 @@ def test_sweep_expires_stale_sessions(clock):
 
 
 def person(event_id, type_="new"):
-    return FrigateEvent(type_, event_id, "front_door", "person")
+    return PersonEvent(type_, event_id, "front_door", "person")
 
 
 # P0-17: one visit per camera at a time, plus a cooldown after it.
@@ -225,7 +226,7 @@ def test_person_visit_trigger(clock):
 
 
 def zoned(event_id, zones=(), type_="update"):
-    return FrigateEvent(type_, event_id, "front_door", "person", tuple(zones))
+    return PersonEvent(type_, event_id, "front_door", "person", tuple(zones))
 
 
 def test_without_zones_configured_anywhere_counts(clock):
@@ -282,10 +283,10 @@ def test_person_present_until_frigate_ends_their_event(clock):
 def test_person_present_only_counts_people_in_a_trigger_zone_now(clock):
     h = Harness(clock, dwell=0)
     h.tracker.trigger_zones = frozenset({"porch"})
-    on_porch = FrigateEvent("new", "A", "front_door", "person", ("porch",), ("porch",))
+    on_porch = PersonEvent("new", "A", "front_door", "person", ("porch",), ("porch",))
     h.tracker.handle_event(on_porch)
     assert h.tracker.person_present()
-    walked_off = FrigateEvent("update", "A", "front_door", "person", ("porch",), ("walkway",))
+    walked_off = PersonEvent("update", "A", "front_door", "person", ("porch",), ("walkway",))
     h.tracker.handle_event(walked_off)
     assert not h.tracker.person_present()
 
@@ -303,7 +304,7 @@ DOOR = [(0.7, 0.85), (1.0, 0.85), (1.0, 1.0), (0.7, 1.0)]
 
 def walk(event_id, *path, type_="update"):
     """A person event on the porch with Frigate's path so far."""
-    return FrigateEvent(type_, event_id, "front_door", "person", ("porch",), ("porch",), path)
+    return PersonEvent(type_, event_id, "front_door", "person", ("porch",), ("porch",), path)
 
 
 class DoorHarness:

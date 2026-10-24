@@ -5,7 +5,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 
 from gatekeeper.interaction import Visit
-from gatekeeper.notify import Notification, Notifier, NtfyBackend, compose, frigate_snapshot
+from gatekeeper.notify import Notification, Notifier, NtfyBackend, compose
 
 
 def visit(**kw):
@@ -91,26 +91,6 @@ def test_ntfy_without_snapshot_posts_text(server):
     method, path, headers, body = Recorder.requests[0]
     assert (method, path, body) == ("POST", "/doorbell", b"line1\nline2")
     assert "Authorization" not in headers
-
-
-def test_frigate_snapshot(server):
-    assert frigate_snapshot(server, visit()) == b"JPEGDATA"
-    assert frigate_snapshot("http://127.0.0.1:1", visit(), timeout=0.5) is None
-
-
-def test_press_without_frigate_event_uses_latest_frame(server, monkeypatch):
-    import gatekeeper.notify as notify
-
-    urls = []
-    real = notify._fetch
-
-    def spy(url, timeout):
-        urls.append(url.split("?")[0].removeprefix(server))
-        return real(url, timeout)
-
-    monkeypatch.setattr(notify, "_fetch", spy)
-    assert frigate_snapshot(server, visit(event_id="press-1.0")) == b"JPEGDATA"
-    assert urls == ["/api/front_door/latest.jpg"]
 
 
 def test_compose_press_during_visit():
