@@ -380,8 +380,12 @@ def test_a_split_track_right_after_is_them_too(clock):
     assert h.started == [("C", "person")]
 
 
-def test_someone_who_stays_at_the_door_is_greeted_after_the_watch(clock):
+def test_someone_who_stays_at_the_door_just_after_someone_else_is_greeted(clock):
+    # Someone was just on camera: this could be their track, split, picked up at the door.
     h = DoorHarness(clock)
+    h.tracker.handle_event(walk("V", (0.45, 0.6), type_="new"))
+    h.tracker.handle_event(walk("V", (0.45, 0.6), type_="end"))
+    clock.advance(10)
     h.tracker.handle_event(walk("A", (0.9, 0.99), type_="new"))
     clock.advance(2.0)
     h.tracker.handle_event(walk("A", (0.9, 0.99), (0.82, 0.97)))
@@ -579,11 +583,10 @@ def test_someone_at_the_door_whose_event_ends_during_the_watch_is_logged(clock, 
     h.tracker.handle_event(walk("A", (0.85, 0.99), type_="new"))
     clock.advance(1.5)
     h.tracker.handle_event(walk("A", (0.85, 0.99), type_="end"))
-    assert h.workers == [] and h.not_greeted == []
-    assert ended_lines(caplog) == [
-        "person event A ended before a visit: appeared at the door 1.5 s before, "
-        "still watching whether they walk out"
-    ]
+    # Came out and went straight back in: logged, so it isn't an arrival "not greeted".
+    assert h.workers == [] and h.not_greeted == [("A", "stepped_out")]
+    assert ended_lines(caplog) == []
+    assert "came out of the door and went back in" in caplog.text
 
 
 def test_an_expired_session_is_logged(clock, caplog):
@@ -673,3 +676,49 @@ def test_people_lists_everyone_frigate_sees(clock):
     h2.tracker.press()  # a press with nobody seen
     assert h.tracker.people() == [("A", clock(), 0.6)]
     assert h2.tracker.people() == []
+
+
+# Coming out of the door with nobody else around (came_out_quiet_seconds).
+
+
+def test_someone_who_comes_out_and_lingers_at_the_door_is_never_greeted(clock):
+    h = DoorHarness(clock)
+    h.tracker.handle_event(walk("A", (0.91, 0.98), type_="new"))  # nobody else around
+    for _ in range(12):  # locking the door, letting the dog out: 12 s at the door
+        clock.advance(1.0)
+        h.tracker.handle_event(walk("A", (0.91, 0.98), (0.85, 0.95)))
+        h.tracker.sweep()
+    assert h.workers == []
+    h.tracker.handle_event(walk("A", (0.91, 0.98), (0.85, 0.95), (0.6, 0.85)))  # walks off
+    assert h.workers == [] and h.left == ["A"]
+
+
+def test_someone_who_comes_out_and_goes_back_in_is_logged_as_stepping_out(clock):
+    h = DoorHarness(clock)
+    h.tracker.handle_event(walk("A", (0.91, 0.98), type_="new"))
+    clock.advance(20)
+    h.tracker.handle_event(walk("A", (0.91, 0.98), (0.8, 0.9)))
+    h.tracker.sweep()
+    clock.advance(5)
+    h.tracker.handle_event(walk("A", (0.91, 0.98), (0.8, 0.9), (0.92, 0.96), type_="end"))
+    assert h.workers == [] and h.not_greeted == [("A", "stepped_out")]
+
+
+def test_a_doorbell_press_still_greets_someone_who_came_out(clock):
+    h = DoorHarness(clock)
+    h.tracker.handle_event(walk("A", (0.91, 0.98), type_="new"))
+    clock.advance(10)
+    assert h.tracker.press() == ("started", "A")
+    h.run_workers()
+    assert h.started == [("A", "button")]
+
+
+def test_coming_out_needs_30_quiet_seconds_before(clock):
+    h = DoorHarness(clock)
+    h.tracker.handle_event(walk("V", (0.45, 0.6), type_="new"))
+    h.tracker.handle_event(walk("V", (0.45, 0.6), type_="end"))
+    clock.advance(31)  # long enough: alone
+    h.tracker.handle_event(walk("A", (0.91, 0.98), type_="new"))
+    clock.advance(10)
+    h.tracker.sweep()
+    assert h.workers == []

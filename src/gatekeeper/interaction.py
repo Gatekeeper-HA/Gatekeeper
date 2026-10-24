@@ -72,10 +72,11 @@ class Visit:
     outcome is one of: completed, reply_failed, talkback_busy,
     talkback_failed, talkback_unavailable, timeout, error,
     pressed_during_visit (a doorbell press while a visit ran or just ended),
-    left (someone came out of the front door and walked away), or returned
-    (someone walked up soon after that: most likely them coming back in). Neither
-    is greeted or notified. entered: greeted, but they went in by the front door
-    without saying anything (the household coming home), so the visit stopped there
+    left (someone came out of the front door and walked away), stepped_out (came
+    out and went back in), or returned (someone walked up soon after leaving: most
+    likely them coming back in). None of these is greeted or notified. entered:
+    greeted, but they went in by the front door without saying anything (the
+    household coming home), so the visit stopped there
     and the notification is a quiet one. household: someone the owner enrolled,
     recognized by face (details: name, greeted), either before the greeting (not
     greeted) or during the visit before they said anything (stopped); also a quiet

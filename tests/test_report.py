@@ -755,3 +755,18 @@ def test_an_audio_check_alert_fails_the_recording_audio_check():
         "audio check alerted: restarting Frigate didn't bring the audio back"
     )
     assert f"audio check alerted at {report.local(NOW - 600)}" in render_text(r)
+
+
+def test_the_household_stepping_out_is_counted_and_covers_its_arrival():
+    out = visit(NOW - 1800, NOW - 1770, outcome="stepped_out")
+    r = build(
+        inputs(
+            visits=[out],
+            window_visits=[out],
+            arrivals=[{"start_time": NOW - 1800}],
+            notifications=[],
+        )
+    )
+    assert failing(r) == {}  # not an arrival "not greeted"
+    assert (r["counts"]["visits"], r["counts"]["stepped_out"]) == (0, 1)
+    assert "1 came out and went back in (not greeted, on purpose)" in render_text(r)

@@ -83,7 +83,7 @@ LEVELS = {"WARNING": 1, "ERROR": 2, "CRITICAL": 3, "TRACEBACK": 3}
 ERROR_LEVELS = {"ERROR", "CRITICAL", "TRACEBACK"}
 MAX_LOG_KINDS = 20
 # Visit outcomes that are the household, deliberately not greeted (the door zone).
-NOT_GREETED = {"left", "returned"}
+NOT_GREETED = {"left", "stepped_out", "returned"}
 # Records in the visit log that aren't visits: the household (above; those who went
 # in by the door, greeted then stopped; and those recognized by face), and the
 # resident's quick replies to a visit (quick_reply.py).
@@ -528,6 +528,7 @@ def build(i: Inputs) -> dict:
     # greeted or notified (the door zone): counted on their own.
     left = [v for v in i.visits if v.get("outcome") == "left"]
     returned = [v for v in i.visits if v.get("outcome") == "returned"]
+    stepped_out = [v for v in i.visits if v.get("outcome") == "stepped_out"]
     entered = [v for v in i.visits if v.get("outcome") == "entered"]
     household = [v for v in i.visits if v.get("outcome") == "household"]
     visits = [v for v in i.visits if v.get("outcome") not in NOT_VISITS]
@@ -674,6 +675,7 @@ def build(i: Inputs) -> dict:
             "visits": len(visits),
             "left_by_door": len(left),
             "returned": len(returned),
+            "stepped_out": len(stepped_out),
             "went_inside": len(entered),
             "recognized": recognized_info(household, sources.get("gatekeeper", [])),
             "return_gaps": return_gaps(i.visits),
@@ -738,6 +740,7 @@ def summary_lines(report: dict) -> list[str]:
         f"{n} {what}"
         for n, what in (
             (counts.get("left_by_door"), "came out of the door and left"),
+            (counts.get("stepped_out"), "came out and went back in"),
             (counts.get("returned"), "came back soon after"),
         )
         if n

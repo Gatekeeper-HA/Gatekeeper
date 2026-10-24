@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     # Empty: greet everyone.
     door_zone: str = ""
     leaving_watch_seconds: float = 3.0
+    # Someone who appears at the door with nobody else on camera then, or this long
+    # before, came out of the house: not greeted however long they stay at the door.
+    came_out_quiet_seconds: float = 30.0
     leaving_cooldown_seconds: float = 15.0
     # Someone who walks up this soon after someone left by the door is most likely
     # them coming back in (from the car or the mailbox): not greeted. 0 disables.
