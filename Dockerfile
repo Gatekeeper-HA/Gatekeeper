@@ -19,9 +19,10 @@ RUN pip install -r requirements.lock
 
 # VARIANT=cuda (docker-compose.gpu.yml) adds the CUDA libraries that Whisper and the
 # person detector (own_perception.py) need to run on an NVIDIA GPU (~1.5 GB), and swaps
-# onnxruntime for its CUDA build (same version; both install the same package, so the CPU
-# one goes first). CTranslate2 and onnxruntime find the libraries through
-# LD_LIBRARY_PATH; on the CPU image those folders don't exist and it's ignored.
+# onnxruntime for its CUDA build (both install the same package, so the CPU one goes
+# first; requirements-cuda.in says why it's an older version). CTranslate2 and
+# onnxruntime find the libraries through LD_LIBRARY_PATH; on the CPU image those folders
+# don't exist and it's ignored.
 ARG VARIANT=cpu
 COPY requirements-cuda.lock ./
 RUN if [ "$VARIANT" = "cuda" ]; then \
