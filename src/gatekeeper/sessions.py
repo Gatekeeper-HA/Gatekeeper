@@ -18,8 +18,13 @@ new one if Frigate hasn't seen anyone yet; during a visit or its cooldown it is
 reported back as merged so the caller can still notify.
 
 With a ``door`` zone, someone who appears at the front door is the household
-coming out. They get ``leaving_watch_seconds`` (instead of the dwell) to walk out
-of the door zone; if they do, they aren't greeted, and person events in the next
+coming out. If nobody else was on camera then, or in the ``came_out_quiet_seconds``
+before, that's certain enough: they aren't greeted however long they stay at the door
+(locking it, letting the dog out), and when they go back in without leaving the door
+zone it's logged as ``stepped_out``. Otherwise (someone else was just there: a
+visitor's track can split, and pick up again at the door) they get
+``leaving_watch_seconds`` (instead of the dwell) to walk out of the door zone. Either
+way, if they walk out of it they aren't greeted, and person events in the next
 ``leaving_cooldown_seconds`` count as them too (Frigate sometimes splits a track).
 Someone who walks up within ``return_window_seconds`` of that is most likely them
 coming back in (from the car or the mailbox), and isn't greeted either. If they
@@ -64,6 +69,7 @@ class Session:
     path_now: Point | None = None  # where they are now
     faces: dict[str, int] = field(default_factory=dict)  # face matches by name
     known: str | None = None  # who they are, once their face matched often enough
+    alone: bool = False  # nobody else on camera when they appeared, nor just before
 
 
 def spawn_thread(fn: Callable[[], None]) -> None:
@@ -84,6 +90,7 @@ class SessionTracker:
         leaving_watch_seconds: float = 3.0,
         leaving_cooldown_seconds: float = 15.0,
         return_window_seconds: float = 120.0,
+        came_out_quiet_seconds: float = 30.0,
         on_not_greeted: Callable[[str, str], None] = lambda event_id, outcome: None,
         on_went_inside: Callable[[str], None] = lambda visit_id: None,
         face_min_matches: int = 2,
@@ -102,6 +109,7 @@ class SessionTracker:
         self.leaving_watch_seconds = leaving_watch_seconds
         self.leaving_cooldown_seconds = leaving_cooldown_seconds
         self.return_window_seconds = return_window_seconds
+        self.came_out_quiet_seconds = came_out_quiet_seconds
         # Called with (event_id, "left" or "returned") for people not greeted.
         self._on_not_greeted = on_not_greeted
         # Called with the visit's id when the person it's for went in by the door.
@@ -124,6 +132,7 @@ class SessionTracker:
         self._left_until = 0.0
         self._left_at = 0.0
         self._return_until = 0.0
+        self._last_person = float("-inf")  # when any person event last came
         self._last_household: str | None = None
         self._household_until = 0.0
 
@@ -136,11 +145,16 @@ class SessionTracker:
             with self._lock:
                 session = self.sessions.get(event.id)
                 if session is None:
+                    others = any(not eid.startswith("press-") for eid in self.sessions)
                     session = self.sessions[event.id] = Session(
-                        first_seen=now, last_seen=now, created=now
+                        first_seen=now,
+                        last_seen=now,
+                        created=now,
+                        alone=not others and now - self._last_person >= self.came_out_quiet_seconds,
                     )
                 else:
                     session.last_seen = now
+                self._last_person = now
                 if event.path:  # the whole path so far, in every message
                     session.path_start, session.path_now = event.path[0], event.path[-1]
                 zones = session.zones | frozenset(event.entered_zones)
@@ -154,8 +168,15 @@ class SessionTracker:
             now = self._clock()
             with self._lock:
                 session = self.sessions.pop(event.id, None)
-                why = self._why_not_started(session, now) if session else None
+                self._last_person = now
+                stepped = self._stepped_out(event, session)
+                why = self._why_not_started(session, now) if session and not stepped else None
                 visit = self._went_inside(event, session)
+            if stepped:
+                log.info(
+                    "person event %s came out of the door and went back in: not greeted", event.id
+                )
+                self._on_not_greeted(event.id, "stepped_out")
             if why:
                 log.info("person event %s ended before a visit: %s", event.id, why)
             if visit:
@@ -327,12 +348,25 @@ class SessionTracker:
         if session.path_start is not None and self.door(session.path_start):
             if session.path_now is not None and self.door(session.path_now) is False:
                 return "left"
-            if now - session.created < self.leaving_watch_seconds:
+            if session.alone or now - session.created < self.leaving_watch_seconds:
                 return "watch"
-            return "greet"  # they stayed at the door
+            return "greet"  # they stayed at the door, and someone else was just there
         if now < self._return_until:
             return "returned"
         return "greet"
+
+    def _stepped_out(self, event: PersonEvent, session: Session | None) -> bool:
+        """Did the person whose event just ended come out of the door and go back in,
+        never greeted? (Their track started and ended in the door zone.)"""
+        if session is None or session.handled or session.in_progress or self.door is None:
+            return False
+        if session.trigger != "person" or session.path_start is None:
+            return False
+        last = event.path[-1] if event.path else session.path_now
+        if not self.door(session.path_start) or last is None or not self.door(last):
+            return False
+        session.handled = True
+        return True
 
     def _in_trigger_zone(self, zones: frozenset[str]) -> bool:
         return not self.trigger_zones or bool(zones & self.trigger_zones)

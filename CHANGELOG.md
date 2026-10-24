@@ -110,6 +110,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **The household stepping out of the front door isn't greeted any more.** Someone who
+  came out and stayed at the door more than 3 s was greeted, and warned when they didn't
+  answer. On the rig that happened 3 times in 8 days (46 greeted visits), once after
+  midnight: someone locking up, letting the dog out, or looking around.
+  - **Now** someone who appears in the door zone with nobody else on camera then, or in
+    the 30 s before (`CAME_OUT_QUIET_SECONDS`), isn't greeted however long they stay.
+    They're logged `left` when they walk away, or `stepped_out` (new) when they go back in.
+    A doorbell press still greets.
+  - **When someone else was just on camera,** it could be a visitor's track picking up
+    again at the door, so it's judged as before.
+  - **Replayed** on the 3 visits from the rig's real paths: none would be greeted.
+  - **Also:** someone who appears at the door and goes straight back in is logged
+    `stepped_out`, instead of counting in the daily report as a porch arrival not greeted.
 - **Package alerts when the light changes during a visit.** The doorstep is compared before
   and after each visit, which needs the same light. When someone switched a light on (or
   the camera's night mode or a doorbell's white LED changed), the check retried for 10

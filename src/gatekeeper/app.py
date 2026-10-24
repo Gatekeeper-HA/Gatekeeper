@@ -344,6 +344,7 @@ def main() -> None:
         leaving_watch_seconds=settings.leaving_watch_seconds,
         leaving_cooldown_seconds=settings.leaving_cooldown_seconds,
         return_window_seconds=settings.return_window_seconds,
+        came_out_quiet_seconds=settings.came_out_quiet_seconds,
         on_not_greeted=on_not_greeted,
         on_went_inside=interaction.went_inside,
         face_min_matches=settings.face_min_matches,
