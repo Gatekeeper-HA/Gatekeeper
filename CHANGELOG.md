@@ -133,6 +133,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **Daily report: own perception compared from when it was really running.** A deploy
+  later in the day restarted it, and the report compared only the arrivals after that
+  restart (on the rig, *0 of 0* instead of *21 of 21*). It now starts from its first
+  track or hour of stats in the log.
+- **Daily report: the doorbell's weekly restart isn't a log error.** reolink-aio's *lost
+  event subscription* line, and the button listener's own reconnects (now a warning), made
+  every Sunday report red. Whether the button is heard again is the `doorbell_button`
+  check and the *Doorbell* line.
 - **The doorbell button after the doorbell restarts.** Reolink doorbells restart weekly
   (maintenance, Sundays at 02:00 by default) and after firmware updates, and their push
   events stop. reolink-aio resubscribes by itself, but logs it only at debug level, so
