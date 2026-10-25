@@ -968,3 +968,33 @@ def test_the_doorbell_button_not_listening_fails_a_check():
     )
     assert build(inputs())["doorbell"] is None
     assert "doorbell_button" not in failing(build(inputs()))
+
+
+def test_own_perception_compares_from_its_first_track_before_a_restart():
+    # Running all day; a deploy restarted it in the evening, so the window's only "on"
+    # line is late. The morning's arrival still counts, and was seen.
+    arrivals = [{"start_time": NOW - 9000, "end_time": NOW - 8990}]
+    log = own_log(
+        own_track(NOW - 8998, NOW - 8985, "porch"),
+        (NOW - 3000, "app", "own perception on (shadow): go2rtc:8554/front_door_sub, zones porch"),
+    )
+    r = build(
+        inputs(
+            arrivals=arrivals, log_text=log, trigger_zones=("porch",), visits=[], window_visits=[]
+        )
+    )
+    own = r["own_perception"]
+    assert (own["arrivals"], own["seen"]) == (1, 1)
+    assert own["since"] == report.local(NOW - 8998)
+
+
+def test_the_doorbell_restarting_isnt_a_log_error():
+    log = button_log(
+        (
+            NOW - 600,
+            "ERROR",
+            "Baichuan host 192.168.40.190: lost event subscription after 10.41 s and failed to "
+            "reestablished connection",
+        ),
+    )
+    assert "gatekeeper_log_errors" not in failing(build(inputs(log_text=log)))

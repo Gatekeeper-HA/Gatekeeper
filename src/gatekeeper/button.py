@@ -103,7 +103,9 @@ class DoorbellButton:
             try:
                 asyncio.run(self.run())
             except Exception as e:
-                log.error("doorbell button listener stopped: %s", e)
+                # A warning: it reconnects. The daily report lists each stop, and its
+                # doorbell_button check fails if the button still isn't heard.
+                log.warning("doorbell button listener stopped: %s", e)
             if self.disabled:
                 return
             if time.monotonic() - started > 600:

@@ -55,6 +55,9 @@ NOISE = [
         r"torch\.jit\.script` is deprecated",
         r"Did not detect hwaccel",  # Frigate decodes video on the CPU (config.gpu.yml)
         r"Non-monotonic DTS",  # ffmpeg fixing the timestamps of a stream that came back
+        # reolink-aio when the doorbell restarts (weekly maintenance, updates); whether the
+        # button is heard again is the doorbell_button check and the Doorbell line.
+        r"lost event subscription after [\d.]+ s and failed to reestablish",
     )
 ]
 
@@ -347,6 +350,8 @@ def own_perception_info(
             tracks.append((float(t["start"]), float(t["end"]), zones_seen))
         elif st := OWN_STATS.search(message):
             stats.append({k: v if k == "device" else int(v) for k, v in st.groupdict().items()})
+            if m:  # it ran for the hour before this line
+                stats[-1]["from"] = log_time(m["time"]) - stats[-1]["seconds"]
     if started is None and not tracks and not stats:
         return None
 
@@ -356,9 +361,16 @@ def own_perception_info(
     def near(a0: float, a1: float, b0: float, b1: float) -> bool:
         return a0 - OWN_SLACK_SECONDS <= b1 and b0 - OWN_SLACK_SECONDS <= a1
 
-    # Arrivals before it started (the log's first line, if it started before the log).
-    since = started if started is not None else min((t[0] for t in tracks), default=now)
-    compared = [e for e in arrivals if e["start_time"] >= since]
+    # Arrivals from the first sign it was running: its first track or hour of stats may
+    # come before the first "on" line in the log (a deploy restarted it later in the day).
+    since = min(
+        [x for x in (started,) if x is not None]
+        + [t[0] for t in tracks]
+        + [st["from"] for st in stats if "from" in st],
+        default=now,
+    )
+    # (Frigate sees someone a moment before a track starts: the same slack as matching.)
+    compared = [e for e in arrivals if e["start_time"] >= since - OWN_SLACK_SECONDS]
     seen, elsewhere, missed = [], [], []
     for e in compared:
         start, end = e["start_time"], e.get("end_time") or now
