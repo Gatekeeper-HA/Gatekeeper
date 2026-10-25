@@ -127,6 +127,10 @@ OWN_STATS = re.compile(
     r"own perception stats: (?P<frames>\d+) frames in (?P<seconds>\d+) s, "
     r"(?P<detected>\d+) through the detector \(median (?P<ms>\d+) ms(?: on (?P<device>\w+))?\)"
 )
+# button.py's lines: each connection to the doorbell (with its firmware), and each time
+# the listener stopped (the doorbell restarted, or its push events stopped).
+BUTTON_LISTENING = re.compile(r"listening for button presses on .+ \(firmware (?P<firmware>\S+)\)")
+BUTTON_STOPPED = re.compile(r"doorbell button listener stopped: (?P<why>.+)$")
 # A track and a Frigate event this close in time are the same person.
 OWN_SLACK_SECONDS = 5.0
 # How long after someone left by the door the next person to walk up is listed
@@ -288,6 +292,41 @@ def faces_page(lines: list[str]) -> dict:
         "captures": captures,
     }
     return page if any(page.values()) else {}
+
+
+def doorbell_info(lines: list[str]) -> dict | None:
+    """The doorbell button's listener (button.py): the firmware it reported on each
+    connection (a change is an update), each time it stopped and how long until it was
+    listening again, and whether it's listening at the end of the log. None when the log
+    has none of it."""
+    firmware: list[str] = []
+    stops: list[dict] = []
+    listening = None
+    for line in lines:
+        m = GATEKEEPER_LINE.match(line)
+        if not m:
+            continue
+        if b := BUTTON_LISTENING.search(m["message"]):
+            if not firmware or firmware[-1] != b["firmware"]:
+                firmware.append(b["firmware"])
+            if stops and stops[-1]["back_minutes"] is None:
+                stops[-1]["back_minutes"] = round((log_time(m["time"]) - stops[-1]["at"]) / 60, 1)
+            listening = True
+        elif b := BUTTON_STOPPED.search(m["message"]):
+            # A failed reconnect while it's still down is part of the same stop.
+            if listening is not False:
+                stops.append({"at": log_time(m["time"]), "why": b["why"], "back_minutes": None})
+            listening = False
+    if listening is None:
+        return None
+    return {
+        "firmware": firmware,
+        "listening": listening,
+        "stops": [
+            {"at": local(x["at"]), "why": x["why"], "back_minutes": x["back_minutes"]}
+            for x in stops
+        ],
+    }
 
 
 def own_perception_info(
@@ -782,6 +821,14 @@ def build(i: Inputs) -> dict:
         failed = quick["results"].get("failed", 0)
         check("quick_replies", not failed, f"{failed} quick reply(ies) couldn't be said")
     own = own_perception_info(arrivals, sources.get("gatekeeper", []), list(i.trigger_zones), i.now)
+    doorbell = doorbell_info(sources.get("gatekeeper", []))
+    if doorbell:
+        stopped = doorbell["stops"][-1]["at"] if doorbell["stops"] else "?"
+        check(
+            "doorbell_button",
+            doorbell["listening"],
+            f"the doorbell button isn't heard: its listener stopped at {stopped}",
+        )
     if i.own_perception != "off":
         check("own_perception", own is not None, "own perception is on but logged nothing")
     failed_deploys = [d for d in deploys if d.get("result") not in ("deployed", "moved")]
@@ -844,6 +891,7 @@ def build(i: Inputs) -> dict:
         ),
         "frigate": frigate,
         "own_perception": own,
+        "doorbell": doorbell,
         "deploys": deploys,
         "logs": logs,
     }
@@ -999,6 +1047,18 @@ def summary_lines(report: dict) -> list[str]:
                 if r["tap_down_turns"]
                 else ""
             )
+        )
+    if bell := report.get("doorbell"):
+        stops = [
+            f"{x['at']}"
+            + (f", back after {x['back_minutes']:g} min" if x["back_minutes"] is not None else "")
+            for x in bell["stops"]
+        ]
+        lines.append(
+            "Doorbell: firmware "
+            + " → ".join(bell["firmware"])
+            + (" (updated)" if len(bell["firmware"]) > 1 else "")
+            + (f"; button listener restarted: {'; '.join(stops)}" if stops else "")
         )
     if own := report.get("own_perception"):
         lines.append(

@@ -330,6 +330,15 @@ With `REOLINK_HOST` set, Gatekeeper listens for presses of a Reolink doorbell's 
 
 Visit records carry `trigger`: `person` (Frigate detection) or `button`.
 
+**When the doorbell restarts.** Reolink doorbells restart for their weekly maintenance
+(*Settings → System → Maintenance*, Sundays at 02:00 by default) and after a firmware
+update (*Auto update*), and their push events stop. Gatekeeper notices when the events
+stop and connects again, and the log says so: `doorbell button listener stopped: push
+events stopped (did the doorbell restart?)`, then `listening for button presses on …
+(firmware …)`. The daily report lists each restart, how long the button wasn't heard, and
+the firmware, so an update shows the day it happens. Its `doorbell_button` check fails if
+the button isn't being heard when the report runs.
+
 ## Notifications
 
 As soon as the visitor's answer is classified (before the reply plays), Gatekeeper sends a

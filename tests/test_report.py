@@ -911,3 +911,60 @@ def test_own_perception_on_but_silent_fails_a_check():
     assert failing(build(inputs(own_perception="shadow")))["own_perception"] == (
         "own perception is on but logged nothing"
     )
+
+
+def button_log(*lines):
+    return "### gatekeeper\n" + "".join(
+        f"{stamp(ts)} {level:7s} gatekeeper.button [-] {message}\n" for ts, level, message in lines
+    )
+
+
+def test_the_doorbell_restarting_and_updating_is_reported():
+    log = button_log(
+        (
+            NOW - 9000,
+            "INFO",
+            "listening for button presses on Reolink Video Doorbell WiFi "
+            "(firmware v3.0.0.6460_2605211897)",
+        ),
+        (
+            NOW - 6000,
+            "ERROR",
+            "doorbell button listener stopped: push events stopped (did the doorbell restart?)",
+        ),
+        (NOW - 5995, "ERROR", "doorbell button listener stopped: Cannot connect to host"),
+        (
+            NOW - 5850,
+            "INFO",
+            "listening for button presses on Reolink Video Doorbell WiFi "
+            "(firmware v3.0.0.6700_2611010000)",
+        ),
+    )
+    r = build(inputs(log_text=log))
+    bell = r["doorbell"]
+    assert bell["firmware"] == ["v3.0.0.6460_2605211897", "v3.0.0.6700_2611010000"]
+    assert bell["listening"] and len(bell["stops"]) == 1
+    assert bell["stops"][0]["back_minutes"] == 2.5
+    assert "doorbell_button" not in failing(r)
+    assert (
+        "Doorbell: firmware v3.0.0.6460_2605211897 → v3.0.0.6700_2611010000 (updated); "
+        f"button listener restarted: {report.local(NOW - 6000)}, back after 2.5 min"
+        in render_text(r)
+    )
+
+
+def test_the_doorbell_button_not_listening_fails_a_check():
+    log = button_log(
+        (
+            NOW - 9000,
+            "INFO",
+            "listening for button presses on Reolink Video Doorbell WiFi (firmware v3)",
+        ),
+        (NOW - 600, "ERROR", "doorbell button listener stopped: Cannot connect to host"),
+    )
+    r = build(inputs(log_text=log))
+    assert failing(r)["doorbell_button"] == (
+        f"the doorbell button isn't heard: its listener stopped at {report.local(NOW - 600)}"
+    )
+    assert build(inputs())["doorbell"] is None
+    assert "doorbell_button" not in failing(build(inputs()))

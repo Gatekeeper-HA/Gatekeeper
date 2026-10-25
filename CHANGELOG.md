@@ -133,6 +133,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **The doorbell button after the doorbell restarts.** Reolink doorbells restart weekly
+  (maintenance, Sundays at 02:00 by default) and after firmware updates, and their push
+  events stop. reolink-aio resubscribes by itself, but logs it only at debug level, so
+  nothing showed whether presses were heard again. Now, once push events have come in,
+  two minutes without them make Gatekeeper reconnect, and say so.
+  - **Daily report:** a *Doorbell* line with the firmware (marked when it changes, i.e.
+    an update), each restart and how long until the button was heard again. The
+    `doorbell_button` check fails if it isn't heard when the report runs.
 - **Daily report: the time to the next arrival after someone left by the door** (the data
   for `RETURN_WINDOW_SECONDS`) skips someone stepping out of the door and back in
   (`stepped_out`), which isn't an arrival and was listed as greeted. Someone recognized by
