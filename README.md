@@ -137,6 +137,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `OWN_PERCEPTION_FPS` | `5` | Frames looked at per second, at most. The compose stack sets `3` |
 | `OWN_PERCEPTION_THRESHOLD` | `0.3` | The detector's score (0–1) that counts as a person |
 | `OWN_PERCEPTION_THREADS` | `2` | CPU threads for the detector |
+| `OWN_PERCEPTION_DEVICE` | `auto` | `auto`: the detector runs on an NVIDIA GPU when the image has CUDA ([GPU](#gpu-nvidia)) and it works, else on the CPU. `cuda` logs a warning when it falls back. The GPU override sets `cuda` |
 | `MODEL_DIR` | `~/.cache/gatekeeper/models` | Where the detector's model is downloaded (once) |
 | `WEB_PORT` | `8098` | The [household faces](#household-faces) page |
 | `WEB_PASSWORD` | *(none)* | Its password (HTTP Basic, any user name). Without one the page is off. The compose stack reads `GATEKEEPER_WEB_PASSWORD` from `.env` |
@@ -222,6 +223,8 @@ With an NVIDIA GPU, `docker-compose.gpu.yml` moves the slow parts onto it.
   - `large-v3-turbo`: 1.1 s, and the most accurate (the override's default);
   - `small.en`: 0.5 s;
   - `base.en` on a 4-core CPU: 4.0 s.
+- **Our own person detector** ([own perception](#own-perception-shadow)), when it's on: about
+  19 ms a frame on a GTX 1660 Ti, against about 265 ms on a 4-core CPU.
 
 The default image stays CPU-only.
 
@@ -245,6 +248,8 @@ The default image stays CPU-only.
      GTX 1660 Ti (its default model takes 80 ms or more on a CPU).
    - Gatekeeper's log says `loading Whisper model: … on cuda (int8_float16)`.
    - If CUDA doesn't work, Whisper falls back to the CPU and logs why.
+   - With `OWN_PERCEPTION=shadow`, the log says `own perception on (shadow): … detector on
+     cuda`. If it says `cpu`, a warning before it says why.
 5. **Optional, GPU video decoding:** Frigate still decodes the camera's video on the CPU. To
    move that to the GPU too, add `hwaccel_args: preset-nvidia` under the camera's `ffmpeg`
    in `config.gpu.yml`. It needs the driver's NVDEC library (`libnvcuvid.so.1`), which
@@ -492,11 +497,16 @@ Frigate's config for now. When a track ends, the log says so:
 own perception: person track 1792847770.909771-own3 start=1792847770.9 end=1792847790.2 zones=porch,door path=(0.31,0.62)->(0.86,0.97) best=0.88 hits=41
 ```
 
-Every hour it logs how many frames it looked at and how long the detector took. The daily
-report compares the tracks with Frigate's porch arrivals: those it saw in the zone, saw
-elsewhere, or missed, and its porch tracks that Frigate had no arrival for. It runs on the
-CPU. On the rig's 2015 desktop CPU the detector takes about 265 ms a frame, and the whole
-thing uses about 0.15 of a core while nobody is around.
+Every hour it logs how many frames it looked at, how long the detector took and where it
+ran. The daily report compares the tracks with Frigate's porch arrivals: those it saw in
+the zone, saw elsewhere, or missed, and its porch tracks that Frigate had no arrival for.
+
+**Where the detector runs.** With the [GPU override](#gpu-nvidia) it runs on the NVIDIA GPU,
+at Frigate's 5 frames a second. On the rig's GTX 1660 Ti that's about 19 ms a frame, and
+the whole thing uses under a tenth of a core. Without a GPU it runs on the CPU, at 3 frames
+a second in the compose stack: on the rig's 2015 desktop CPU, about 265 ms a frame. That's
+0.15 of a core on a still day. In the wind, though, swaying leaves pass the motion check on
+most frames, and it takes 1.5 cores.
 
 **How well it matches Frigate on the rig.** Frigate's clips of 60 recent person events were
 replayed through it at 3 frames a second. All 45 porch arrivals were seen on the porch, and

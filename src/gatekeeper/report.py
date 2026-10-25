@@ -118,7 +118,7 @@ OWN_TRACK = re.compile(
 )
 OWN_STATS = re.compile(
     r"own perception stats: (?P<frames>\d+) frames in (?P<seconds>\d+) s, "
-    r"(?P<detected>\d+) through the detector \(median (?P<ms>\d+) ms\)"
+    r"(?P<detected>\d+) through the detector \(median (?P<ms>\d+) ms(?: on (?P<device>\w+))?\)"
 )
 # A track and a Frigate event this close in time are the same person.
 OWN_SLACK_SECONDS = 5.0
@@ -256,7 +256,7 @@ def own_perception_info(
             zones_seen = set() if t["zones"] == "-" else set(t["zones"].split(","))
             tracks.append((float(t["start"]), float(t["end"]), zones_seen))
         elif st := OWN_STATS.search(message):
-            stats.append({k: int(v) for k, v in st.groupdict().items()})
+            stats.append({k: v if k == "device" else int(v) for k, v in st.groupdict().items()})
     if started is None and not tracks and not stats:
         return None
 
@@ -300,6 +300,7 @@ def own_perception_info(
         "detected": detected,
         "fps": round(frames / sum(st["seconds"] for st in stats), 1) if stats else None,
         "detector_ms": sorted(busy)[len(busy) // 2] if busy else None,
+        "device": stats[-1]["device"] if stats else None,
     }
 
 
@@ -946,6 +947,7 @@ def summary_lines(report: dict) -> list[str]:
             + (
                 f"; {own['fps']} fps, detector on {own['detected']} of {own['frames']} "
                 f"frames, median {own['detector_ms']} ms"
+                + (f" on {own['device']}" if own.get("device") else "")
                 if own["fps"] is not None
                 else ""
             )

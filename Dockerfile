@@ -13,16 +13,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /src
 
-# Dependencies first, so code changes don't reinstall torch.
-COPY requirements.lock requirements-cuda.lock ./
+# Dependencies first, so code changes don't reinstall torch (nor CUDA library changes).
+COPY requirements.lock ./
 RUN pip install -r requirements.lock
 
-# VARIANT=cuda (docker-compose.gpu.yml) adds the CUDA libraries Whisper needs to run on an
-# NVIDIA GPU (~1 GB). CTranslate2 finds them through LD_LIBRARY_PATH; on the CPU image
-# those folders don't exist and it's ignored.
+# VARIANT=cuda (docker-compose.gpu.yml) adds the CUDA libraries that Whisper and the
+# person detector (own_perception.py) need to run on an NVIDIA GPU (~1.5 GB), and swaps
+# onnxruntime for its CUDA build (both install the same package, so the CPU one goes
+# first; requirements-cuda.in says why it's an older version). CTranslate2 and
+# onnxruntime find the libraries through LD_LIBRARY_PATH; on the CPU image those folders
+# don't exist and it's ignored.
 ARG VARIANT=cpu
-RUN if [ "$VARIANT" = "cuda" ]; then pip install -r requirements-cuda.lock; fi
-ENV LD_LIBRARY_PATH=/usr/local/lib/python3.11/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.11/site-packages/nvidia/cudnn/lib
+COPY requirements-cuda.lock ./
+RUN if [ "$VARIANT" = "cuda" ]; then \
+      pip uninstall -y onnxruntime && pip install -r requirements-cuda.lock; \
+    fi
+ENV LD_LIBRARY_PATH=/usr/local/lib/python3.11/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.11/site-packages/nvidia/cudnn/lib:/usr/local/lib/python3.11/site-packages/nvidia/cuda_runtime/lib:/usr/local/lib/python3.11/site-packages/nvidia/cufft/lib:/usr/local/lib/python3.11/site-packages/nvidia/curand/lib:/usr/local/lib/python3.11/site-packages/nvidia/nvjitlink/lib
 
 COPY pyproject.toml VERSION README.md LICENSE ./
 COPY src ./src

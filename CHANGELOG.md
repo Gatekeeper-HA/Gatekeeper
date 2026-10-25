@@ -18,7 +18,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     Frigate didn't have. It also reports frames per second and the detector's time. Its
     `own_perception` check fails if it's on but logged nothing.
   - **New settings:** `OWN_PERCEPTION`, `OWN_PERCEPTION_URL`, `OWN_PERCEPTION_FPS`,
-    `OWN_PERCEPTION_THRESHOLD`, `OWN_PERCEPTION_THREADS`, `MODEL_DIR`.
+    `OWN_PERCEPTION_THRESHOLD`, `OWN_PERCEPTION_THREADS`, `OWN_PERCEPTION_DEVICE`,
+    `MODEL_DIR`.
+  - **On the GPU** (`docker-compose.gpu.yml`): the GPU image has onnxruntime with CUDA
+    (`onnxruntime-gpu` 1.26, the last built for CUDA 12, which Whisper uses), so the
+    detector runs at 5 fps in about 19 ms a frame on a GTX 1660 Ti. On the rig's CPU it took
+    265 ms, and 1.5 cores on a windy day, when swaying leaves pass the motion check.
+  - **Tracking:** a single box not seen again within 1 s is dropped.
 
 - **Quick replies** (Phase 1): the doorbell notification has buttons, *I'm coming*,
   *Not now* and *No thanks*, that make Gatekeeper say that line at the door. Before, you

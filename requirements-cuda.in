@@ -1,4 +1,13 @@
 # CUDA runtime for faster-whisper (CTranslate2 4.x: CUDA 12 + cuDNN 9) in the GPU image
-# (Dockerfile VARIANT=cuda). torch stays CPU-only: only Whisper runs on the GPU.
+# (Dockerfile VARIANT=cuda). torch stays CPU-only: only Whisper and the person detector
+# run on the GPU.
 nvidia-cublas-cu12
 nvidia-cudnn-cu12==9.*
+# onnxruntime with CUDA, for our own perception's person detector (own_perception.py).
+# It takes the place of the CPU build faster-whisper brings (the Dockerfile uninstalls
+# that one first). 1.26 is the last one built for CUDA 12, which Whisper's CTranslate2
+# uses (1.27 on PyPI needs CUDA 13); its CUDA provider also loads these.
+onnxruntime-gpu==1.26.0
+nvidia-cuda-runtime-cu12
+nvidia-cufft-cu12
+nvidia-curand-cu12

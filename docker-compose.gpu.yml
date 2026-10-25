@@ -36,6 +36,9 @@ services:
       # CPU took 4.0 s.
       WHISPER_MODEL: "large-v3-turbo"
       WHISPER_COMPUTE_TYPE: "int8_float16"
+      # Our own person detector on the GPU too (own_perception.py), at Frigate's 5 fps.
+      OWN_PERCEPTION_DEVICE: "cuda"
+      OWN_PERCEPTION_FPS: "5"
     deploy:
       resources:
         reservations:
