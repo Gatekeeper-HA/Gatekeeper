@@ -6,6 +6,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Daily report: what was done on the household faces page.** A *Faces page* line (and
+  `counts.recognized.faces_page`) lists the faces enrolled per name, kept faces deleted,
+  names forgotten, purges and captures at the door, from Gatekeeper's log.
 - **Own perception, in shadow** (`OWN_PERCEPTION=shadow`, off by default). This is step 2
   of replacing Frigate on our hub: Gatekeeper finds and tracks people itself, next to
   Frigate, and only logs them.

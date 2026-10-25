@@ -96,6 +96,13 @@ NOT_VISITS = NOT_GREETED | {
 }
 # face_watch.py's summary of each time someone was on camera.
 FACE_WATCH = re.compile(r"face watch: .*?(\d+) face\(s\), best match ([\d.]+)")
+# web.py's lines on changes made on the household faces page, and face_watch.py's on
+# capturing faces at the door.
+FACES_ENROLLED = re.compile(r"web: enrolled (\d+) face\(s\) for (.+)$")
+FACES_DELETED = re.compile(r"web: deleted (\d+) kept face\(s\)")
+FACES_FORGOT = re.compile(r"web: forgot (.+)$")
+FACES_PURGED = re.compile(r"web: purged every face")
+FACES_CAPTURE = re.compile(r"capturing faces at the door for ")
 # Visit outcomes where the doorbell speaker didn't connect: nobody at the door heard a thing.
 SPEAKER_DOWN = {"talkback_failed", "talkback_unavailable"}
 # packages.py's log lines.
@@ -226,7 +233,7 @@ def recognized_info(records: list[dict], lines: list[str]) -> dict:
     names = collections.Counter((r.get("details") or {}).get("name") or "?" for r in records)
     watches = [FACE_WATCH.search(line) for line in lines]
     watches = [m for m in watches if m]
-    return {
+    info = {
         "count": len(records),
         "not_greeted": sum(1 for r in records if not (r.get("details") or {}).get("greeted")),
         "stopped": sum(1 for r in records if (r.get("details") or {}).get("greeted")),
@@ -237,6 +244,35 @@ def recognized_info(records: list[dict], lines: list[str]) -> dict:
             (float(m.group(2)) for m in watches if int(m.group(1))), reverse=True
         )[:10],
     }
+    if page := faces_page(lines):
+        info["faces_page"] = page
+    return info
+
+
+def faces_page(lines: list[str]) -> dict:
+    """What was done on the household faces page (web.py): faces enrolled per name, kept
+    faces deleted, names forgotten, purges, and captures at the door. Empty if nothing."""
+    enrolled: collections.Counter[str] = collections.Counter()
+    deleted, forgot, purged, captures = 0, [], 0, 0
+    for line in lines:
+        if m := FACES_ENROLLED.search(line):
+            enrolled[m.group(2).strip()] += int(m.group(1))
+        elif m := FACES_DELETED.search(line):
+            deleted += int(m.group(1))
+        elif m := FACES_FORGOT.search(line):
+            forgot.append(m.group(1).strip())
+        elif FACES_PURGED.search(line):
+            purged += 1
+        elif FACES_CAPTURE.search(line):
+            captures += 1
+    page = {
+        "enrolled": dict(enrolled),
+        "deleted": deleted,
+        "forgot": forgot,
+        "purged": purged,
+        "captures": captures,
+    }
+    return page if any(page.values()) else {}
 
 
 def own_perception_info(
@@ -847,6 +883,19 @@ def summary_lines(report: dict) -> list[str]:
             + f"; faces seen on {rec.get('with_faces', 0)} of {rec.get('watches', 0)} "
             "times someone was on camera"
         )
+    if page := rec.get("faces_page"):
+        done = []
+        if page.get("enrolled"):
+            done.append("enrolled " + ", ".join(f"{n} {k}" for n, k in page["enrolled"].items()))
+        if page.get("deleted"):
+            done.append(f"deleted {page['deleted']} kept face(s)")
+        if page.get("forgot"):
+            done.append("forgot " + ", ".join(page["forgot"]))
+        if page.get("purged"):
+            done.append(f"purged every face ({page['purged']}x)")
+        if page.get("captures"):
+            done.append(f"captured at the door {page['captures']} time(s)")
+        lines.append("Faces page: " + "; ".join(done))
     if counts.get("went_inside"):
         lines.append(
             f"Went inside without answering: {counts['went_inside']} "
