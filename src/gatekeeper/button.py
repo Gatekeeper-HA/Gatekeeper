@@ -4,6 +4,12 @@ reolink-aio logs in over HTTPS and subscribes to the camera's Baichuan push
 events (TCP 9000), the same mechanism Home Assistant's Reolink integration
 uses, so this works without Home Assistant. A press is the doorbell's
 "visitor" state turning on.
+
+When the doorbell restarts (Reolink's weekly maintenance, a firmware update, a power
+cut), its push events stop. reolink-aio resubscribes by itself, but quietly, so the
+listener checks: once events have come in, if they stop for ``LOST_CHECKS`` checks in a
+row it reconnects from scratch, and says so. Each connection logs the firmware, so an
+update shows in the log.
 """
 
 from __future__ import annotations
@@ -17,6 +23,7 @@ from contextlib import suppress
 log = logging.getLogger(__name__)
 
 CALLBACK_ID = "gatekeeper_doorbell_button"
+LOST_CHECKS = 2  # renew_interval checks without push events, after some came in
 
 
 def _reolink_host(host: str, username: str, password: str):
@@ -70,9 +77,18 @@ class DoorbellButton:
             api.baichuan.register_callback(CALLBACK_ID, lambda: self.check(api))
             await api.baichuan.subscribe_events()
             log.info("listening for button presses on %s (firmware %s)", api.model, api.sw_version)
+            seen, lost = False, 0  # push events came in since connecting; checks without
             while True:
                 await asyncio.sleep(self.renew_interval)
                 await api.baichuan.check_subscribe_events()
+                # Not active right after a dropped connection, nor before the first event
+                # (a quiet night): only a drop after events came in counts.
+                if api.baichuan.events_active:
+                    seen, lost = True, 0
+                elif seen:
+                    lost += 1
+                    if lost >= LOST_CHECKS:
+                        raise ConnectionError("push events stopped (did the doorbell restart?)")
         finally:
             with suppress(Exception):
                 api.baichuan.unregister_callback(CALLBACK_ID)
