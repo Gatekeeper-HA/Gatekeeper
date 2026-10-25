@@ -688,6 +688,41 @@ def test_the_household_recognized_by_face_is_counted_apart():
     )
 
 
+def test_what_was_done_on_the_faces_page_is_reported():
+    log = "### gatekeeper\n" + "".join(
+        f"2026-10-13 18:0{k}:00,100 INFO    {logger} [-] {message}\n"
+        for k, (logger, message) in enumerate(
+            [
+                ("gatekeeper.face_watch", "capturing faces at the door for 120 s"),
+                ("gatekeeper.web", "web: enrolled 6 face(s) for Alex"),
+                ("gatekeeper.web", "web: enrolled 2 face(s) for Alex"),
+                ("gatekeeper.web", "web: enrolled 4 face(s) for Sam"),
+                ("gatekeeper.web", "web: deleted 3 kept face(s)"),
+                ("gatekeeper.web", "web: forgot Sam"),
+                ("gatekeeper.web", "web: purged every face"),
+            ]
+        )
+    )
+    r = build(inputs(log_text=log))
+    assert r["counts"]["recognized"]["faces_page"] == {
+        "enrolled": {"Alex": 8, "Sam": 4},
+        "deleted": 3,
+        "forgot": ["Sam"],
+        "purged": 1,
+        "captures": 1,
+    }
+    assert (
+        "Faces page: enrolled Alex 8, Sam 4; deleted 3 kept face(s); forgot Sam; "
+        "purged every face (1x); captured at the door 1 time(s)" in render_text(r)
+    )
+
+
+def test_nothing_done_on_the_faces_page_adds_nothing():
+    r = build(inputs())
+    assert "faces_page" not in r["counts"]["recognized"]
+    assert "Faces page" not in render_text(r)
+
+
 def stamp(ts: float) -> str:
     """A time as Gatekeeper's log writes it (local time)."""
     return report.datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S") + ",100"
