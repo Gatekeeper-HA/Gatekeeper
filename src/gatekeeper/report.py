@@ -152,18 +152,33 @@ def return_gaps(visits: list[dict], within: float = RETURN_GAP_SECONDS) -> list[
     """For each person who left by the door, the next person to walk up within
     ``within``: how many seconds after (between their Frigate events' starts),
     and whether they were greeted or taken to be the household coming back in
-    (``returned``). Doorbell presses always greet, so they don't count."""
+    (``returned``) or recognized before their greeting. Doorbell presses always greet,
+    so they don't count; nor does someone stepping out of the door and back in
+    (``stepped_out``), who isn't walking up."""
     gaps = []
     left_at = None
     for v in sorted(visits, key=visit_start):
-        if v.get("outcome") == "left":
+        outcome = v.get("outcome")
+        if outcome == "left":
             left_at = visit_start(v)
+        elif outcome == "stepped_out":
+            continue
         elif left_at is not None and v.get("trigger", "person") == "person":
             seconds = visit_start(v) - left_at
             if seconds <= within:
-                gaps.append({"seconds": round(seconds), "greeted": v.get("outcome") != "returned"})
+                gaps.append({"seconds": round(seconds), "greeted": greeted(v)})
             left_at = None
     return gaps
+
+
+def greeted(visit: dict) -> bool:
+    """Was this arrival greeted: not taken to be the household coming back, nor
+    recognized by face before its greeting."""
+    if visit.get("outcome") == "returned":
+        return False
+    if visit.get("outcome") == "household":
+        return bool((visit.get("details") or {}).get("greeted"))
+    return True
 
 
 def not_listening(lines: list[str]) -> list[tuple[float, float, str]]:

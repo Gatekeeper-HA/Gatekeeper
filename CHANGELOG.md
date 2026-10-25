@@ -130,6 +130,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **Daily report: the time to the next arrival after someone left by the door** (the data
+  for `RETURN_WINDOW_SECONDS`) skips someone stepping out of the door and back in
+  (`stepped_out`), which isn't an arrival and was listed as greeted. Someone recognized by
+  face before their greeting is listed as not greeted.
 - **The household stepping out of the front door isn't greeted any more.** Someone who
   came out and stayed at the door more than 3 s was greeted, and warned when they didn't
   answer. On the rig that happened 3 times in 8 days (46 greeted visits), once after

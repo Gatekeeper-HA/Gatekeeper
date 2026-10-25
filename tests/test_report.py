@@ -512,6 +512,27 @@ def test_the_time_from_someone_leaving_to_the_next_arrival_is_listed():
     )
 
 
+def test_return_gaps_skip_someone_stepping_out_and_count_the_household_not_greeted():
+    # Someone who came out of the door and went back in isn't the next arrival: the
+    # one after them is (greeted, 600 s). Someone recognized before their greeting
+    # wasn't greeted; someone recognized during it was.
+    visits = [
+        visit(NOW - 9000, NOW - 8997, outcome="left"),
+        visit(NOW - 8700, NOW - 8690, outcome="stepped_out"),
+        visit(NOW - 8400, NOW - 8370, classification="no_response"),
+        visit(NOW - 6000, NOW - 5997, outcome="left"),
+        visit(NOW - 5700, NOW - 5690, outcome="household", details={"greeted": False}),
+        visit(NOW - 4000, NOW - 3997, outcome="left"),
+        visit(NOW - 3900, NOW - 3880, outcome="household", details={"greeted": True}),
+    ]
+    r = build(inputs(visits=visits, window_visits=visits))
+    assert r["counts"]["return_gaps"] == [
+        {"seconds": 600, "greeted": True},
+        {"seconds": 300, "greeted": False},
+        {"seconds": 100, "greeted": True},
+    ]
+
+
 def test_packages_and_the_doorstep_checks_are_reported():
     greeted = visit(NOW - 3600, NOW - 3570, classification="likely_delivery")
     left = visit(
