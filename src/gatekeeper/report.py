@@ -333,7 +333,7 @@ def doorbell_info(lines: list[str]) -> dict | None:
 
 
 def own_perception_info(
-    arrivals: list[dict], lines: list[str], zones: list[str], now: float
+    arrivals: list[dict], lines: list[str], zones: list[str], now: float, window_start: float = 0.0
 ) -> dict | None:
     """Our own perception in shadow mode next to Frigate (own_perception.py): of Frigate's
     porch arrivals since it started, those it saw in the same zones, saw elsewhere, or
@@ -369,6 +369,7 @@ def own_perception_info(
         + [st["from"] for st in stats if "from" in st],
         default=now,
     )
+    since = max(since, window_start)  # the first stats line covers the hour before it
     # (Frigate sees someone a moment before a track starts: the same slack as matching.)
     compared = [e for e in arrivals if e["start_time"] >= since - OWN_SLACK_SECONDS]
     seen, elsewhere, missed = [], [], []
@@ -387,9 +388,12 @@ def own_perception_info(
         if in_zone(t[2])
         and not any(near(e["start_time"], e.get("end_time") or now, t[0], t[1]) for e in arrivals)
     ]
-    frames = sum(st["frames"] for st in stats)
-    busy = [st["ms"] for st in stats if st["detected"]]  # hours the detector ran
-    detected = sum(st["detected"] for st in stats)
+    # Per device, in the order it ran on: a day can have both (the GPU arriving with a
+    # deploy, or falling back to the CPU). Lines from before the device was logged were
+    # all on the CPU.
+    devices: dict[str, list[dict]] = {}
+    for st in stats:
+        devices.setdefault(st.get("device") or "cpu", []).append(st)
     return {
         "since": local(since),
         "arrivals": len(compared),
@@ -398,11 +402,22 @@ def own_perception_info(
         "missed": [local(e["start_time"]) for e in missed],
         "tracks": len(tracks),
         "extra": [local(t[0]) for t in extra],
-        "frames": frames,
-        "detected": detected,
-        "fps": round(frames / sum(st["seconds"] for st in stats), 1) if stats else None,
-        "detector_ms": sorted(busy)[len(busy) // 2] if busy else None,
-        "device": stats[-1]["device"] if stats else None,
+        "frames": sum(st["frames"] for st in stats),
+        "detected": sum(st["detected"] for st in stats),
+        "devices": [device_stats(name, hours) for name, hours in devices.items()],
+        "device": (stats[-1].get("device") or "cpu") if stats else None,
+    }
+
+
+def device_stats(device: str, hours: list[dict]) -> dict:
+    """Own perception's hourly stats lines on one device, together."""
+    busy = sorted(st["ms"] for st in hours if st["detected"])  # hours the detector ran
+    seconds = sum(st["seconds"] for st in hours)
+    return {
+        "device": device,
+        "hours": round(seconds / 3600, 1),
+        "fps": round(sum(st["frames"] for st in hours) / seconds, 1) if seconds else None,
+        "detector_ms": busy[len(busy) // 2] if busy else None,
     }
 
 
@@ -832,7 +847,9 @@ def build(i: Inputs) -> dict:
     if quick["count"]:
         failed = quick["results"].get("failed", 0)
         check("quick_replies", not failed, f"{failed} quick reply(ies) couldn't be said")
-    own = own_perception_info(arrivals, sources.get("gatekeeper", []), list(i.trigger_zones), i.now)
+    own = own_perception_info(
+        arrivals, sources.get("gatekeeper", []), list(i.trigger_zones), i.now, since
+    )
     doorbell = doorbell_info(sources.get("gatekeeper", []))
     if doorbell:
         stopped = doorbell["stops"][-1]["at"] if doorbell["stops"] else "?"
@@ -1081,10 +1098,14 @@ def summary_lines(report: dict) -> list[str]:
             + f"; {own['tracks']} track(s), {len(own['extra'])} on the porch Frigate didn't have"
             + (f" ({', '.join(own['extra'][:10])})" if own["extra"] else "")
             + (
-                f"; {own['fps']} fps, detector on {own['detected']} of {own['frames']} "
-                f"frames, median {own['detector_ms']} ms"
-                + (f" on {own['device']}" if own.get("device") else "")
-                if own["fps"] is not None
+                f"; detector on {own['detected']} of {own['frames']} frames: "
+                + "; ".join(
+                    f"on {d['device']} {d['fps']} fps"
+                    + (f", median {d['detector_ms']} ms" if d["detector_ms"] is not None else "")
+                    + f" ({d['hours']:g} h)"
+                    for d in own["devices"]
+                )
+                if own.get("devices")
                 else ""
             )
         )
