@@ -131,6 +131,10 @@ def start_packages(
         notifier(visit)
         interaction.log_only(visit)
         publisher.package(bool(watcher.packages))
+        if kind == "delivered":
+            tracker.delivered(visit.event_id)  # the courier may bring more
+        elif kind == "picked_up":
+            tracker.picked_up()
 
     watcher = PackageWatcher(
         present=tracker.person_present,
@@ -359,6 +363,8 @@ def main() -> None:
         publisher.conversation(True)
         try:
             visit = interaction.run(event_id, trigger)
+            if visit.classification == "likely_delivery":
+                tracker.delivered(event_id)  # they may bring more
             if watcher and visit.outcome in HOUSEHOLD_OUTCOMES:
                 watcher.keep(event_id, visit.outcome)  # their faces, for enrollment
         finally:
@@ -388,6 +394,7 @@ def main() -> None:
         leaving_cooldown_seconds=settings.leaving_cooldown_seconds,
         return_window_seconds=settings.return_window_seconds,
         came_out_quiet_seconds=settings.came_out_quiet_seconds,
+        delivery_trip_seconds=settings.delivery_trip_seconds,
         on_not_greeted=on_not_greeted,
         on_went_inside=interaction.went_inside,
         face_min_matches=settings.face_min_matches,

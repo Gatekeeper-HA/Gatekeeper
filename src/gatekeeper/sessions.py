@@ -39,6 +39,14 @@ With face recognition (face_watch.py), a person whose face matched someone the o
 enrolled ``face_min_matches`` times is them: not greeted if their visit hasn't
 started (``on_household``), and their visit stops if it has (``on_recognized``).
 A doorbell press still greets.
+
+A delivery often takes several trips (groceries, a pile of parcels). Once one was seen
+(``delivered``: a package left, or a visitor who said they're delivering), the next
+people to walk up within ``delivery_trip_seconds`` of it, or of the last trip, are the
+courier again: logged as ``delivery_trip``, not greeted. Short and ended by the pickup
+(``picked_up``), as thieves follow couriers; whoever takes the package still shows in
+the pickup alert. The door rules come first (the household coming out for the bags),
+and a doorbell press still greets.
 """
 
 from __future__ import annotations
@@ -91,6 +99,7 @@ class SessionTracker:
         leaving_cooldown_seconds: float = 15.0,
         return_window_seconds: float = 120.0,
         came_out_quiet_seconds: float = 30.0,
+        delivery_trip_seconds: float = 180.0,
         on_not_greeted: Callable[[str, str], None] = lambda event_id, outcome: None,
         on_went_inside: Callable[[str], None] = lambda visit_id: None,
         face_min_matches: int = 2,
@@ -110,7 +119,9 @@ class SessionTracker:
         self.leaving_cooldown_seconds = leaving_cooldown_seconds
         self.return_window_seconds = return_window_seconds
         self.came_out_quiet_seconds = came_out_quiet_seconds
-        # Called with (event_id, "left" or "returned") for people not greeted.
+        self.delivery_trip_seconds = delivery_trip_seconds
+        # Called with (event_id, outcome) for people not greeted: "left", "returned",
+        # "stepped_out", "delivery_trip".
         self._on_not_greeted = on_not_greeted
         # Called with the visit's id when the person it's for went in by the door.
         self._on_went_inside = on_went_inside
@@ -135,6 +146,8 @@ class SessionTracker:
         self._last_person = float("-inf")  # when any person event last came
         self._last_household: str | None = None
         self._household_until = 0.0
+        self._delivery: str | None = None  # the delivery whose courier may come back
+        self._delivery_until = 0.0
 
     def handle_event(self, event: PersonEvent) -> None:
         if event.camera != self.camera or event.label != "person":
@@ -210,6 +223,8 @@ class SessionTracker:
                 verdict = "after_household"
             else:
                 verdict = self._door_verdict(session, now)
+                if verdict == "greet" and now < self._delivery_until:
+                    verdict = "delivery_trip"
             if verdict == "watch":
                 return False
             if verdict == "after_household":
@@ -234,6 +249,10 @@ class SessionTracker:
                     self._last_left,
                 )
                 return False
+            elif verdict == "delivery_trip":
+                session.handled = True
+                session.merged_into = self._delivery
+                self._delivery_until = now + self.delivery_trip_seconds
             elif verdict in ("left", "returned"):
                 session.handled = True
                 if verdict == "left":
@@ -253,7 +272,13 @@ class SessionTracker:
                 event_id,
                 now - self._left_at,
             )
-        if verdict in ("left", "returned"):
+        if verdict == "delivery_trip":
+            log.info(
+                "person event %s is another trip of delivery %s: not greeted",
+                event_id,
+                self._delivery,
+            )
+        if verdict in ("left", "returned", "delivery_trip"):
             self._on_not_greeted(event_id, verdict)
             return False
         if verdict == "household":
@@ -271,6 +296,23 @@ class SessionTracker:
 
         self._spawn(worker)
         return True
+
+    def delivered(self, delivery_id: str) -> None:
+        """A delivery was just seen (a package left, or a visitor who said they're
+        delivering): its courier may come back with more."""
+        with self._lock:
+            self._delivery = delivery_id
+            self._delivery_until = self._clock() + self.delivery_trip_seconds
+        log.info(
+            "delivery %s: further trips for %.0f s aren't greeted",
+            delivery_id,
+            self.delivery_trip_seconds,
+        )
+
+    def picked_up(self) -> None:
+        """The package was taken in: the delivery is over."""
+        with self._lock:
+            self._delivery_until = 0.0
 
     def people(self) -> list[tuple[str, float, float | None]]:
         """Everyone Frigate sees now (for face_watch): their event id, when Frigate first

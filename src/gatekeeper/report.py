@@ -94,11 +94,12 @@ TAP_DOWN = "audio tap down; recording a fixed window instead"  # interaction: a 
 LEVELS = {"WARNING": 1, "ERROR": 2, "CRITICAL": 3, "TRACEBACK": 3}
 ERROR_LEVELS = {"ERROR", "CRITICAL", "TRACEBACK"}
 MAX_LOG_KINDS = 20
-# Visit outcomes that are the household, deliberately not greeted (the door zone).
-NOT_GREETED = {"left", "stepped_out", "returned"}
-# Records in the visit log that aren't visits: the household (above; those who went
-# in by the door, greeted then stopped; and those recognized by face), and the
-# resident's quick replies to a visit (quick_reply.py).
+# Visit outcomes deliberately not greeted: the household (the door zone), and a
+# courier's further trips once their delivery was seen.
+NOT_GREETED = {"left", "stepped_out", "returned", "delivery_trip"}
+# Records in the visit log that aren't visits: those above; the household who went in by
+# the door (greeted then stopped) or were recognized by face; the resident's quick
+# replies to a visit (quick_reply.py); and packages.
 NOT_VISITS = NOT_GREETED | {
     "entered",
     "household",
@@ -200,7 +201,7 @@ def return_gaps(visits: list[dict], within: float = RETURN_GAP_SECONDS) -> list[
 def greeted(visit: dict) -> bool:
     """Was this arrival greeted: not taken to be the household coming back, nor
     recognized by face before its greeting."""
-    if visit.get("outcome") == "returned":
+    if visit.get("outcome") in ("returned", "delivery_trip"):
         return False
     if visit.get("outcome") == "household":
         return bool((visit.get("details") or {}).get("greeted"))
@@ -778,6 +779,7 @@ def build(i: Inputs) -> dict:
     left = [v for v in i.visits if v.get("outcome") == "left"]
     returned = [v for v in i.visits if v.get("outcome") == "returned"]
     stepped_out = [v for v in i.visits if v.get("outcome") == "stepped_out"]
+    delivery_trips = [v for v in i.visits if v.get("outcome") == "delivery_trip"]
     entered = [v for v in i.visits if v.get("outcome") == "entered"]
     household = [v for v in i.visits if v.get("outcome") == "household"]
     visits = [v for v in i.visits if v.get("outcome") not in NOT_VISITS]
@@ -942,6 +944,7 @@ def build(i: Inputs) -> dict:
             "left_by_door": len(left),
             "returned": len(returned),
             "stepped_out": len(stepped_out),
+            "delivery_trips": len(delivery_trips),
             "went_inside": len(entered),
             "recognized": recognized_info(household, sources.get("gatekeeper", [])),
             "return_gaps": return_gaps(i.visits),
@@ -1010,6 +1013,7 @@ def summary_lines(report: dict) -> list[str]:
             (counts.get("left_by_door"), "came out of the door and left"),
             (counts.get("stepped_out"), "came out and went back in"),
             (counts.get("returned"), "came back soon after"),
+            (counts.get("delivery_trips"), "more trip(s) of a delivery"),
         )
         if n
     ]
