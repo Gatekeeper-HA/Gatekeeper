@@ -269,6 +269,13 @@ def test_a_camera_restart_is_one_dropout_however_many_lines():
     )
 
 
+def test_lone_frigate_errors_arent_dropouts():
+    # "MQTT disconnected" at three deploys, hours apart: lines, not camera dropouts.
+    r = build(inputs(log_text=frigate_errors([0.0, 3600.0, 7200.0])))
+    assert "frigate_log_errors" not in failing(r)
+    assert not r["logs"]["sources"]["frigate"].get("dropouts")
+
+
 def test_many_dropouts_fail_even_when_short():
     hour = 3600.0
     times = [h * hour + s for h in range(report.MAX_DROPOUTS + 1) for s in range(0, 20, 2)]

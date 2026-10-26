@@ -46,6 +46,9 @@ FRIGATE_ERRORS = 50  # outside dropouts: an outage logs the record watchdog ever
 # logs about 20 lines; a camera restarting (a doorbell's scheduled maintenance) about 60.
 DROPOUT_GAP_SECONDS = 60.0
 DROPOUT_SECONDS = 180.0
+# A burst this small isn't a dropout (one was 5 lines on the rig): a lone error, such as
+# "MQTT disconnected" when a deploy restarts Mosquitto, counts as a line outside them.
+DROPOUT_MIN_LINES = 3
 MAX_DROPOUTS = 2
 MAX_SKIPPED_SHARE = 0.1  # of the camera's frames that detection drops
 
@@ -545,8 +548,10 @@ def frigate_dropouts(lines: list[str]) -> tuple[int, int]:
             bursts[-1].append(t)
         else:
             bursts.append([t])
-    dropouts = [b for b in bursts if b[-1] - b[0] <= DROPOUT_SECONDS]
-    other += sum(len(b) for b in bursts if b[-1] - b[0] > DROPOUT_SECONDS)
+    dropouts = [
+        b for b in bursts if len(b) >= DROPOUT_MIN_LINES and b[-1] - b[0] <= DROPOUT_SECONDS
+    ]
+    other += sum(len(b) for b in bursts) - sum(len(b) for b in dropouts)
     return len(dropouts), other
 
 
