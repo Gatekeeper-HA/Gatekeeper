@@ -133,6 +133,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **Daily report: face matches that didn't make a recognition.** *Recognized by face*
+  counted `household` records only, so a face matched over the threshold once (one short
+  of `FACE_MIN_MATCHES`), or someone recognized after their greeting (no record), was
+  invisible: *0 recognized* read like recognition not working. `counts.recognized` now has
+  `matched` (watches whose faces matched each name) and `no_record` (recognitions with no
+  `household` record), both on the line.
 - **Daily report: own perception compared from when it was really running.** A deploy
   later in the day restarted it, and the report compared only the arrivals after that
   restart (on the rig, *0 of 0* instead of *21 of 21*). It now starts from its first
