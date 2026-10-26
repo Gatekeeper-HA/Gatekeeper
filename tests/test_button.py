@@ -83,45 +83,59 @@ def test_press_is_the_rising_edge_of_the_visitor_state():
     assert CALLBACK_ID not in host.baichuan.callbacks
 
 
-def test_reconnects_when_push_events_stop_after_coming_in():
+class ScriptedBaichuan(FakeBaichuan):
+    """events_active as scripted for each check, then the last value."""
+
+    def __init__(self, script):
+        super().__init__()
+        self.script = script
+
+    @property
+    def events_active(self):
+        return self.script[min(self.renewals, len(self.script)) - 1]
+
+    @events_active.setter
+    def events_active(self, value):
+        pass
+
+
+def listen(script, checks):
+    """Run the listener until it has made ``checks`` checks, or stopped; the outcome."""
     host = FakeHost()
+    host.baichuan = ScriptedBaichuan(script)
     button = DoorbellButton("cam", "u", "p", on_press=lambda: None,
-                            host_factory=lambda *a: host, renew_interval=0.01)  # fmt: skip
+                            host_factory=lambda *a: host, renew_interval=0.001)  # fmt: skip
 
     async def scenario():
         task = asyncio.create_task(button.run())
-        await asyncio.sleep(0.05)
-        assert not task.done()  # no events yet (a quiet night): keeps listening
-        host.baichuan.events_active = True
-        await asyncio.sleep(0.05)
-        host.baichuan.events_active = False  # the doorbell restarted
-        with pytest.raises(ConnectionError, match="push events stopped"):
-            await asyncio.wait_for(task, 1)
-
-    asyncio.run(scenario())
-    assert host.logged_out and not host.baichuan.subscribed
-
-
-def test_a_brief_gap_in_push_events_is_not_a_drop():
-    host = FakeHost()
-    button = DoorbellButton("cam", "u", "p", on_press=lambda: None,
-                            host_factory=lambda *a: host, renew_interval=0.02)  # fmt: skip
-
-    async def scenario():
-        task = asyncio.create_task(button.run())
-        host.baichuan.events_active = True
-        await asyncio.sleep(0.05)
-        # Inactive for one check only, then back (reolink-aio resubscribed by itself).
-        host.baichuan.events_active = False
-        await asyncio.sleep(0.03)
-        host.baichuan.events_active = True
-        await asyncio.sleep(0.1)
-        assert not task.done()
+        while host.baichuan.renewals < checks and not task.done():
+            await asyncio.sleep(0.001)
+        if task.done():
+            return task.exception()
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+        return None
 
-    asyncio.run(scenario())
+    return asyncio.run(scenario()), host
+
+
+def test_reconnects_when_push_events_stop_after_coming_in():
+    # None yet (a quiet night), then events, then none for two checks: the doorbell
+    # restarted.
+    error, host = listen([False, False, False, True, True, False, False], checks=20)
+    assert isinstance(error, ConnectionError) and "push events stopped" in str(error)
+    assert host.baichuan.renewals == 7
+    assert host.logged_out and not host.baichuan.subscribed
+
+
+def test_no_events_yet_or_a_brief_gap_is_not_a_drop():
+    # A quiet night: never any events.
+    error, _ = listen([False], checks=20)
+    assert error is None
+    # Inactive for one check only, then back (reolink-aio resubscribed by itself).
+    error, _ = listen([True, True, False, True, True, False, True], checks=20)
+    assert error is None
 
 
 def test_handler_errors_do_not_stop_listening():

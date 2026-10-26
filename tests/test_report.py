@@ -977,19 +977,21 @@ def test_own_perception_is_compared_with_frigates_arrivals():
     assert own["seen_elsewhere"] == [report.local(NOW - 4000)]
     assert own["missed"] == [report.local(NOW - 3000)]
     assert own["extra"] == [report.local(NOW - 3500)]
-    assert (own["frames"], own["detected"], own["fps"], own["detector_ms"]) == (
-        18000,
-        1500,
-        1.7,
-        190,
-    )
-    assert own["device"] == "cuda"  # the older line above has none
+    assert (own["frames"], own["detected"]) == (18000, 1500)
+    # The first line predates the device being logged (the CPU); then two hours on the GPU,
+    # one of them with nobody around (the detector didn't run: no median from it).
+    assert own["devices"] == [
+        {"device": "cpu", "hours": 1.0, "fps": 3.0, "detector_ms": 190},
+        {"device": "cuda", "hours": 2.0, "fps": 1.0, "detector_ms": 180},
+    ]
+    assert own["device"] == "cuda"
     assert "own_perception" not in failing(r)
     assert (
         f"Own perception (shadow, since {report.local(NOW - 8000)}): saw 1 of 3 porch arrivals "
         f"in the zone, 1 elsewhere, missed {report.local(NOW - 3000)}; 3 track(s), 1 on the "
-        f"porch Frigate didn't have ({report.local(NOW - 3500)}); 1.7 fps, detector on 1500 "
-        "of 18000 frames, median 190 ms on cuda" in render_text(r)
+        f"porch Frigate didn't have ({report.local(NOW - 3500)}); detector on 1500 of 18000 "
+        "frames: on cpu 3.0 fps, median 190 ms (1 h); on cuda 1.0 fps, median 180 ms (2 h)"
+        in render_text(r)
     )
 
 
@@ -1086,3 +1088,18 @@ def test_the_doorbell_restarting_isnt_a_log_error():
         ),
     )
     assert "gatekeeper_log_errors" not in failing(build(inputs(log_text=log)))
+
+
+def test_own_perception_since_is_within_the_window():
+    # The first stats line, just after the window opens, covers the hour before it.
+    log = own_log(
+        (
+            NOW - 24 * 3600 + 600,
+            "own_perception",
+            "own perception stats: 10800 frames in 3600 s, 0 through the detector "
+            "(median 0 ms on cuda), 0 track(s) now",
+        ),
+    )
+    own = build(inputs(log_text=log, trigger_zones=("porch",)))["own_perception"]
+    assert own["since"] == report.local(NOW - 24 * 3600)
+    assert own["devices"] == [{"device": "cuda", "hours": 1.0, "fps": 3.0, "detector_ms": None}]
