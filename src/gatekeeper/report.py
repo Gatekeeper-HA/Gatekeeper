@@ -107,7 +107,10 @@ NOT_VISITS = NOT_GREETED | {
     "package_picked_up",
 }
 # face_watch.py's summary of each time someone was on camera.
-FACE_WATCH = re.compile(r"face watch: .*?(\d+) face\(s\), best match ([\d.]+)")
+FACE_WATCH = re.compile(r"face watch: .*?(\d+) face\(s\), best match ([\d.]+)(?P<names>.*)$")
+FACE_WATCH_NAME = re.compile(r"; (?P<name>.+?) x(?P<n>\d+)")
+# sessions.py: a person's face matched the same name often enough (FACE_MIN_MATCHES).
+RECOGNIZED_AS = re.compile(r"person event (?P<event>\S+) recognized as (?P<name>.+)$")
 # web.py's lines on changes made on the household faces page, and face_watch.py's on
 # capturing faces at the door.
 FACES_ENROLLED = re.compile(r"web: enrolled (\d+) face\(s\) for (.+)$")
@@ -264,6 +267,19 @@ def recognized_info(records: list[dict], lines: list[str]) -> dict:
     names = collections.Counter((r.get("details") or {}).get("name") or "?" for r in records)
     watches = [FACE_WATCH.search(line) for line in lines]
     watches = [m for m in watches if m]
+    # Watches whose faces matched an enrolled name at least once (over the threshold),
+    # and recognitions (FACE_MIN_MATCHES) whose event has no household record: they came
+    # after the greeting, or the visitor answered, or (rarely) the event was merged into
+    # another's visit.
+    matched = collections.Counter(
+        n["name"] for m in watches for n in FACE_WATCH_NAME.finditer(m["names"])
+    )
+    recorded = {r.get("event_id") for r in records}
+    no_record = collections.Counter(
+        r["name"]
+        for line in lines
+        if (r := RECOGNIZED_AS.search(line)) and r["event"] not in recorded
+    )
     info = {
         "count": len(records),
         "not_greeted": sum(1 for r in records if not (r.get("details") or {}).get("greeted")),
@@ -274,6 +290,8 @@ def recognized_info(records: list[dict], lines: list[str]) -> dict:
         "best_scores": sorted(
             (float(m.group(2)) for m in watches if int(m.group(1))), reverse=True
         )[:10],
+        "matched": dict(matched),
+        "no_record": dict(no_record),
     }
     if page := faces_page(lines):
         info["faces_page"] = page
@@ -996,6 +1014,17 @@ def summary_lines(report: dict) -> list[str]:
             + (f": {names}" if names else "")
             + f"; faces seen on {rec.get('with_faces', 0)} of {rec.get('watches', 0)} "
             "times someone was on camera"
+            + (
+                "; matched in watches: " + ", ".join(f"{n} {k}" for n, k in rec["matched"].items())
+                if rec.get("matched")
+                else ""
+            )
+            + (
+                "; recognized with no household record (after the greeting, or they "
+                "answered): " + ", ".join(f"{n} {k}" for n, k in rec["no_record"].items())
+                if rec.get("no_record")
+                else ""
+            )
         )
     if page := rec.get("faces_page"):
         done = []

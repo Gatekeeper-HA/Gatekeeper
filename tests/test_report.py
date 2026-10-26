@@ -730,6 +730,52 @@ def test_the_household_recognized_by_face_is_counted_apart():
     )
 
 
+def test_face_matches_that_made_no_recognition_are_reported():
+    # Alex matched once (one short of FACE_MIN_MATCHES); Sam was recognized after the
+    # greeting (no household record); Kim was recognized before it (a record).
+    kim = visit(
+        NOW - 1000, NOW - 998, outcome="household", details={"name": "Kim", "greeted": False}
+    )
+    lines = [
+        (
+            "gatekeeper.face_watch",
+            "face watch: 9 s, 30 frame(s), 2 face(s), best match 0.63; Alex x1",
+        ),
+        ("gatekeeper.sessions", "person event 1800000000.5-sam recognized as Sam"),
+        (
+            "gatekeeper.face_watch",
+            "face watch: 20 s, 80 frame(s), 5 face(s), best match 0.71; Sam x3",
+        ),
+        ("gatekeeper.sessions", f"person event {kim['event_id']} recognized as Kim"),
+        (
+            "gatekeeper.face_watch",
+            "face watch: 9 s, 30 frame(s), 3 face(s), best match 0.66; Kim x2; Alex x1",
+        ),
+        ("gatekeeper.face_watch", "face watch: 9 s, 30 frame(s), 1 face(s), best match 0.40"),
+    ]
+    log = "### gatekeeper\n" + "".join(
+        f"2026-10-13 18:0{k}:00,100 INFO    {logger} [-] {message}\n"
+        for k, (logger, message) in enumerate(lines)
+    )
+    r = build(
+        inputs(
+            visits=[kim],
+            window_visits=[kim],
+            arrivals=[{"start_time": NOW - 1000}],
+            notifications=[],
+            log_text=log,
+        )
+    )
+    rec = r["counts"]["recognized"]
+    assert rec["count"] == 1
+    assert rec["matched"] == {"Alex": 2, "Sam": 1, "Kim": 1}
+    assert rec["no_record"] == {"Sam": 1}
+    assert (
+        "times someone was on camera; matched in watches: Alex 2, Sam 1, Kim 1; recognized "
+        "with no household record (after the greeting, or they answered): Sam 1" in render_text(r)
+    )
+
+
 def test_what_was_done_on_the_faces_page_is_reported():
     log = "### gatekeeper\n" + "".join(
         f"2026-10-13 18:0{k}:00,100 INFO    {logger} [-] {message}\n"
