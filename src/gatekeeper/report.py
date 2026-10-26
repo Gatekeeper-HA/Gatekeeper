@@ -40,7 +40,16 @@ TRANSCRIBE_P90_SECONDS = {"cuda": 3.0, "cpu": 8.0}  # per answer, by Whisper's d
 # reply_latency): end-of-speech silence, Whisper, and queueing the reply.
 REPLY_P90_SECONDS = {"cuda": 3.5, "cpu": 7.0}
 MIN_CAMERA_FPS = 1.0
-FRIGATE_ERRORS = 50  # one camera dropout logs about 20 error lines
+FRIGATE_ERRORS = 50  # outside dropouts: an outage logs the record watchdog every ~20 s
+# A camera dropout or restart is a burst of Frigate errors (ffmpeg crashing, the watchdog
+# retrying): lines less than DROPOUT_GAP_SECONDS apart, over within DROPOUT_SECONDS. One
+# logs about 20 lines; a camera restarting (a doorbell's scheduled maintenance) about 60.
+DROPOUT_GAP_SECONDS = 60.0
+DROPOUT_SECONDS = 180.0
+# A burst this small isn't a dropout (one was 5 lines on the rig): a lone error, such as
+# "MQTT disconnected" when a deploy restarts Mosquitto, counts as a line outside them.
+DROPOUT_MIN_LINES = 3
+MAX_DROPOUTS = 2
 MAX_SKIPPED_SHARE = 0.1  # of the camera's frames that detection drops
 
 # Known, harmless log lines: counted, not listed.
@@ -521,6 +530,31 @@ def normalize(message: str) -> str:
     return re.sub(r"\d+(\.\d+)?", "N", message)[:200]
 
 
+def frigate_dropouts(lines: list[str]) -> tuple[int, int]:
+    """Frigate's error lines (but NOISE) as camera dropouts, the short bursts, and the
+    number of error lines outside them (a long outage's, or lines with no time)."""
+    times, other = [], 0
+    for e in log_events(lines):
+        if e["level"] not in ERROR_LEVELS or any(p.search(e["message"]) for p in NOISE):
+            continue
+        try:
+            times.append(log_time(e["time"]))
+        except ValueError:
+            other += 1
+    times.sort()
+    bursts: list[list[float]] = []
+    for t in times:
+        if bursts and t - bursts[-1][-1] < DROPOUT_GAP_SECONDS:
+            bursts[-1].append(t)
+        else:
+            bursts.append([t])
+    dropouts = [
+        b for b in bursts if len(b) >= DROPOUT_MIN_LINES and b[-1] - b[0] <= DROPOUT_SECONDS
+    ]
+    other += sum(len(b) for b in bursts) - sum(len(b) for b in dropouts)
+    return len(dropouts), other
+
+
 def summarize_logs(text: str) -> dict:
     """Warnings and errors per container, grouped by kind, most severe and frequent first."""
     out: dict = {"sources": {}, "ignored": 0}
@@ -782,10 +816,14 @@ def build(i: Inputs) -> dict:
     gk_errors = logs["sources"].get("gatekeeper", {}).get("errors", 0)
     check("gatekeeper_log_errors", not gk_errors, f"{gk_errors} error(s) in Gatekeeper's log")
     frigate_errors = logs["sources"].get("frigate", {}).get("errors", 0)
+    dropouts, outside = frigate_dropouts(sources.get("frigate", []))
+    if "frigate" in logs["sources"]:
+        logs["sources"]["frigate"]["dropouts"] = dropouts
     check(
         "frigate_log_errors",
-        frigate_errors <= FRIGATE_ERRORS,
-        f"{frigate_errors} error(s) in Frigate's log",
+        dropouts <= MAX_DROPOUTS and outside <= FRIGATE_ERRORS,
+        f"{frigate_errors} error(s) in Frigate's log"
+        + (f", {dropouts} camera dropouts" if dropouts > MAX_DROPOUTS else ""),
     )
     if frigate:
         fps = frigate["camera_fps"] or 0.0
@@ -1095,7 +1133,9 @@ def summary_lines(report: dict) -> list[str]:
         if s["errors"]:
             first = next(g for g in s["top"] if g["level"] in ERROR_LEVELS)
             lines.append(
-                f"{source} log: {s['errors']} error(s), e.g. "
+                f"{source} log: {s['errors']} error(s)"
+                + (f" ({s['dropouts']} camera dropout(s))" if s.get("dropouts") else "")
+                + ", e.g. "
                 f"{(first['exception'] or first['message'])[:80]}"
             )
     if since := report["logs"].get("since"):

@@ -133,6 +133,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **Daily report: a camera restart isn't a red Frigate check.** `frigate_log_errors`
+  counted lines, so one camera restart (a doorbell's scheduled maintenance: ffmpeg
+  crashing and the watchdog retrying ~5 times in a minute, ~56 lines) went over the
+  50-line limit meant for about two dropouts. Frigate's errors are now grouped into
+  bursts: one over within 3 minutes is a camera dropout, and the check fails on more than
+  two dropouts or more than 50 lines outside them (an outage). The *frigate log* line
+  says how many dropouts.
 - **Daily report: own perception compared from when it was really running.** A deploy
   later in the day restarted it, and the report compared only the arrivals after that
   restart (on the rig, *0 of 0* instead of *21 of 21*). It now starts from its first

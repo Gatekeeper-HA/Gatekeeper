@@ -1,3 +1,4 @@
+import datetime
 import io
 import json
 import time
@@ -233,13 +234,54 @@ def test_detection_that_drops_frames_fails():
     )
 
 
+def frigate_errors(times: list[float]) -> str:
+    """Frigate error lines at these times (seconds after 02:00:00)."""
+    lines = []
+    for t in times:
+        at = datetime.datetime(2026, 10, 25, 2) + datetime.timedelta(seconds=t)
+        lines.append(
+            f"2026-10-25 07:00:00.000000000  [{at:%Y-%m-%d %H:%M:%S}] frigate.video"
+            "                  ERROR   : front_door: Unable to read frames from ffmpeg process.\n"
+        )
+    return "### frigate\n" + "".join(lines)
+
+
 def test_a_camera_dropout_is_fine_but_frigate_failing_all_day_is_not():
     dropout = "### frigate\n" + FRIGATE_LOG
     assert "frigate_log_errors" not in failing(build(inputs(log_text=dropout)))
 
-    all_day = "### frigate\n" + (FRIGATE_LOG.splitlines()[0] + "\n") * (report.FRIGATE_ERRORS + 1)
-    assert failing(build(inputs(log_text=all_day)))["frigate_log_errors"] == (
+    # An outage: the record watchdog every 20 s, for longer than a dropout.
+    outage = frigate_errors([20.0 * n for n in range(report.FRIGATE_ERRORS + 1)])
+    assert failing(build(inputs(log_text=outage)))["frigate_log_errors"] == (
         f"{report.FRIGATE_ERRORS + 1} error(s) in Frigate's log"
+    )
+
+
+def test_a_camera_restart_is_one_dropout_however_many_lines():
+    # The doorbell's maintenance restart on the rig: 56 lines in 42 s.
+    restart = frigate_errors([i * 42 / 55 for i in range(56)])
+    r = build(inputs(log_text=restart))
+    assert "frigate_log_errors" not in failing(r)
+    assert r["logs"]["sources"]["frigate"]["dropouts"] == 1
+    assert any(
+        line.startswith("frigate log: 56 error(s) (1 camera dropout(s)), e.g.")
+        for line in report.summary_lines(r)
+    )
+
+
+def test_lone_frigate_errors_arent_dropouts():
+    # "MQTT disconnected" at three deploys, hours apart: lines, not camera dropouts.
+    r = build(inputs(log_text=frigate_errors([0.0, 3600.0, 7200.0])))
+    assert "frigate_log_errors" not in failing(r)
+    assert not r["logs"]["sources"]["frigate"].get("dropouts")
+
+
+def test_many_dropouts_fail_even_when_short():
+    hour = 3600.0
+    times = [h * hour + s for h in range(report.MAX_DROPOUTS + 1) for s in range(0, 20, 2)]
+    r = build(inputs(log_text=frigate_errors(times)))
+    assert failing(r)["frigate_log_errors"] == (
+        f"{len(times)} error(s) in Frigate's log, {report.MAX_DROPOUTS + 1} camera dropouts"
     )
 
 
