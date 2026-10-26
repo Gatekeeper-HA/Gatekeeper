@@ -133,12 +133,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
-- **Daily report: own perception's detector numbers per device.** On the day the detector
-  moved to the GPU, the line read *median 251 ms on cuda*: the median of every hour, most
-  on the CPU, labelled with the last hour's device. It now gives each device's fps and
-  median, in order (on the rig: *on cpu 3.0 fps, median 254 ms (20 h); on cuda 5.0 fps,
-  median 18 ms (3 h)*), so a GPU falling back to the CPU shows too. Its *since* stays
-  within the report's window.
 - **Daily report: own perception compared from when it was really running.** A deploy
   later in the day restarted it, and the report compared only the arrivals after that
   restart (on the rig, *0 of 0* instead of *21 of 21*). It now starts from its first
@@ -147,6 +141,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   event subscription* line, and the button listener's own reconnects (now a warning), made
   every Sunday report red. Whether the button is heard again is the `doorbell_button`
   check and the *Doorbell* line.
+- **Daily report: own perception's detector numbers per device.** On the day the detector
+  moved to the GPU, the line read *median 251 ms on cuda*: the median of every hour, most
+  on the CPU, labelled with the last hour's device. It now gives each device's fps and
+  median, in order (on the rig: *on cpu 3.0 fps, median 254 ms (20 h); on cuda 5.0 fps,
+  median 18 ms (3 h)*), so a GPU falling back to the CPU shows too. Its *since* stays
+  within the report's window.
 - **The doorbell button after the doorbell restarts.** Reolink doorbells restart weekly
   (maintenance, Sundays at 02:00 by default) and after firmware updates, and their push
   events stop. reolink-aio resubscribes by itself, but logs it only at debug level, so
