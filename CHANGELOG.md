@@ -140,6 +140,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   bursts: one over within 3 minutes is a camera dropout, and the check fails on more than
   two dropouts or more than 50 lines outside them (an outage). The *frigate log* line
   says how many dropouts.
+- **A courier making several trips isn't greeted and warned each time.** On the rig, an
+  Instacart driver brought groceries in four trips. Gatekeeper greeted her twice, and
+  told her twice to state her purpose or leave the property, the second time 18 s after
+  it had sent *Package at the front door* for her bags. Once a delivery is seen (a
+  package left, or a visitor who says they're delivering), people walking up within
+  `DELIVERY_TRIP_SECONDS` (180) of it or of the last trip are logged as `delivery_trip`
+  and not greeted. The pickup ends it, the door rules come first, and a doorbell press
+  still greets. The daily report counts the trips apart.
 - **Daily report: own perception compared from when it was really running.** A deploy
   later in the day restarted it, and the report compared only the arrivals after that
   restart (on the rig, *0 of 0* instead of *21 of 21*). It now starts from its first

@@ -61,6 +61,11 @@ class Settings(BaseSettings):
     # Someone who appears at the door with nobody else on camera then, or this long
     # before, came out of the house: not greeted however long they stay at the door.
     came_out_quiet_seconds: float = 30.0
+    # A delivery often takes several trips. Once one was seen (a package left at the door,
+    # or a visitor who said they're delivering), people walking up this soon after it, or
+    # after the last trip, are the courier again: not greeted. Ends when the package is
+    # picked up. 0 disables.
+    delivery_trip_seconds: float = 180.0
     leaving_cooldown_seconds: float = 15.0
     # Someone who walks up this soon after someone left by the door is most likely
     # them coming back in (from the car or the mailbox): not greeted. 0 disables.

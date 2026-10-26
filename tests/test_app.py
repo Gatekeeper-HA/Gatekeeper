@@ -125,3 +125,49 @@ def test_command_topics_are_subscribed_and_handled_apart_from_events(settings):
     msg = SimpleNamespace(topic="gatekeeper/front_door/quick_reply", payload=b"coming")
     client.on_message(client, None, msg)
     assert replies == [b"coming"] and events == []
+
+
+def test_a_package_left_opens_the_delivery_and_its_pickup_ends_it(monkeypatch, tmp_path):
+    from gatekeeper import app
+
+    calls = []
+    watchers = []
+
+    class Watcher:
+        def __init__(self, **kwargs):
+            self.on_change = kwargs["on_change"]
+            self.packages = []
+            watchers.append(self)
+
+        def run_forever(self):
+            pass
+
+    monkeypatch.setattr(app, "PackageWatcher", Watcher)
+    monkeypatch.setattr(app, "PackageModel", lambda: SimpleNamespace(score=None))
+    monkeypatch.setattr(app, "Baselines", lambda path: None)
+    monkeypatch.setattr(app, "start_thread", lambda *a, **k: None)
+    tracker = SimpleNamespace(
+        person_present=lambda: False,
+        delivered=lambda delivery_id: calls.append(("delivered", delivery_id)),
+        picked_up=lambda: calls.append(("picked_up",)),
+    )
+    perception = SimpleNamespace(
+        zone=lambda name: SimpleNamespace(polygon=None),
+        latest_frame=lambda: None,
+        person_snapshot=lambda since: b"jpeg",
+    )
+    settings = Settings(package_zone="porch", log_dir=tmp_path, audio_dir=tmp_path)
+    ensure_dirs(settings)
+    app.start_packages(
+        settings,
+        perception,
+        tracker,
+        notifier=lambda visit: None,
+        interaction=SimpleNamespace(log_only=lambda visit: None),
+        publisher=SimpleNamespace(package=lambda present: None),
+    )
+    package = SimpleNamespace(since=1800000000.25, box=(1, 2, 3, 4), score=0.81)
+    after = SimpleNamespace(jpeg=b"jpeg")
+    watchers[0].on_change("delivered", package, after, 0.0)
+    watchers[0].on_change("picked_up", package, after, 1800000600.0)
+    assert calls == [("delivered", "package-1800000000.250"), ("picked_up",)]

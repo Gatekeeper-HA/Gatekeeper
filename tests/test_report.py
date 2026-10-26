@@ -1103,3 +1103,26 @@ def test_own_perception_since_is_within_the_window():
     own = build(inputs(log_text=log, trigger_zones=("porch",)))["own_perception"]
     assert own["since"] == report.local(NOW - 24 * 3600)
     assert own["devices"] == [{"device": "cuda", "hours": 1.0, "fps": 3.0, "detector_ms": None}]
+
+
+def test_a_couriers_further_trips_are_counted_apart():
+    first = visit(NOW - 3000, NOW - 2975, classification="no_response")
+    trips = [visit(NOW - 2900, NOW - 2898, outcome="delivery_trip")]
+    trips.append(visit(NOW - 2850, NOW - 2848, outcome="delivery_trip"))
+    records = [first, *trips]
+    r = build(
+        inputs(
+            visits=records,
+            window_visits=records,
+            arrivals=[{"start_time": t} for t in (NOW - 3000, NOW - 2900, NOW - 2850)],
+            notifications=[
+                {"ts": NOW - 2975, "event_id": first["event_id"], "ok": True, "seconds": 0.2}
+            ],
+        )
+    )
+    assert r["counts"]["visits"] == 1 and r["counts"]["delivery_trips"] == 2
+    assert failing(r) == {}
+    assert "2 more trip(s) of a delivery (not greeted, on purpose)" in render_text(r)
+    left = visit(NOW - 9000, NOW - 8997, outcome="left")
+    trip = visit(NOW - 8900, NOW - 8898, outcome="delivery_trip")
+    assert report.return_gaps([left, trip]) == [{"seconds": 100, "greeted": False}]

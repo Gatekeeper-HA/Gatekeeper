@@ -125,6 +125,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `LEAVING_WATCH_SECONDS` | `3` | How long someone who appears in the door zone has to walk out of it. On the rig, 90% of the people leaving did within 2.9 s |
 | `LEAVING_COOLDOWN_SECONDS` | `15` | After someone leaves by the door, person events this soon count as them too (Frigate sometimes splits one person's track) |
 | `PACKAGE_ZONE` | *(none)* | A Frigate zone where packages are left (e.g. `porch`): [package alerts](#package-alerts). The compose stack sets `porch` |
+| `DELIVERY_TRIP_SECONDS` | `180` | A delivery often takes several trips (groceries, a pile of parcels). Once one was seen (a package left at the door, or a visitor who said they're delivering), people walking up this soon after it, or after the last trip, are the courier again: not greeted, logged as `delivery_trip`. It's short and ends when the package is picked up, because thieves follow couriers; whoever takes the package is in the *Package picked up* alert. The door rules come first, and a doorbell press still greets. `0` turns it off |
 | `RETURN_WINDOW_SECONDS` | `120` | Someone who walks up this soon after someone left by the door is most likely them coming back in (from the car or the mailbox): not greeted or notified, logged as `returned`. A doorbell press still greets. `0` turns it off. The compose stack sets `240`: on the rig, the household's quick returns took up to 3 minutes |
 | `FACE_RECOGNITION` | `false` | Recognize the household by face: [household faces](#household-faces). Off by default (biometric data); the compose stack reads it from `.env` |
 | `FACE_MATCH_THRESHOLD` | `0.5` | Cosine similarity (0–1) to an enrolled face that counts as a match. On the rig, different people in the household never scored above 0.45 |
@@ -387,7 +388,8 @@ Each reply is logged in `events.jsonl` as a `quick_reply` record with the visit'
 
 With `PACKAGE_ZONE` set, you get **Package at the front door** when a package is left
 there, with a photo of it, and **Package picked up** when it's gone, with Frigate's photo
-of who came.
+of who came. Once a package is seen, the courier's next trips with more aren't greeted
+again (`DELIVERY_TRIP_SECONDS`).
 
 A package only arrives or leaves with someone at the door, so the doorstep isn't watched
 all the time. It's compared before and after each visit:

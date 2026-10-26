@@ -722,3 +722,62 @@ def test_coming_out_needs_30_quiet_seconds_before(clock):
     clock.advance(10)
     h.tracker.sweep()
     assert h.workers == []
+
+
+def walk_up(h, clock, event_id):
+    """Someone walking up from the walkway to the porch, then out of sight."""
+    h.tracker.handle_event(walk(event_id, (0.45, 0.6), type_="new"))
+    clock.advance(1.0)
+    h.tracker.handle_event(walk(event_id, (0.45, 0.6), (0.6, 0.9)))
+    h.run_workers()
+    h.tracker.handle_event(walk(event_id, (0.45, 0.6), (0.6, 0.9), (0.45, 0.6), type_="end"))
+
+
+def test_a_couriers_further_trips_arent_greeted(clock):
+    # The rig's Instacart delivery: four trips in three minutes, greeted twice.
+    h = DoorHarness(clock)
+    walk_up(h, clock, "A")  # the first trip: greeted
+    clock.advance(30)
+    h.tracker.delivered("package-1")  # the doorstep check sees the bags
+    clock.advance(20)
+    walk_up(h, clock, "B")  # back with more
+    clock.advance(170)
+    walk_up(h, clock, "C")  # the window runs from the last trip
+    clock.advance(200)
+    walk_up(h, clock, "D")  # long after: a new visitor
+    assert h.started == [("A", "person"), ("D", "person")]
+    assert h.not_greeted == [("B", "delivery_trip"), ("C", "delivery_trip")]
+
+
+def test_the_pickup_ends_the_delivery(clock):
+    h = DoorHarness(clock)
+    h.tracker.delivered("package-1")
+    h.tracker.picked_up()
+    clock.advance(10)
+    walk_up(h, clock, "A")
+    assert h.started == [("A", "person")] and h.not_greeted == []
+
+
+def test_during_a_delivery_a_press_greets_and_the_household_is_the_household(clock):
+    h = DoorHarness(clock)
+    h.tracker.delivered("package-1")
+    clock.advance(40)
+    # Someone comes out of the door for the bags and walks away: they left, not a trip.
+    h.tracker.handle_event(walk("B", (0.9, 0.98), type_="new"))
+    clock.advance(1.5)
+    h.tracker.handle_event(walk("B", (0.9, 0.98), (0.55, 0.86)))
+    assert h.not_greeted == [("B", "left")]
+    # A doorbell press always greets.
+    clock.advance(60)
+    h.tracker.handle_event(walk("C", (0.45, 0.6), type_="new"))
+    assert h.tracker.press() == ("started", "C")
+    h.run_workers()
+    assert h.started == [("C", "button")]
+
+
+def test_no_delivery_trips_when_it_is_zero(clock):
+    h = DoorHarness(clock)
+    h.tracker.delivery_trip_seconds = 0
+    h.tracker.delivered("package-1")
+    walk_up(h, clock, "A")
+    assert h.started == [("A", "person")]
