@@ -101,6 +101,9 @@ def test_what_gatekeeper_did_in_words():
         "Doorbell pressed: greeted, said it's a delivery"
     )
     assert describe(record("a", 1, flow="law_enforcement")) == "Talked with an officer"
+    assert describe(record("a", 1, details={"walked_away": True})) == (
+        "Greeted, they walked away: a send-off"
+    )
     assert not labelable({"trigger": "package", "outcome": "package_delivered"})
     assert labelable(record("a", 1, trigger="button"))
 

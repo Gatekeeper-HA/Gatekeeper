@@ -781,3 +781,17 @@ def test_no_delivery_trips_when_it_is_zero(clock):
     h.tracker.delivered("package-1")
     walk_up(h, clock, "A")
     assert h.started == [("A", "person")]
+
+
+def test_walking_away_is_back_up_the_frame_from_the_closest_point(clock):
+    h = DoorHarness(clock)
+    assert h.tracker.walking_away()  # nobody on camera
+    h.tracker.handle_event(walk("A", (0.45, 0.6), type_="new"))
+    h.tracker.handle_event(walk("A", (0.45, 0.6), (0.55, 0.85)))
+    assert not h.tracker.walking_away()  # coming up the walk
+    h.tracker.handle_event(walk("A", (0.45, 0.6), (0.55, 0.85), (0.55, 0.82)))
+    assert not h.tracker.walking_away()  # a step back isn't leaving
+    h.tracker.handle_event(walk("A", (0.45, 0.6), (0.55, 0.85), (0.5, 0.74)))
+    assert h.tracker.walking_away()  # back down the walk
+    h.tracker.handle_event(walk("B", (0.45, 0.6), type_="new"))
+    assert not h.tracker.walking_away()  # but someone else is still there

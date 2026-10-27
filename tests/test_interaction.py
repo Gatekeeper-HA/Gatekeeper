@@ -130,6 +130,7 @@ class Rig:
         sent_delay=None,
         wav_seconds=WAV_SECONDS,
         present=None,
+        leaving=None,
         grab_frame=None,
         speech_check=lambda path, start, end: 10.0,  # Silero heard the answer
     ):
@@ -158,6 +159,7 @@ class Rig:
             connect=self.connect,
             tap=self.tap,
             present=present,
+            leaving=leaving,
             grab_frame=grab_frame,
             speech_check=speech_check,
             capture=self.capture,
@@ -630,6 +632,31 @@ def test_the_greeting_is_one_of_many_and_says_its_monitored(settings):
     assert key in ("greeting_1", "greeting_2")  # never the bell's without a press
     assert visit.dialogue[0]["asked"] == key
     assert visit.classification == "likely_delivery"  # the answer heard past its echo
+
+
+def test_someone_walking_away_gets_a_send_off_not_the_question(settings):
+    settings.reply_goodbye = "Thanks for stopping by!"
+    keys = ("greeting", "goodbye", *ALL_REPLY_KEYS)
+    rig = Rig(settings, answer="", answer2="", presynth_keys=keys, leaving=lambda: True)
+    notified = []
+    rig.interaction._on_notify = [notified.append]
+    visit = rig.interaction.run(EID)
+    assert [c[1] for c in rig.calls if c[0] == "play"] == [
+        "_presynth_greeting.wav",
+        "_presynth_goodbye.wav",
+    ]
+    assert not [c for c in rig.calls if c[0] == "capture" and c[2] == f"{EID}-2.wav"]
+    assert (visit.outcome, visit.classification, visit.response) == (
+        "completed",
+        "no_response",
+        "Thanks for stopping by!",
+    )
+    assert visit.details["walked_away"] and len(notified) == 1
+    # Still coming up the walk: the no-answer line, as before.
+    rig = Rig(settings, answer="", answer2="", presynth_keys=keys, leaving=lambda: False)
+    visit = rig.interaction.run(EID)
+    assert ("play", "_presynth_no_answer.wav") in [c[:2] for c in rig.calls]
+    assert "walked_away" not in visit.details
 
 
 def test_failed_second_question_is_logged(settings):

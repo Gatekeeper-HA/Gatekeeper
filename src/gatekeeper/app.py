@@ -261,9 +261,9 @@ def main() -> None:
     synth = Synthesizer(settings.kokoro_voice)
     # The personality's greetings and no-answer lines: a few of each now, the rest in the
     # background (about 10 s each on a CPU); only lines ready are said.
-    lines = {**settings.greeting_texts(), **settings.no_answer_texts()}
+    lines = {**settings.greeting_texts(), **settings.no_answer_texts(), **settings.goodbye_texts()}
     first_lines = {}
-    for kind in ("greeting", "no_answer"):
+    for kind in ("greeting", "no_answer", "goodbye"):
         mine = [k for k in lines if k == kind or k.startswith(f"{kind}_")]
         pressed = [k for k in mine if k.startswith(f"{kind}_pressed")]
         first_lines |= {
@@ -378,6 +378,8 @@ def main() -> None:
         tap=tap,
         # Before asking an officer to leave a second time: are they still there?
         present=lambda: tracker.person_present(),
+        # A send-off, not the no-answer line, for someone already walking away.
+        leaving=lambda: tracker.walking_away(),
         # quick.notified first: a reply's window starts with the notification.
         on_notify=[quick.notified, notifier] if quick else [notifier],
         on_logged=[publisher.visit],

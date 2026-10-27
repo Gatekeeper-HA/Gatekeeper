@@ -234,6 +234,7 @@ class Interaction:
         connect: ConnectFn | None = None,
         tap=None,
         present: Callable[[], bool] | None = None,
+        leaving: Callable[[], bool] | None = None,
         grab_frame: Callable[[Path], Path | None] | None = None,
         speech_check: Callable[[Path, float, float], float | None] | None = None,
         photo_score: Callable[[Path], float | None] = photo_sharpness,
@@ -257,6 +258,8 @@ class Interaction:
         self._tap = tap
         # Is someone still on the porch (SessionTracker.person_present)?
         self._present = present
+        # Is everyone on camera walking away (SessionTracker.walking_away)?
+        self._leaving = leaving
         self._grab_frame = grab_frame or self._grab_go2rtc_frame
         # How sharp a photo is (camera.photo_sharpness): the sharpest is sent.
         self._photo_score = photo_score
@@ -720,6 +723,16 @@ class Interaction:
 
         if reply_key == "no_answer":
             self._check_stop(visit)  # no need to ask an empty porch again
+            if self._leaving is not None and self._leaving():
+                # They're already walking away (a courier who dropped something off,
+                # mostly): a friendly send-off instead of asking again.
+                key, line = self._line("goodbye", visit)
+                said = await self._say(talk, visit, key, line)
+                visit.response = line if said is not None else None
+                visit.details["walked_away"] = True
+                visit.outcome = "completed" if said is not None else "reply_failed"
+                self._notify(visit)
+                return
             # The no-answer reply asks again, in Gatekeeper's voice (one of
             # NO_ANSWER_LINES): listen once more after it.
             key, line = self._line("no_answer", visit)

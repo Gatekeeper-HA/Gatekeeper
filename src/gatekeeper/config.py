@@ -46,6 +46,18 @@ GREETING_PRESSED_LINES = (
     "Ding dong to you too! This property is monitored. What brings you by?",
 )
 
+# Said instead of a no-answer line to someone already walking away after the greeting (a
+# courier who dropped something off, mostly): a friendly send-off, at random.
+GOODBYE_LINES = (
+    "Leaving so soon? Thanks for stopping by!",
+    "Okay, bye! It was nice not talking to you.",
+    "And they're off! Thanks for stopping by.",
+    "Thanks! I'll let them know you came by.",
+    "Drive safe out there! Thanks for stopping by.",
+    "Alright, I'll take that as a goodbye. Thanks for coming by!",
+    "See you later! Thanks for stopping by.",
+)
+
 # Gatekeeper's personality when someone at the door doesn't answer the greeting: friendly
 # and funny, and every line still gets them to say why they came, or go. One is said at
 # random (not the same twice in a row). The owner's examples, written for speaking.
@@ -238,6 +250,11 @@ class Settings(BaseSettings):
     reply_no_answer: str = ""
     no_answer_lines: list[str] = list(NO_ANSWER_LINES)
     no_answer_pressed_lines: list[str] = list(NO_ANSWER_PRESSED_LINES)
+    # Said instead to someone already walking away when the greeting gets no answer: one
+    # of GOODBYE_LINES at random (a JSON list replaces them); REPLY_GOODBYE, if set, is
+    # the only one.
+    reply_goodbye: str = ""
+    goodbye_lines: list[str] = list(GOODBYE_LINES)
     reply_delivery: str = "Thank you. Please leave the package at the door."
     reply_sales: str = "No solicitation. Please leave the property."
     reply_maintenance: str = "Please wait while I notify the resident."
@@ -406,6 +423,18 @@ class Settings(BaseSettings):
             self.no_answer_pressed_lines,
             pressed,
             "Please tell me why you're here.",
+        )
+
+    def goodbye_texts(self, pressed: bool | None = None) -> dict[str, str]:
+        """The send-offs by phrase key: "goodbye" alone with REPLY_GOODBYE, else
+        goodbye_1..."""
+        return _pool(
+            "goodbye",
+            self.reply_goodbye,
+            self.goodbye_lines,
+            [],
+            pressed,
+            "Thanks for stopping by!",
         )
 
     def greeting_texts(self, pressed: bool | None = None) -> dict[str, str]:

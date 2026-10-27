@@ -991,6 +991,7 @@ def build(i: Inputs) -> dict:
             "labels": label_info(i.labelled),
             "greeting_lines": line_info(i.visits, "greeting"),
             "no_answer_lines": line_info(i.visits, "no_answer"),
+            "walked_away": sum(1 for v in visits if (v.get("details") or {}).get("walked_away")),
             "triggers": dict(collections.Counter(v.get("trigger", "person") for v in visits)),
             "classifications": dict(collections.Counter(classification(v) for v in visits)),
             "outcomes": dict(outcomes),
@@ -1104,6 +1105,11 @@ def summary_lines(report: dict) -> list[str]:
         if page.get("captures"):
             done.append(f"captured at the door {page['captures']} time(s)")
         lines.append("Faces page: " + "; ".join(done))
+    if counts.get("walked_away"):
+        lines.append(
+            f"Walked away after the greeting: {counts['walked_away']} (a send-off, not the "
+            "no-answer line)"
+        )
     texts = report.get("line_texts") or {}
     for kind, name in (("greeting_lines", "Greetings"), ("no_answer_lines", "No-answer lines")):
         if said_lines := counts.get(kind):

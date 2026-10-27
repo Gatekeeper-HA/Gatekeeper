@@ -120,6 +120,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     someone the camera hasn't caught going inside.
 
 ### Changed
+- **A send-off for someone already walking away.** When the greeting gets no answer and
+  the visitor is walking back down the walk (on a doorbell camera, back up the frame from
+  the closest they came), Gatekeeper says one of 7 friendly send-offs (*"Leaving so soon?
+  Thanks for stopping by!"*) instead of asking again, and doesn't wait for an answer.
+  Couriers who drop something off and go are the usual case: replayed on the rig's
+  labelled visits, 3 of 5 silent deliveries would have got one. `GOODBYE_LINES` /
+  `REPLY_GOODBYE` set them; the Visits page and the daily report show the send-offs.
 - **A greeting with personality.** Instead of *"Hello. This property is monitored. Please
   state the purpose of your visit."*, Gatekeeper greets with one of 11 friendly, lightly
   funny lines, at random and never the same twice in a row, plus 2 that answer the bell

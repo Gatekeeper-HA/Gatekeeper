@@ -1175,3 +1175,14 @@ def test_which_no_answer_lines_get_people_talking():
         "No-answer lines: said 3 time(s), answered 1; answered after no_answer_3 1/2 (Press "
         "one to explain why you're here. Pr...)" in text
     )
+
+
+def test_send_offs_are_counted():
+    gone = visit(
+        NOW - 4000, NOW - 3990, classification="no_response", details={"walked_away": True}
+    )
+    r = build(inputs(visits=[gone], window_visits=[gone], notifications=[]))
+    assert r["counts"]["walked_away"] == 1
+    assert "Walked away after the greeting: 1 (a send-off, not the no-answer line)" in render_text(
+        r
+    )
