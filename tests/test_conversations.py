@@ -42,8 +42,8 @@ def played(rig):
 def test_candidate_is_asked_for_their_message_and_thanked(settings):
     rig = rig_for(
         settings,
-        ("greeting", "Hi, I'm Jim Abeler, I'm running for state senate"),
-        ("civic_ask_identity", "Jim Abeler, with my campaign"),
+        ("greeting", "Hi, I'm running for state senate"),  # no name: asked who they are
+        ("civic_ask_identity", "Chris Doe, with my campaign"),
         ("civic_ask_message", "I'd appreciate your vote on November 3rd"),
     )
     visit = rig.interaction.run(EID)
@@ -51,14 +51,14 @@ def test_candidate_is_asked_for_their_message_and_thanked(settings):
     assert played(rig) == ["greeting", "civic_ask_identity", "civic_ask_message", "civic_thanks"]
     assert (visit.classification, visit.flow, visit.outcome) == ("civic", "civic", "completed")
     assert visit.details == {
-        "identity": "Jim Abeler, with my campaign",
+        "identity": "Chris Doe, with my campaign",
         "message": "I'd appreciate your vote on November 3rd",
     }
     assert visit.response == settings.phrase_civic_thanks
     # One notification, at the end, with everything in it.
     assert [c for c in rig.calls if c[0] == "notify"] == [("notify", "final")]
     message = compose(rig.notified[0]).message
-    assert 'Who: "Jim Abeler, with my campaign"' in message
+    assert 'Who: "Chris Doe, with my campaign"' in message
     assert 'Message: "I\'d appreciate your vote on November 3rd"' in message
     # The message may be long: its recording window is longer.
     (message_capture,) = [c for c in rig.calls if c[0] == "capture" and c[2] == f"{EID}-3.wav"]

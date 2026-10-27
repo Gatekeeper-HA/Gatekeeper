@@ -85,19 +85,19 @@ def judge_signed(text: str) -> bool | None:
 
 
 # A civic visitor's first sentence may already say who they are (Gatekeeper#78):
-# their name, and who they're with.
-_NAME = re.compile(r"\bmy name(?:'s| is)\b|\b(?:i'm|i am|this is) \w+(?: \w+)?,? (?:with|from)\b")
+# their name, and who they're with. Whisper writes names with a capital, which tells
+# "I'm Pat" from "I'm a volunteer" or "I'm running".
+_NAME = re.compile(r"\b[Mm]y name(?:'s| is)\b|\b(?:I'm|I am|[Tt]his is) [A-Z][a-z]")
 _GROUP = re.compile(
     r"\brunning for\b|\b(?:with|from|for|on behalf of|representing) (?:[\w']+ ){0,4}?"
-    r"(?:campaign|party|democrats?|republicans?|dfl|gop|league|committee|union|association|"
+    r"(?:campaign|party|democrats?|republicans?|gop|league|committee|union|association|"
     r"council|coalition)\b"
 )
 
 
 def introduced(text: str) -> bool:
     """Does a civic visitor's sentence give both their name and who they're with?"""
-    t = text.lower()
-    return bool(_NAME.search(t) and _GROUP.search(t))
+    return bool(_NAME.search(text) and _GROUP.search(text.lower()))
 
 
 class Turns(Protocol):
