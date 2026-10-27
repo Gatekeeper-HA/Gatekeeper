@@ -70,3 +70,23 @@ def test_gave_reason(text, reason):
     from gatekeeper.dialogue import gave_reason
 
     assert gave_reason(text) is reason
+
+
+@pytest.mark.parametrize(
+    ("text", "said"),
+    [
+        ("My name is Sam. I'm a volunteer with Pat Lee and the Democrats.", True),
+        ("I'm Pat with the League of Women Voters", True),
+        ("Hi, my name's Alex, I'm running for city council", True),
+        ("This is Jordan from the Smith campaign", True),
+        ("My name is Sam", False),  # no group: still asked who they're with
+        ("I'm with the Smith campaign", False),  # no name
+        ("Hi, I'm Chris Doe, I'm running for state senate", True),
+        ("I'm a volunteer with the Smith campaign", False),  # no name
+        ("Just asking people to register to vote", False),
+    ],
+)
+def test_introduced(text, said):
+    from gatekeeper.dialogue import introduced
+
+    assert introduced(text) is said
