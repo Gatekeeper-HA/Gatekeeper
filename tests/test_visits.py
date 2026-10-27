@@ -1,4 +1,5 @@
 import base64
+import datetime
 import json
 import re
 import urllib.error
@@ -131,7 +132,9 @@ def test_the_page_shows_each_visit_and_a_label_for_people(log, tmp_path):
     page.token = "T"
     page.labels.set("1792975523.535438-oqfxkg", "groceries")
     text = page.render(days=3)
-    assert "<h2>Sunday 25 October</h2>" in text
+    # The day in the machine's own time zone (Sunday evening on the rig, Monday in UTC).
+    day = datetime.datetime.fromtimestamp(1792975600).strftime("%A %d %B")
+    assert f"<h2>{day}</h2>" in text
     assert "Another trip of a delivery" in text and "Package left at the door" in text
     assert "Heard: &ldquo;Your pizza &lt;is&gt; here&rdquo;" in text  # escaped
     assert text.count('action="label"') == 3  # not for the package
