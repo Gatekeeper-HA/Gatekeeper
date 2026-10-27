@@ -117,6 +117,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     someone the camera hasn't caught going inside.
 
 ### Changed
+- **A friendlier reply when the visitor doesn't answer** (`REPLY_NO_ANSWER`): *"Hey, don't
+  just stand there and ignore me! Smile, you're on camera. Tell me why you're here, or
+  I'll have to ask you to leave the property."* It still asks them to leave, but couriers
+  and canvassers who were busy or didn't hear the greeting aren't met with a warning.
+  It's 8 s with the default voice, against 4.4 s before.
 - **Frigate is behind a perception interface** (`gatekeeper.perception`, inside the code,
   no change in behaviour). Person events, zones, the camera's latest frame and snapshots
   come from a `Perception`, which Frigate provides today (`frigate.FrigatePerception`).

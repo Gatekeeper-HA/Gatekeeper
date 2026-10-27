@@ -164,7 +164,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `REPLY_SALES` | *No solicitation. Please leave the property.* | Reply to a solicitor |
 | `REPLY_MAINTENANCE` | *Please wait while I notify the resident.* | Reply to a service visit |
 | `REPLY_GENERIC` | *Thank you. Please wait while I notify the resident.* | Reply to any other answer |
-| `REPLY_NO_ANSWER` | *You are being recorded. Please state your purpose or leave the property.* | Reply to silence or a one-word answer |
+| `REPLY_NO_ANSWER` | *Hey, don't just stand there and ignore me! Smile, you're on camera. Tell me why you're here, or I'll have to ask you to leave the property.* | Reply to silence or a one-word answer: friendly, but it still asks them to leave if they won't say why they came |
 | `REPLY_PRESSED` | *The resident has already been notified.* | Said when the doorbell is pressed during a visit's cooldown |
 | `PHRASE_EMERGENCY_WAIT` | *I have alerted the resident. Please wait.* | To someone reporting an emergency |
 | `PHRASE_POLICE_ASK_REASON` | *This is an automated assistant, and this conversation is recorded. What is the reason for your visit, and do you have a warrant?* | First question to law enforcement, unless their first sentence already said why they came or whether they have a warrant |

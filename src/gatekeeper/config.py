@@ -154,8 +154,11 @@ class Settings(BaseSettings):
 
     # What Gatekeeper says
     greeting: str = "Hello. This property is monitored. Please state the purpose of your visit."
+    # Said when the visitor doesn't answer the greeting: friendly, but it still asks them to
+    # leave if they won't say why they came (8 s with the default voice).
     reply_no_answer: str = (
-        "You are being recorded. Please state your purpose or leave the property."
+        "Hey, don't just stand there and ignore me! Smile, you're on camera. "
+        "Tell me why you're here, or I'll have to ask you to leave the property."
     )
     reply_delivery: str = "Thank you. Please leave the package at the door."
     reply_sales: str = "No solicitation. Please leave the property."
