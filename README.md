@@ -159,7 +159,9 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `WHISPER_COMPUTE_TYPE` | `auto` | `auto` is `int8` on the CPU and `int8_float16` on a GPU; or any CTranslate2 type (`float32` if issues arise) |
 | `WHISPER_HOTWORDS` | *(none)* | Comma-separated words and names Whisper should expect, e.g. local candidates' names |
 | `KOKORO_VOICE` | `af_heart` | TTS voice (see voices below) |
-| `GREETING` | *Hello. This property is monitored. Please state the purpose of your visit.* | What Gatekeeper says when a visitor is detected |
+| `GREETING` | *(none)* | What Gatekeeper says when a visitor is detected, if you want only one greeting. Without it, Gatekeeper's [personality](#personality) picks one of `GREETING_LINES`. Keep saying the property is monitored |
+| `GREETING_LINES` | 11 greetings (`config.py`) | The greetings, one at random, never the same twice in a row; each says the property is monitored. A JSON list replaces them |
+| `GREETING_PRESSED_LINES` | 2 greetings | Said too after a doorbell press: they answer the bell |
 | `REPLY_DELIVERY` | *Thank you. Please leave the package at the door.* | Reply to a delivery |
 | `REPLY_SALES` | *No solicitation. Please leave the property.* | Reply to a solicitor |
 | `REPLY_MAINTENANCE` | *Please wait while I notify the resident.* | Reply to a service visit |
@@ -263,7 +265,17 @@ The default image stays CPU-only.
 ## Personality
 
 Visitors talk to a doorbell that talks like a person, not like an automated announcement.
-When someone doesn't answer the greeting, Gatekeeper says one of its no-answer lines:
+
+**The greeting** is one of 11, friendly and a little funny, and every one tells them the
+property is monitored, one way or another. For example:
+
+- *"Hi there! You're on camera, and I'm all ears. What brings you by?"*
+- *"Welcome! This front door is monitored, and I'm the one doing the monitoring. How can I
+  help?"*
+- After a doorbell press: *"You rang? This is the doorbell speaking, and this property is
+  monitored. What can I do for you?"*
+
+**When someone doesn't answer**, Gatekeeper says one of its no-answer lines:
 friendly, funny, and every one still asks why they came, or tells them they can go. For
 example:
 
@@ -275,11 +287,11 @@ example:
 - After a doorbell press: *"You rang my bell, not my emotional support hotline. What do
   you need?"*
 
-One is picked at random, never the same twice in a row. Set your own with
-`NO_ANSWER_LINES` (a JSON list), or `REPLY_NO_ANSWER` for a single line. Each takes 4-8 s
-to say. A few are synthesized at startup and the rest in the background (about 10 s each
-on a CPU, once; they're cached). The daily report shows how often each line got the
-visitor talking.
+Each is picked at random, never the same twice in a row. Set your own with
+`GREETING_LINES` and `NO_ANSWER_LINES` (JSON lists), or `GREETING` and `REPLY_NO_ANSWER`
+for a single line. Greetings take 4-7 s to say, no-answer lines 4-8 s. A few of each are
+synthesized at startup and the rest in the background (about 10 s each on a CPU, once;
+they're cached). The daily report shows how often each line got the visitor talking.
 
 ## Visitor classification
 

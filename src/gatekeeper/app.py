@@ -259,16 +259,20 @@ def main() -> None:
     if settings.health_port:
         serve(health, settings.health_port)
     synth = Synthesizer(settings.kokoro_voice)
-    # The personality's no-answer lines: a few now, the rest in the background (about 10 s
-    # each on a CPU); only lines ready are said.
-    lines = settings.no_answer_texts()
-    pressed = [k for k in lines if k.startswith("no_answer_pressed")]
-    first_lines = {k: lines[k] for k in [*[k for k in lines if k not in pressed][:3], *pressed[:1]]}
+    # The personality's greetings and no-answer lines: a few of each now, the rest in the
+    # background (about 10 s each on a CPU); only lines ready are said.
+    lines = {**settings.greeting_texts(), **settings.no_answer_texts()}
+    first_lines = {}
+    for kind in ("greeting", "no_answer"):
+        mine = [k for k in lines if k == kind or k.startswith(f"{kind}_")]
+        pressed = [k for k in mine if k.startswith(f"{kind}_pressed")]
+        first_lines |= {
+            k: lines[k] for k in [*[k for k in mine if k not in pressed][:3], *pressed[:1]]
+        }
     presynth = presynth_all(
         synth,
         settings.out_dir,
         {
-            "greeting": settings.greeting,
             **settings.replies,
             **first_lines,
             **settings.phrases,

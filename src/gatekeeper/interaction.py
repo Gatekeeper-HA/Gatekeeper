@@ -249,7 +249,7 @@ class Interaction:
         self._transcriber = transcriber
         self._presynth = presynth
         self._random = random.Random()
-        self._last_no_answer: str | None = None  # not the same line twice in a row
+        self._last: dict[str, str] = {}  # the line said last, by kind: not twice in a row
         self._event_log = event_log
         self._connect = connect or self._connect_go2rtc
         # The persistent audio tap (audio_tap.AudioTap), or None: record a
@@ -549,15 +549,17 @@ class Interaction:
         visit.dialogue.append({"asked": key, "heard": heard})
         return heard
 
-    def _no_answer_line(self, visit: Visit) -> tuple[str, str]:
-        """The no-answer line to say: (phrase key, text). At random, not the one said last
-        time; the lines that mention the bell only after a doorbell press."""
-        lines = self.settings.no_answer_texts(pressed=visit.trigger == "button")
-        # Those synthesized already (the rest come in the background after startup).
+    def _line(self, kind: str, visit: Visit) -> tuple[str, str]:
+        """What to say for ``kind`` ("greeting" or "no_answer"): (phrase key, text). One of
+        Gatekeeper's lines at random, not the one said last time; those that mention the
+        bell only after a doorbell press; only lines synthesized already (the rest come in
+        the background after startup)."""
+        texts = getattr(self.settings, f"{kind}_texts")
+        lines = texts(pressed=visit.trigger == "button")
         lines = {k: t for k, t in lines.items() if k in self._presynth} or lines
-        keys = [k for k in lines if k != self._last_no_answer] or list(lines)
+        keys = [k for k in lines if k != self._last.get(kind)] or list(lines)
         key = self._random.choice(keys)
-        self._last_no_answer = key
+        self._last[kind] = key
         return key, lines[key]
 
     async def _ask(self, visit: Visit, key: str, prompt: str, playback) -> str:
@@ -709,17 +711,18 @@ class Interaction:
 
     async def _converse(self, visit: Visit, talk: _Talk) -> None:
         s = self.settings
-        greeting = await self._say(talk, visit, "greeting", s.greeting)
+        greeting_key, greeting_text = self._line("greeting", visit)
+        greeting = await self._say(talk, visit, greeting_key, greeting_text)
         if greeting is None:
             visit.outcome = "talkback_failed"
             return
-        reply_key = await self._ask(visit, "greeting", s.greeting, greeting)
+        reply_key = await self._ask(visit, greeting_key, greeting_text, greeting)
 
         if reply_key == "no_answer":
             self._check_stop(visit)  # no need to ask an empty porch again
             # The no-answer reply asks again, in Gatekeeper's voice (one of
             # NO_ANSWER_LINES): listen once more after it.
-            key, line = self._no_answer_line(visit)
+            key, line = self._line("no_answer", visit)
             question = await self._say(talk, visit, key, line)
             if question is None:
                 visit.response = None

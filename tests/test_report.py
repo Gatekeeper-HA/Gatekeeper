@@ -1163,12 +1163,15 @@ def test_which_no_answer_lines_get_people_talking():
         silent(NOW - 7000, "no_answer_5"),
     ]
     texts = {"no_answer_3": "Press one to explain why you're here. Press two to leave."}
-    r = build(inputs(visits=visits, window_visits=visits, no_answer_texts=texts, notifications=[]))
+    r = build(inputs(visits=visits, window_visits=visits, line_texts=texts, notifications=[]))
     assert r["counts"]["no_answer_lines"] == {
         "no_answer_3": {"said": 2, "answered": 1},
         "no_answer_5": {"said": 1, "answered": 0},
     }
+    assert r["counts"]["greeting_lines"] == {"greeting": {"said": 3, "answered": 0}}
+    text = render_text(r)
+    assert "Greetings: said 3 time(s), answered 0" in text
     assert (
-        "No-answer lines: said 3 time(s), answered after 1: no_answer_3 (Press one to explain "
-        "why you're here. Pr...)" in render_text(r)
+        "No-answer lines: said 3 time(s), answered 1; answered after no_answer_3 1/2 (Press "
+        "one to explain why you're here. Pr...)" in text
     )

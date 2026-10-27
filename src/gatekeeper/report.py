@@ -459,14 +459,15 @@ def gatekeepers_call(record: dict) -> str:
     return record["outcome"]
 
 
-def no_answer_info(visits: list[dict]) -> dict[str, dict[str, int]]:
-    """Each no-answer line (by phrase key): how often it was said, and how often the
-    visitor then answered: which ones get people talking."""
+def line_info(visits: list[dict], kind: str) -> dict[str, dict[str, int]]:
+    """Each of Gatekeeper's ``kind`` lines ("greeting", "no_answer"; by phrase key): how
+    often it was said, and how often the visitor then answered: which ones get people
+    talking."""
     out: dict[str, dict[str, int]] = {}
     for v in visits:
         for turn in v.get("dialogue") or []:
             key = str(turn.get("asked", ""))
-            if key.startswith("no_answer"):
+            if key == kind or key.startswith(f"{kind}_"):
                 line = out.setdefault(key, {"said": 0, "answered": 0})
                 line["said"] += 1
                 line["answered"] += bool(turn.get("heard"))
@@ -800,8 +801,9 @@ class Inputs:
     cooldown: float = 90.0
     whisper_device: str = "auto"  # the WHISPER_DEVICE setting
     trigger_zones: tuple[str, ...] = ()  # the TRIGGER_ZONES setting
-    # The no-answer lines by phrase key (Settings.no_answer_texts), to name them.
-    no_answer_texts: dict[str, str] = field(default_factory=dict)
+    # Gatekeeper's greetings and no-answer lines by phrase key (Settings.greeting_texts,
+    # no_answer_texts), to name them.
+    line_texts: dict[str, str] = field(default_factory=dict)
     # Visits the owner labelled in the window (Visits page): each record with its "label".
     labelled: list[dict] = field(default_factory=list)
     own_perception: str = "off"  # the OWN_PERCEPTION setting
@@ -987,7 +989,8 @@ def build(i: Inputs) -> dict:
             "recognized": recognized_info(household, sources.get("gatekeeper", [])),
             "return_gaps": return_gaps(i.visits),
             "labels": label_info(i.labelled),
-            "no_answer_lines": no_answer_info(i.visits),
+            "greeting_lines": line_info(i.visits, "greeting"),
+            "no_answer_lines": line_info(i.visits, "no_answer"),
             "triggers": dict(collections.Counter(v.get("trigger", "person") for v in visits)),
             "classifications": dict(collections.Counter(classification(v) for v in visits)),
             "outcomes": dict(outcomes),
@@ -1019,7 +1022,7 @@ def build(i: Inputs) -> dict:
         ),
         "frigate": frigate,
         "own_perception": own,
-        "no_answer_texts": i.no_answer_texts,
+        "line_texts": i.line_texts,
         "doorbell": doorbell,
         "deploys": deploys,
         "logs": logs,
@@ -1101,18 +1104,25 @@ def summary_lines(report: dict) -> list[str]:
         if page.get("captures"):
             done.append(f"captured at the door {page['captures']} time(s)")
         lines.append("Faces page: " + "; ".join(done))
-    if lines_said := counts.get("no_answer_lines"):
-        said = sum(x["said"] for x in lines_said.values())
-        answered = [k for k, x in lines_said.items() if x["answered"]]
-        texts = report.get("no_answer_texts") or {}
-        lines.append(
-            f"No-answer lines: said {said} time(s), answered after {len(answered)}"
-            + (
-                ": " + "; ".join(f"{k} ({texts.get(k, '')[:40]}...)" for k in answered)
-                if answered
-                else ""
+    texts = report.get("line_texts") or {}
+    for kind, name in (("greeting_lines", "Greetings"), ("no_answer_lines", "No-answer lines")):
+        if said_lines := counts.get(kind):
+            said = sum(x["said"] for x in said_lines.values())
+            answered = sum(x["answered"] for x in said_lines.values())
+            best = sorted(said_lines.items(), key=lambda kv: (-kv[1]["answered"], -kv[1]["said"]))
+            lines.append(
+                f"{name}: said {said} time(s), answered {answered}"
+                + (
+                    "; answered after "
+                    + "; ".join(
+                        f"{k} {x['answered']}/{x['said']} ({texts.get(k, '')[:40]}...)"
+                        for k, x in best[:5]
+                        if x["answered"]
+                    )
+                    if answered
+                    else ""
+                )
             )
-        )
     if counts.get("labels"):
         from gatekeeper.visits import LABEL_NAMES
 
@@ -1396,7 +1406,7 @@ def collect(
         whisper_device=settings.whisper_device,
         trigger_zones=tuple(settings.trigger_zone_list),
         labelled=labelled_visits(settings, since),
-        no_answer_texts=settings.no_answer_texts(),
+        line_texts={**settings.greeting_texts(), **settings.no_answer_texts()},
         own_perception=settings.own_perception,
         version=__version__,
         hours=hours,
