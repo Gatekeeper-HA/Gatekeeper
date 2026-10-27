@@ -189,6 +189,9 @@ services:
       # them with Frigate's. The rig's CPU takes ~265 ms a frame through the detector.
       OWN_PERCEPTION: "${OWN_PERCEPTION:-off}"
       OWN_PERCEPTION_FPS: "3"
+      # Gatekeeper's guess at each greeted visitor (a delivery or not), in shadow: off
+      # unless DELIVERY_GUESS=1 in .env.
+      DELIVERY_GUESS: "${DELIVERY_GUESS:-0}"
       LISTEN_SECONDS: "4"
       WHISPER_MODEL: "base.en"
       WHISPER_COMPUTE_TYPE: "int8"

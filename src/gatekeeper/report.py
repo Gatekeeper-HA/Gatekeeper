@@ -474,6 +474,34 @@ def line_info(visits: list[dict], kind: str) -> dict[str, dict[str, int]]:
     return out
 
 
+# The owner's labels that are deliveries (visits.LABELS).
+DELIVERY_LABELS = {"amazon", "ups", "fedex", "usps", "dhl", "courier", "food", "groceries"}
+
+
+def delivery_guess_info(guesses: dict, labels: dict, since: float) -> dict | None:
+    """Gatekeeper's delivery guesses: how many it made in the window, and how often they
+    agree with the owner's labels so far (all of them: labels come slowly). None without
+    any guesses."""
+    if not guesses:
+        return None
+    out = {
+        "guessed": sum(1 for g in guesses.values() if g.get("at", 0) >= since),
+        "deliveries_guessed": sum(
+            1 for g in guesses.values() if g.get("at", 0) >= since and g.get("guess") == "delivery"
+        ),
+        "deliveries": {"right": 0, "of": 0},
+        "others": {"right": 0, "of": 0},
+    }
+    for eid, g in guesses.items():
+        label = (labels.get(eid) or {}).get("label")
+        if not label:
+            continue
+        kind = "deliveries" if label in DELIVERY_LABELS else "others"
+        out[kind]["of"] += 1
+        out[kind]["right"] += (g.get("guess") == "delivery") == (kind == "deliveries")
+    return out
+
+
 def label_info(labelled: list[dict]) -> dict:
     """The owner's labels (Visits page) added in the window, each with what Gatekeeper
     made of those visits: where it got them wrong."""
@@ -804,6 +832,8 @@ class Inputs:
     # Gatekeeper's greetings and no-answer lines by phrase key (Settings.greeting_texts,
     # no_answer_texts), to name them.
     line_texts: dict[str, str] = field(default_factory=dict)
+    # Gatekeeper's delivery guesses (visitor_type.py) against the owner's labels.
+    delivery_guess: dict | None = None
     # Visits the owner labelled in the window (Visits page): each record with its "label".
     labelled: list[dict] = field(default_factory=list)
     own_perception: str = "off"  # the OWN_PERCEPTION setting
@@ -1022,6 +1052,7 @@ def build(i: Inputs) -> dict:
         ),
         "frigate": frigate,
         "own_perception": own,
+        "delivery_guess": i.delivery_guess,
         "line_texts": i.line_texts,
         "doorbell": doorbell,
         "deploys": deploys,
@@ -1123,6 +1154,14 @@ def summary_lines(report: dict) -> list[str]:
                     else ""
                 )
             )
+    if dg := report.get("delivery_guess"):
+        d, o = dg["deliveries"], dg["others"]
+        lines.append(
+            f"Delivery guess (shadow): {dg['guessed']} visit(s) guessed, "
+            f"{dg['deliveries_guessed']} as deliveries; against your labels so far, "
+            f"deliveries {d['right']} of {d['of']} "
+            f"right, others {o['right']} of {o['of']}"
+        )
     if counts.get("labels"):
         from gatekeeper.visits import LABEL_NAMES
 
@@ -1406,10 +1445,20 @@ def collect(
         whisper_device=settings.whisper_device,
         trigger_zones=tuple(settings.trigger_zone_list),
         labelled=labelled_visits(settings, since),
+        delivery_guess=delivery_guesses(settings, since),
         line_texts={**settings.greeting_texts(), **settings.no_answer_texts()},
         own_perception=settings.own_perception,
         version=__version__,
         hours=hours,
+    )
+
+
+def delivery_guesses(settings, since: float) -> dict | None:
+    from gatekeeper.visitor_type import Guesses
+    from gatekeeper.visits import Labels
+
+    return delivery_guess_info(
+        Guesses(settings.visit_guesses_file).all(), Labels(settings.visit_labels_file).all(), since
     )
 
 

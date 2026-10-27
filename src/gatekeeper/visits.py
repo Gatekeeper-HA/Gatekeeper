@@ -176,12 +176,14 @@ class VisitsPage:
         *,
         snapshot: Callable[[str], bytes | None],
         snapshot_dir: Path,
+        guesses=None,
         clock: Callable[[], float] = time.time,
     ) -> None:
         self.event_log = event_log
         self.labels = labels
         self._snapshot = snapshot
         self.snapshot_dir = snapshot_dir
+        self.guesses = guesses  # Gatekeeper's guesses (visitor_type.Guesses), if it makes them
         self._clock = clock
         self.token = ""  # set by web.serve (shared with the faces page)
 
@@ -234,6 +236,7 @@ class VisitsPage:
         e = html.escape
         rows = self.visits(days)
         labelled = sum(1 for r in rows if r["label"])
+        guesses = self.guesses.all() if self.guesses else {}
         out = [
             "<!doctype html><html lang=en><head><meta charset=utf-8>",
             '<meta name=viewport content="width=device-width, initial-scale=1">',
@@ -271,6 +274,8 @@ class VisitsPage:
                 src = f"visit/{urllib.parse.quote(eid)}.jpg"
                 out.append(f'<img src="{src}" alt="" loading=lazy>')
             out.append(f"<div><strong>{e(_time(at))}</strong> {e(describe(r))}")
+            if guesses and (g := guesses.get(eid)):
+                out.append(f"<br><span class=note>{e(guess_text(g))}</span>")
             if r.get("transcript"):
                 out.append(f"<br><span class=note>Heard: &ldquo;{e(r['transcript'])}&rdquo;</span>")
             if labelable(r):
@@ -291,6 +296,19 @@ class VisitsPage:
             )
         out.append("</form></body></html>")
         return "".join(out)
+
+
+def guess_text(guess: dict) -> str:
+    """Gatekeeper's guess at a visitor, in words, with why."""
+    f = guess.get("features") or {}
+    why = [
+        f"looks {guess['looks']:.2f}" if guess.get("looks") is not None else "no good picture",
+        *(["left the way they came"] if f.get("left_the_way_they_came") else []),
+        *(["walked away when greeted"] if f.get("walked_away") else []),
+        *(["a package was left"] if f.get("package_left") else []),
+    ]
+    what = "a delivery" if guess.get("guess") == "delivery" else "not a delivery"
+    return f"Gatekeeper's guess: {what} ({', '.join(why)})"
 
 
 def _day(ts: float) -> str:

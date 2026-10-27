@@ -1175,3 +1175,28 @@ def test_which_no_answer_lines_get_people_talking():
         "No-answer lines: said 3 time(s), answered 1; answered after no_answer_3 1/2 (Press "
         "one to explain why you're here. Pr...)" in text
     )
+
+
+def test_the_delivery_guess_is_held_to_the_owners_labels():
+    from gatekeeper.report import delivery_guess_info
+
+    guesses = {
+        "a": {"guess": "delivery", "at": NOW - 100},
+        "b": {"guess": "other", "at": NOW - 200},
+        "c": {"guess": "delivery", "at": NOW - 300},
+        "d": {"guess": "other", "at": NOW - 90000},  # before the window
+    }
+    labels = {"a": {"label": "ups"}, "b": {"label": "food"}, "c": {"label": "household"}}
+    info = delivery_guess_info(guesses, labels, NOW - 86400)
+    assert info == {
+        "guessed": 3,
+        "deliveries_guessed": 2,
+        "deliveries": {"right": 1, "of": 2},
+        "others": {"right": 0, "of": 1},
+    }
+    r = build(inputs(delivery_guess=info))
+    assert (
+        "Delivery guess (shadow): 3 visit(s) guessed, 2 as deliveries; against your labels so "
+        "far, deliveries 1 of 2 right, others 0 of 1" in render_text(r)
+    )
+    assert delivery_guess_info({}, labels, 0) is None

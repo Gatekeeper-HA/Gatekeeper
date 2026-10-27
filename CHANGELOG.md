@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Delivery guess, in shadow** (`DELIVERY_GUESS`, off by default). For each greeted visit,
+  Gatekeeper guesses whether it was a delivery: SigLIP (Apache-2.0) on full-resolution
+  crops of the person, how they moved (left the way they came, walked away when greeted),
+  and a package left. The Visits page shows the guess next to the owner's label, and the
+  daily report says how often they agree. Only scores are kept, never the crops.
 - **Visits page** (`http://<SERVER_IP>:8098/`, with `GATEKEEPER_WEB_PASSWORD`). The last few
   days at the door, newest first: what Gatekeeper did in words, what it heard, and the
   camera's picture. The owner says what each visit really was (Amazon, UPS, FedEx, USPS,

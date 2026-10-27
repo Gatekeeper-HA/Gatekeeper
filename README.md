@@ -139,6 +139,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `OWN_PERCEPTION_THRESHOLD` | `0.3` | The detector's score (0–1) that counts as a person |
 | `OWN_PERCEPTION_THREADS` | `2` | CPU threads for the detector |
 | `OWN_PERCEPTION_DEVICE` | `auto` | `auto`: the detector runs on an NVIDIA GPU when the image has CUDA ([GPU](#gpu-nvidia)) and it works, else on the CPU. `cuda` logs a warning when it falls back. The GPU override sets `cuda` |
+| `DELIVERY_GUESS` | `false` | Gatekeeper's guess at each greeted visitor, a delivery or not: [delivery guess](#delivery-guess-shadow). Shadow only; the compose stack reads it from `.env` |
 | `MODEL_DIR` | `~/.cache/gatekeeper/models` | Where the detector's model is downloaded (once) |
 | `WEB_PORT` | `8098` | The web page: [visits](#visits) and [household faces](#household-faces) |
 | `WEB_PASSWORD` | *(none)* | Its password (HTTP Basic, any user name). Without one the page is off. The compose stack reads `GATEKEEPER_WEB_PASSWORD` from `.env` |
@@ -545,6 +546,24 @@ were recognized, 12 of them before the greeting. Nobody was taken for someone el
 daylight the rig's camera looks into a bright sky, and faces on the walkway are often too
 dark to recognize. At night, under the porch light, they're clear. The daily report counts
 the recognitions and how often a face was seen.
+
+## Delivery guess (shadow)
+
+With `DELIVERY_GUESS` on, Gatekeeper guesses whether each greeted visitor was a delivery.
+For now it only shows the guess: on the Visits page next to your label, and in the daily
+report, which says how often the two agree. Nothing at the door depends on it yet.
+
+A minute after the visit, it looks at the person at the 3 moments they were closest to the
+camera, in full resolution from the recording. SigLIP (Google, Apache-2.0, ~200 MB,
+downloaded once) scores how much they look like a courier (a uniform, a box, grocery bags,
+a pizza) rather than the household. It adds how they moved (left the way they came, or
+walked away when greeted) and whether a package was left. Only the scores are kept
+(`LOG_DIR/visit-guesses.json`), never the pictures.
+
+On the rig's first labelled visits, looks alone weren't reliable: the household carries
+bags and boxes too, and at night the camera loses colour. Couriers did move differently,
+walking up, not answering and going back down the walk, so the guess uses both. Your labels
+show whether it's right often enough to be trusted with the greeting and the notification.
 
 ## Own perception (shadow)
 
