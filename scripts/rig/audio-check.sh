@@ -1,7 +1,7 @@
 #!/bin/bash
 # Keep Frigate's recordings' audio. After a short camera dropout, Frigate's watchdog
 # restarts its ffmpeg, and the recordings can stay silent until Frigate itself restarts
-# (10-16, 10-21). Run hourly from cron, this checks the newest segments; when they're
+# (it happened twice on the rig). Run hourly from cron, this checks the newest segments; when they're
 # silent it restarts Frigate and checks again:
 # - the audio is back: a quiet notification;
 # - still silent (the camera's own stream is broken, as on 10-16): an alert, at most every

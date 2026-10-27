@@ -44,14 +44,14 @@ CASES = [
     ("Police, we need to talk to you", POLICE),
     ("Sheriff's office, open the door", POLICE),
     ("I'm Deputy Johnson with the county", POLICE),
-    ("Officer Smith, Minneapolis Police Department", POLICE),
+    ("Officer Smith, Springfield Police Department", POLICE),
     ("We have a warrant", POLICE),
     ("Special agent with the FBI", POLICE),
     ("We're with homeland security", POLICE),
     ("I'm a real estate agent selling homes nearby", SOLICITOR),  # not "agent"
     ("Do you want some ice cream?", OTHER),  # not "ice"
     # Civic: candidates, campaigns, canvassers
-    ("Hi, I'm Jim Abeler, your senator, just came by to say hello and leave a note", CIVIC),
+    ("Hi, I'm Chris Doe, your senator, just came by to say hello and leave a note", CIVIC),
     ("Just asking people to register to vote, election day is November 3rd", CIVIC),
     ("I'm canvassing for the campaign", CIVIC),
     ("Would you sign our petition?", CIVIC),

@@ -235,12 +235,12 @@ def test_detection_that_drops_frames_fails():
 
 
 def frigate_errors(times: list[float]) -> str:
-    """Frigate error lines at these times (seconds after 02:00:00)."""
+    """Frigate error lines at these times (seconds after 03:00:00)."""
     lines = []
     for t in times:
-        at = datetime.datetime(2026, 10, 25, 2) + datetime.timedelta(seconds=t)
+        at = datetime.datetime(2026, 1, 4, 3) + datetime.timedelta(seconds=t)
         lines.append(
-            f"2026-10-25 07:00:00.000000000  [{at:%Y-%m-%d %H:%M:%S}] frigate.video"
+            f"2026-01-04 09:00:00.000000000  [{at:%Y-%m-%d %H:%M:%S}] frigate.video"
             "                  ERROR   : front_door: Unable to read frames from ffmpeg process.\n"
         )
     return "### frigate\n" + "".join(lines)
@@ -258,7 +258,7 @@ def test_a_camera_dropout_is_fine_but_frigate_failing_all_day_is_not():
 
 
 def test_a_camera_restart_is_one_dropout_however_many_lines():
-    # The doorbell's maintenance restart on the rig: 56 lines in 42 s.
+    # A doorbell restarting for its scheduled maintenance: about 56 lines in 42 s.
     restart = frigate_errors([i * 42 / 55 for i in range(56)])
     r = build(inputs(log_text=restart))
     assert "frigate_log_errors" not in failing(r)
