@@ -26,7 +26,7 @@ import sys
 import time
 import urllib.request
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 SCHEMA = 2
@@ -449,6 +449,26 @@ def device_stats(device: str, hours: list[dict]) -> dict:
     }
 
 
+def gatekeepers_call(record: dict) -> str:
+    """What Gatekeeper made of a visit, in one word: its outcome, or for a visit that ran,
+    what it classified (no_response, likely_delivery, ...)."""
+    if not record.get("outcome"):
+        return "?"  # the visit is older than the log
+    if record["outcome"] == "completed":
+        return record.get("flow") or record.get("classification") or "completed"
+    return record["outcome"]
+
+
+def label_info(labelled: list[dict]) -> dict:
+    """The owner's labels (Visits page) added in the window, each with what Gatekeeper
+    made of those visits: where it got them wrong."""
+    out: dict[str, dict[str, int]] = {}
+    for r in labelled:
+        calls = out.setdefault(r["label"], {})
+        calls[gatekeepers_call(r)] = calls.get(gatekeepers_call(r), 0) + 1
+    return out
+
+
 def utc_timestamp(iso: str) -> float | None:
     """A UTC time from ``docker inspect`` (``2026-10-14T01:36``, maybe with seconds)."""
     try:
@@ -766,6 +786,8 @@ class Inputs:
     cooldown: float = 90.0
     whisper_device: str = "auto"  # the WHISPER_DEVICE setting
     trigger_zones: tuple[str, ...] = ()  # the TRIGGER_ZONES setting
+    # Visits the owner labelled in the window (Visits page): each record with its "label".
+    labelled: list[dict] = field(default_factory=list)
     own_perception: str = "off"  # the OWN_PERCEPTION setting
     version: str = "?"
     hours: int = HOURS
@@ -948,6 +970,7 @@ def build(i: Inputs) -> dict:
             "went_inside": len(entered),
             "recognized": recognized_info(household, sources.get("gatekeeper", [])),
             "return_gaps": return_gaps(i.visits),
+            "labels": label_info(i.labelled),
             "triggers": dict(collections.Counter(v.get("trigger", "person") for v in visits)),
             "classifications": dict(collections.Counter(classification(v) for v in visits)),
             "outcomes": dict(outcomes),
@@ -1060,6 +1083,18 @@ def summary_lines(report: dict) -> list[str]:
         if page.get("captures"):
             done.append(f"captured at the door {page['captures']} time(s)")
         lines.append("Faces page: " + "; ".join(done))
+    if counts.get("labels"):
+        from gatekeeper.visits import LABEL_NAMES
+
+        lines.append(
+            "Your labels (Visits page): "
+            + "; ".join(
+                f"{LABEL_NAMES.get(label, label)} {sum(calls.values())} (Gatekeeper: "
+                + ", ".join(f"{c} {n}" for c, n in calls.items())
+                + ")"
+                for label, calls in counts["labels"].items()
+            )
+        )
     if counts.get("went_inside"):
         lines.append(
             f"Went inside without answering: {counts['went_inside']} "
@@ -1330,10 +1365,26 @@ def collect(
         cooldown=settings.cooldown_seconds,
         whisper_device=settings.whisper_device,
         trigger_zones=tuple(settings.trigger_zone_list),
+        labelled=labelled_visits(settings, since),
         own_perception=settings.own_perception,
         version=__version__,
         hours=hours,
     )
+
+
+def labelled_visits(settings, since: float) -> list[dict]:
+    """The visits the owner labelled since ``since`` (labels can come days after)."""
+    from gatekeeper.visits import Labels
+
+    new = {
+        eid: x
+        for eid, x in Labels(settings.visit_labels_file).all().items()
+        if x.get("at", 0) >= since
+    }
+    if not new:
+        return []
+    records = {r.get("event_id"): r for r in read_log(settings.event_log_file, since - 30 * 86400)}
+    return [{**records.get(eid, {"event_id": eid}), "label": x["label"]} for eid, x in new.items()]
 
 
 def send(report: dict, settings) -> None:

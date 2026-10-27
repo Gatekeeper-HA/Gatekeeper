@@ -414,7 +414,15 @@ def main() -> None:
             capture=watcher.capture if watcher else None,
             capturing=watcher.capturing if watcher else None,
         )
-        web.serve(page, settings.web_password.get_secret_value(), settings.web_port)
+        from gatekeeper.visits import Labels, VisitsPage
+
+        visits = VisitsPage(
+            settings.event_log_file,
+            Labels(settings.visit_labels_file),
+            snapshot=perception.event_snapshot,
+            snapshot_dir=settings.snapshot_dir,
+        )
+        web.serve(page, settings.web_password.get_secret_value(), settings.web_port, visits)
     start_thread(
         "sweep", tracker.sweep_forever, settings.sweep_interval_seconds, on_sweep=health.sweep_done
     )

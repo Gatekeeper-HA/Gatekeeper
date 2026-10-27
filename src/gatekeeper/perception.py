@@ -79,6 +79,10 @@ class Perception(Protocol):
         the camera now if there's no such event (a doorbell press before anyone was
         seen)."""
 
+    def event_snapshot(self, event_id: str, height: int = 240) -> bytes | None:
+        """A JPEG of person event ``event_id``, about ``height`` rows high, or None if
+        there's none any more (the Visits page: never the camera now instead)."""
+
     def person_snapshot(self, since: float) -> bytes | None:
         """A JPEG of the first person seen since ``since``."""
 
