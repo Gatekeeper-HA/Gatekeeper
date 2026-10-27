@@ -93,6 +93,29 @@ class FrigatePerception:
             log.warning("no snapshot of %s: %s", event_id, e)
         return None
 
+    def event_path(self, event_id: str) -> list:
+        """Where the person of event ``event_id`` went: [((x, y), time)], or [] if Frigate
+        doesn't have it (any more)."""
+        url = f"{self.api}/api/events/{urllib.parse.quote(event_id)}"
+        try:
+            with urllib.request.urlopen(url, timeout=self.timeout) as resp:
+                data = json.load(resp).get("data") or {}
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            log.debug("no path for %s: %s", event_id, e)
+            return []
+        return [((x, y), t) for (x, y), t in data.get("path_data") or []]
+
+    def recording_frame(self, at: float) -> bytes | None:
+        """A full-resolution JPEG of the camera at ``at`` from Frigate's recordings, or
+        None (no recording then)."""
+        url = f"{self.api}/api/{urllib.parse.quote(self.camera)}/recordings/{at:.3f}/snapshot.jpg"
+        try:
+            with urllib.request.urlopen(url, timeout=self.timeout) as resp:
+                return resp.read()
+        except (urllib.error.URLError, OSError) as e:
+            log.debug("no recording frame at %.3f: %s", at, e)
+            return None
+
     def person_snapshot(self, since: float) -> bytes | None:
         """Frigate's snapshot of the first person seen since ``since``."""
         query = urllib.parse.urlencode(

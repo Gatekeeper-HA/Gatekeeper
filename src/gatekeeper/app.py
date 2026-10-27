@@ -195,6 +195,48 @@ def start_faces(settings: Settings, tracker):
     return watcher
 
 
+def start_delivery_guess(settings: Settings, perception: FrigatePerception):
+    """Gatekeeper's guess at each greeted visitor, in shadow (visitor_type.py): from the
+    person's path and full-resolution frames of the recording (Frigate's, for now), YOLOX
+    to find them, and a package left in the visit (the visit log). YOLOX and SigLIP load
+    when the first guess needs them."""
+    from gatekeeper import own_perception as own
+    from gatekeeper.visitor_type import DeliveryGuesser, Guesses
+    from gatekeeper.visits import read_visits, started
+
+    class Detector:
+        _yolox = None
+
+        def _load(self):
+            if self._yolox is None:
+                model = own.fetch_model(own.YOLOX_TINY, settings.model_dir)
+                self._yolox = own.Yolox(model, 0.3, 1, settings.own_perception_device)
+            return self._yolox
+
+        def fit(self, width: int, height: int) -> tuple[int, int]:
+            return self._load().fit(width, height)
+
+        def detect(self, bgr):
+            return self._load().detect(bgr)
+
+    def package_left(event_id: str) -> bool:
+        start = started({"event_id": event_id})
+        return any(
+            r.get("outcome") == "package_delivered"
+            and abs(float((r.get("details") or {}).get("since") or 0) - start) <= 120
+            for r in read_visits(settings.event_log_file, start - 60)
+        )
+
+    log.info("delivery guess on (shadow)")
+    return DeliveryGuesser(
+        Guesses(settings.visit_guesses_file),
+        path=perception.event_path,
+        frame=perception.recording_frame,
+        detect=Detector(),
+        package_left=package_left,
+    )
+
+
 def start_own_perception(settings: Settings, perception: Perception):
     """Our own perception in shadow mode (own_perception.py): it logs each person track,
     with the zones it walked through, next to Frigate's events. The zones are those
@@ -369,6 +411,7 @@ def main() -> None:
         tap = AudioTap(settings.audio_rtsp_url)
         health.tap_ok = tap.healthy
         start_thread("audio-tap", tap.run_forever)
+    guesser = start_delivery_guess(settings, perception) if settings.delivery_guess else None
     interaction = Interaction(
         settings,
         synth=synth,
@@ -382,7 +425,7 @@ def main() -> None:
         leaving=lambda: tracker.walking_away(),
         # quick.notified first: a reply's window starts with the notification.
         on_notify=[quick.notified, notifier] if quick else [notifier],
-        on_logged=[publisher.visit],
+        on_logged=[publisher.visit, *([guesser.visit_logged] if guesser else [])],
     )
 
     watcher = None  # face recognition, once the tracker exists
@@ -450,6 +493,7 @@ def main() -> None:
             Labels(settings.visit_labels_file),
             snapshot=perception.event_snapshot,
             snapshot_dir=settings.snapshot_dir,
+            guesses=guesser.guesses if guesser else None,
         )
         web.serve(page, settings.web_password.get_secret_value(), settings.web_port, visits)
     start_thread(

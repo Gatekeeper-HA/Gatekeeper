@@ -262,3 +262,21 @@ def test_a_press_during_a_visit_is_part_of_it_and_a_press_alone_has_its_picture(
     (tmp_path / "snapshots" / "press-1799999800.000.jpg").write_bytes(b"PRESS")
     assert page.image("press-1799999800.000") == b"PRESS"
     assert 'src="visit/press-1799999800.000.jpg"' in page.render(days=3)
+
+
+def test_gatekeepers_guess_is_shown_next_to_the_label(log, tmp_path):
+    from gatekeeper.visitor_type import Guesses
+    from gatekeeper.visits import guess_text
+
+    page = page_for(log, tmp_path)
+    page.guesses = Guesses(tmp_path / "visit-guesses.json")
+    page.guesses.add(
+        "1799999600.000000-aaa111",
+        {"guess": "delivery", "looks": 0.34, "features": {"left_the_way_they_came": True}},
+    )
+    assert "Gatekeeper&#x27;s guess: a delivery (looks 0.34, left the way they came)" in (
+        page.render(days=3)
+    )
+    assert guess_text({"guess": "other", "looks": None, "features": {}}) == (
+        "Gatekeeper's guess: not a delivery (no good picture)"
+    )

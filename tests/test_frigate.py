@@ -248,3 +248,25 @@ def test_an_events_snapshot_is_none_once_it_expired(monkeypatch, caplog):
     assert "/api/events/1800000000.000000-aaa111/snapshot.jpg?bbox=1&h=240" in asked[0]
     assert perception.event_snapshot("gone") is None  # never the camera now instead
     assert len(asked) == 2 and "no snapshot" not in caplog.text
+
+
+def test_an_events_path_and_a_recordings_frame(monkeypatch):
+    import io
+    import json
+    import urllib.request
+
+    from gatekeeper.frigate import FrigatePerception
+
+    asked = []
+
+    def urlopen(url, timeout):
+        asked.append(url)
+        if "/api/events/" in url:
+            return io.BytesIO(json.dumps({"data": {"path_data": [[[0.5, 0.9], 100.5]]}}).encode())
+        return io.BytesIO(b"FULLJPEG")
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    perception = FrigatePerception("http://frigate:5000", "front_door", subscribe=lambda t, h: None)
+    assert perception.event_path("1800000000.000000-aaa111") == [((0.5, 0.9), 100.5)]
+    assert perception.recording_frame(100.5) == b"FULLJPEG"
+    assert asked[-1] == "http://frigate:5000/api/front_door/recordings/100.500/snapshot.jpg"

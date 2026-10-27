@@ -200,6 +200,10 @@ class Settings(BaseSettings):
     # "auto": an NVIDIA GPU if onnxruntime has CUDA (the GPU image) and it works, else
     # the CPU.
     own_perception_device: Literal["auto", "cpu", "cuda"] = "auto"
+    # Gatekeeper's guess at each greeted visitor, a delivery or not (visitor_type.py), in
+    # shadow: kept for the Visits page and the daily report, nothing at the door yet.
+    # Downloads SigLIP (~200 MB) once.
+    delivery_guess: bool = False
     model_dir: Path = Path.home() / ".cache" / "gatekeeper" / "models"
 
     # Listening. With the audio tap, Gatekeeper reads the camera's audio all the
@@ -482,6 +486,11 @@ class Settings(BaseSettings):
     def candidate_dir(self) -> Path:
         """Faces kept for enrollment (face_watch.FaceWatcher.keep)."""
         return self.face_dir / "candidates"
+
+    @property
+    def visit_guesses_file(self) -> Path:
+        """Gatekeeper's guesses at visitors (visitor_type.py)."""
+        return self.log_dir / "visit-guesses.json"
 
     @property
     def visit_labels_file(self) -> Path:
