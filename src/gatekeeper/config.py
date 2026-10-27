@@ -15,6 +15,37 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPLY_KEYS = ("no_answer", "delivery", "sales", "maintenance", "generic", "pressed")
 
+# Gatekeeper's greeting, the first thing a visitor hears: friendly and a little funny, and
+# every one says the property is monitored. One is said at random (not the same twice in
+# a row).
+GREETING_LINES = (
+    "Hi there! Just so you know, this property is monitored. What brings you by today?",
+    "Hey! I'm the doorbell, and I keep an eye on things around here. You're on camera, by "
+    "the way. What are you here for?",
+    "Hi there! You're on camera, and I'm all ears. What brings you by?",
+    "Welcome! This front door is monitored, and I'm the one doing the monitoring. How can I "
+    "help?",
+    "Hi! I'm the house's digital doorman. The property is monitored, so tell me, what brings "
+    "you here?",
+    "Hello there! Fair warning: this doorbell talks back, and it records everything. What can "
+    "I do for you?",
+    "Hey, welcome! This property is monitored, so I already know you're here. Now tell me "
+    "why.",
+    "Hi! You've reached the front door. It's monitored, it's friendly, and it wants to know "
+    "why you're here.",
+    "Hello! I'm the doorbell assistant, and yes, this place is monitored. What brings you to "
+    "the door?",
+    "Hey there! Before you ask: yes, this doorbell is watching and recording. What can I help "
+    "you with?",
+    "Good to see you! Well, I see everyone. This property is monitored. What's up?",
+)
+# After a doorbell press, these can be said too (they answer the bell).
+GREETING_PRESSED_LINES = (
+    "You rang? This is the doorbell speaking, and this property is monitored. What can I do "
+    "for you?",
+    "Ding dong to you too! This property is monitored. What brings you by?",
+)
+
 # Gatekeeper's personality when someone at the door doesn't answer the greeting: friendly
 # and funny, and every line still gets them to say why they came, or go. One is said at
 # random (not the same twice in a row). The owner's examples, written for speaking.
@@ -195,8 +226,12 @@ class Settings(BaseSettings):
     whisper_hotwords: str = ""
     kokoro_voice: str = "af_heart"
 
-    # What Gatekeeper says
-    greeting: str = "Hello. This property is monitored. Please state the purpose of your visit."
+    # What Gatekeeper says. The greeting: one of GREETING_LINES at random
+    # (GREETING_PRESSED_LINES too after a doorbell press), each a JSON list to replace them.
+    # GREETING, if set, is the only one. Every greeting should say the property is monitored.
+    greeting: str = ""
+    greeting_lines: list[str] = list(GREETING_LINES)
+    greeting_pressed_lines: list[str] = list(GREETING_PRESSED_LINES)
     # Said when the visitor doesn't answer the greeting: one of NO_ANSWER_LINES at random
     # (NO_ANSWER_PRESSED_LINES too after a doorbell press); each a JSON list to replace
     # them. REPLY_NO_ANSWER, if set, is the only line.
@@ -364,14 +399,26 @@ class Settings(BaseSettings):
         """The no-answer lines by phrase key: "no_answer" alone with REPLY_NO_ANSWER, else
         no_answer_1... and, after a press (or with ``pressed`` None: all of them, to
         pre-synthesize), no_answer_pressed_1..."""
-        if self.reply_no_answer:
-            return {"no_answer": self.reply_no_answer}
-        lines = {f"no_answer_{n}": t for n, t in enumerate(self.no_answer_lines, 1)}
-        if pressed is not False:
-            lines |= {
-                f"no_answer_pressed_{n}": t for n, t in enumerate(self.no_answer_pressed_lines, 1)
-            }
-        return lines or {"no_answer": "Please tell me why you're here."}
+        return _pool(
+            "no_answer",
+            self.reply_no_answer,
+            self.no_answer_lines,
+            self.no_answer_pressed_lines,
+            pressed,
+            "Please tell me why you're here.",
+        )
+
+    def greeting_texts(self, pressed: bool | None = None) -> dict[str, str]:
+        """The greetings by phrase key, as ``no_answer_texts``: "greeting" alone with
+        GREETING, else greeting_1... and greeting_pressed_1..."""
+        return _pool(
+            "greeting",
+            self.greeting,
+            self.greeting_lines,
+            self.greeting_pressed_lines,
+            pressed,
+            "Hello. This property is monitored. Please state the purpose of your visit.",
+        )
 
     @property
     def phrases(self) -> dict[str, str]:
@@ -416,3 +463,16 @@ class Settings(BaseSettings):
     def snapshot_dir(self) -> Path:
         """Photos kept during conversations (e.g. a warrant held up to the camera)."""
         return self.audio_dir / "snapshots"
+
+
+def _pool(
+    kind: str, single: str, lines: list[str], pressed_lines: list[str], pressed, fallback: str
+) -> dict[str, str]:
+    """A personality's lines by phrase key: ``kind`` alone for a single line set in .env,
+    else ``kind_1``... and (after a press, or ``pressed`` None for all) ``kind_pressed_1``..."""
+    if single:
+        return {kind: single}
+    out = {f"{kind}_{n}": t for n, t in enumerate(lines, 1)}
+    if pressed is not False:
+        out |= {f"{kind}_pressed_{n}": t for n, t in enumerate(pressed_lines, 1)}
+    return out or {kind: fallback}

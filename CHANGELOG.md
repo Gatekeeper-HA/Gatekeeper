@@ -120,6 +120,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     someone the camera hasn't caught going inside.
 
 ### Changed
+- **A greeting with personality.** Instead of *"Hello. This property is monitored. Please
+  state the purpose of your visit."*, Gatekeeper greets with one of 11 friendly, lightly
+  funny lines, at random and never the same twice in a row, plus 2 that answer the bell
+  after a press. Every one says the property is monitored, one way or another (a test
+  checks it). `GREETING_LINES` / `GREETING_PRESSED_LINES` replace them, and `GREETING` sets
+  a single greeting. The daily report shows how often greetings got an answer, and
+  which ones. Before, about 1 greeted visitor in 10 answered on the rig.
 - **A personality when the visitor doesn't answer.** Instead of one flat warning (*"You are
   being recorded. Please state your purpose or leave the property."*), Gatekeeper says one
   of 20 friendly, funny lines, at random and never the same twice in a row. Two more that

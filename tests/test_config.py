@@ -70,6 +70,17 @@ def test_no_answer_lines(monkeypatch):
     assert Settings().no_answer_texts() == {"no_answer_1": "One.", "no_answer_2": "Two."}
 
 
+def test_greetings(monkeypatch):
+    from gatekeeper.config import GREETING_LINES
+
+    monkeypatch.delenv("GREETING", raising=False)
+    s = Settings()
+    assert s.greeting_texts(pressed=False)["greeting_1"] == GREETING_LINES[0]
+    assert len(s.greeting_texts()) == len(GREETING_LINES) + 2
+    monkeypatch.setenv("GREETING", "Hello. This property is monitored.")
+    assert Settings().greeting_texts() == {"greeting": "Hello. This property is monitored."}
+
+
 def test_trigger_zones(monkeypatch):
     monkeypatch.setenv("TRIGGER_ZONES", " porch, walkway ,")
     assert Settings().trigger_zone_list == ["porch", "walkway"]

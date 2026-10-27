@@ -601,7 +601,7 @@ def test_the_no_answer_line_is_one_of_many_never_twice_in_a_row(settings):
     for _ in range(12):
         rig = Rig(settings, answer="", answer2="", presynth_keys=keys)
         rig.interaction._random.seed(len(said))
-        rig.interaction._last_no_answer = said[-1] if said else None
+        rig.interaction._last = {"no_answer": said[-1]} if said else {}
         visit = rig.interaction.run(EID)
         (played,) = [c[1] for c in rig.calls if c[0] == "play" and "no_answer" in c[1]]
         key = played.removeprefix("_presynth_").removesuffix(".wav")
@@ -610,6 +610,26 @@ def test_the_no_answer_line_is_one_of_many_never_twice_in_a_row(settings):
         said.append(key)
     assert all(a != b for a, b in zip(said, said[1:], strict=False))
     assert set(said) == {"no_answer_1", "no_answer_2", "no_answer_3"}  # never the bell's
+
+
+def test_the_greeting_is_one_of_many_and_says_its_monitored(settings):
+    from gatekeeper.config import GREETING_LINES, GREETING_PRESSED_LINES
+
+    # Every greeting says the property is monitored, one way or another (the owner).
+    said = ("monitor", "record", "watching", "on camera")
+    assert all(any(w in line for w in said) for line in GREETING_LINES + GREETING_PRESSED_LINES)
+    settings.greeting = ""  # the pool
+    settings.greeting_lines = ["Hi, the place is monitored. Who are you?", "Hello, monitored!"]
+    settings.greeting_pressed_lines = ["You rang? This is monitored."]
+    keys = (*settings.greeting_texts(), *ALL_REPLY_KEYS)
+    rig = Rig(settings, answer="I have a package for you", presynth_keys=keys)
+    rig.interaction._random.seed(1)
+    visit = rig.interaction.run(EID)
+    (played,) = [c[1] for c in rig.calls if c[0] == "play" and "greeting" in c[1]]
+    key = played.removeprefix("_presynth_").removesuffix(".wav")
+    assert key in ("greeting_1", "greeting_2")  # never the bell's without a press
+    assert visit.dialogue[0]["asked"] == key
+    assert visit.classification == "likely_delivery"  # the answer heard past its echo
 
 
 def test_failed_second_question_is_logged(settings):
