@@ -14,8 +14,8 @@ conversations takes over the rest of the visit:
   judge signed it. A judge-signed warrant: "I'm notifying the resident".
   Otherwise: the resident doesn't consent, please leave; and, if they're still
   on the porch after a while, the second warning.
-- civic: ask who they are and what message they'd like passed on, and promise
-  to relay it.
+- civic: ask who they are (unless their first sentence said) and what message
+  they'd like passed on, and promise to relay it.
 
 Each spoken line is a setting (PHRASE_*). The lines state the resident's
 position; they aren't legal advice.
@@ -82,6 +82,22 @@ def judge_signed(text: str) -> bool | None:
     if re.search(r"\b(?:judge|magistrate|court)\b", t) or re.search(r"\bsigned\b", t):
         return True
     return yes_no(t)
+
+
+# A civic visitor's first sentence may already say who they are (Gatekeeper#78):
+# their name, and who they're with.
+_NAME = re.compile(r"\bmy name(?:'s| is)\b|\b(?:i'm|i am|this is) \w+(?: \w+)?,? (?:with|from)\b")
+_GROUP = re.compile(
+    r"\brunning for\b|\b(?:with|from|for|on behalf of|representing) (?:[\w']+ ){0,4}?"
+    r"(?:campaign|party|democrats?|republicans?|dfl|gop|league|committee|union|association|"
+    r"council|coalition)\b"
+)
+
+
+def introduced(text: str) -> bool:
+    """Does a civic visitor's sentence give both their name and who they're with?"""
+    t = text.lower()
+    return bool(_NAME.search(t) and _GROUP.search(t))
 
 
 class Turns(Protocol):
@@ -190,7 +206,9 @@ async def law_enforcement(visit, turns: Turns, settings) -> None:
 async def civic(visit, turns: Turns, settings) -> None:
     visit.flow = "civic"
     details = visit.details
-    identity = await turns.ask("civic_ask_identity")
+    # Don't ask who they are if their first sentence said (Gatekeeper#78).
+    first = visit.transcript
+    identity = first if introduced(first) else await turns.ask("civic_ask_identity")
     if identity is None:
         visit.outcome = "reply_failed"
         return

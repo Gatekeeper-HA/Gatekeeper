@@ -133,6 +133,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **A canvasser who already said who they are isn't asked again** (#78). When a civic
+  visitor's first sentence gives their name and who they're with (*"My name is …, a
+  volunteer with …"*), it's taken as who they are and Gatekeeper goes straight to their
+  message, as the officer flow does with the reason (#23).
 - **Daily report: a camera restart isn't a red Frigate check.** `frigate_log_errors`
   counted lines, so one camera restart (a doorbell's scheduled maintenance: ffmpeg
   crashing and the watchdog retrying ~5 times in a minute, ~56 lines) went over the

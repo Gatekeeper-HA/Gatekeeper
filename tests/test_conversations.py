@@ -81,6 +81,21 @@ def test_voter_registration_canvasser_is_not_told_to_leave(settings):
     assert played(rig)[-1] == "civic_thanks"
 
 
+def test_canvasser_who_introduced_themselves_is_not_asked_who_they_are(settings):
+    first = "My name is Sam. I'm a volunteer with Pat Lee and the Democrats, with some flyers"
+    rig = rig_for(
+        settings,
+        ("greeting", first),
+        ("civic_ask_message", "Please vote on November 3rd"),
+    )
+    visit = rig.interaction.run(EID)
+
+    # Gatekeeper#78: their first sentence gave their name and who they're with.
+    assert played(rig) == ["greeting", "civic_ask_message", "civic_thanks"]
+    assert visit.details == {"identity": first, "message": "Please vote on November 3rd"}
+    assert f'Who: "{first}"' in compose(rig.notified[0]).message
+
+
 # Law enforcement.
 
 

@@ -287,7 +287,7 @@ Some visitors get a short conversation instead of one reply. Every line is a set
 `details`) and in the notification.
 
 - **Candidates, campaigns and canvassers** (`civic`): Gatekeeper asks who they are and who
-  they're with, then what message they'd like passed on (they can talk for up to 30 s). It
+  they're with (unless they've just said), then what message they'd like passed on (they can talk for up to 30 s). It
   thanks them, promises to pass it on, and suggests leaving literature at the door. You get
   one notification with their name and message.
 - **Emergencies** (`emergency`): you get an urgent notification (ntfy priority 5) at once,
