@@ -190,10 +190,16 @@ class VisitsPage:
             r["label"] = (labels.get(str(r.get("event_id"))) or {}).get("label", "")
         return sorted(rows, key=started, reverse=True)
 
-    def label(self, event_id: str, label: str) -> str:
-        self.labels.set(event_id, label)
-        when = _when(started({"event_id": event_id}))
-        return f"Saved: {when} was {LABEL_NAMES[label]}." if label else f"Cleared {when}."
+    def save(self, chosen: dict[str, str]) -> str:
+        """Save the page's labels at once (``{event id: label}``, "" for none): only those
+        that changed."""
+        current = {eid: x.get("label", "") for eid, x in self.labels.all().items()}
+        changed = {eid: label for eid, label in chosen.items() if current.get(eid, "") != label}
+        for eid, label in changed.items():
+            self.labels.set(eid, label)
+        if not changed:
+            return "Nothing changed."
+        return f"Saved {len(changed)} label(s)."
 
     def image(self, event_id: str) -> bytes | None:
         """The picture for a visit: the photo saved with a package record, else the
@@ -235,6 +241,12 @@ class VisitsPage:
         )
         if not rows:
             out.append("<p class=note>Nobody yet.</p>")
+        # One form for the whole page: change any visits, then save them together.
+        out.append(
+            '<form method=post action="labels">'
+            f'<input type=hidden name=token value="{self.token}">'
+            f'<input type=hidden name=days value="{days}">'
+        )
         day = None
         for r in rows:
             at = started(r)
@@ -256,14 +268,16 @@ class VisitsPage:
                     for code, name in LABELS
                 ]
                 out.append(
-                    '<form method=post action="label">'
-                    f'<input type=hidden name=token value="{self.token}">'
-                    f'<input type=hidden name=visit value="{e(eid)}">'
-                    f"<select name=label>{''.join(options)}</select> "
-                    "<button type=submit>Save</button></form>"
+                    f'<div><select name="label:{e(eid)}" aria-label="What was it?">'
+                    f"{''.join(options)}</select></div>"
                 )
             out.append("</div></div>")
-        out.append("</body></html>")
+        if rows:
+            out.append(
+                "<div class=savebar><button type=submit>Save labels</button> "
+                "<span class=note>Saves every visit you changed.</span></div>"
+            )
+        out.append("</form></body></html>")
         return "".join(out)
 
 

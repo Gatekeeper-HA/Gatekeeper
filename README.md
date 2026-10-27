@@ -432,7 +432,8 @@ delivery*, *Recognized as Alex*...), what it heard, and the camera's picture.
 
 **Say what each visit really was:** Amazon, UPS, FedEx, USPS, DHL, another courier, a food
 delivery, groceries, the household, a guest, a neighbor, a service visit, a solicitor,
-police or officials, someone else, or nobody. The labels are kept in
+police or officials, someone else, or nobody. Change as many as you like, then tap *Save labels*
+at the bottom: one save for the whole page. The labels are kept in
 `LOG_DIR/visit-labels.json`. The daily report lists those added each day next to what
 Gatekeeper made of the visit, so its mistakes show. They're also the examples for
 teaching it to tell visitors apart by sight.

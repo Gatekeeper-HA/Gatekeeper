@@ -75,10 +75,13 @@ nav { margin: 12px 0 0; } nav a, nav strong { margin-right: 12px; }
 .visit { display: flex; gap: 12px; align-items: flex-start; background: #fff;
   border: 1px solid #ddd; border-radius: 8px; padding: 8px; margin: 8px 0; }
 .visit img { width: 160px; max-width: 40%; border-radius: 6px; }
-.visit form { margin-top: 6px; } select { font-size: 1em; padding: 4px; max-width: 100%; }
+.visit select { margin-top: 6px; } select { font-size: 1em; padding: 4px; max-width: 100%; }
+.savebar { position: sticky; bottom: 0; background: #fafafa; border-top: 1px solid #ddd;
+  padding: 8px 0; }
 @media (prefers-color-scheme: dark) {
   body { background: #17171a; color: #e8e8ea; } .group, .visit { background: #222226;
-  border-color: #3a3a40; } .note { color: #aaa; } .done { background: #1f3a24; }
+  border-color: #3a3a40; } .savebar { background: #17171a; border-color: #3a3a40; }
+  .note { color: #aaa; } .done { background: #1f3a24; }
   .error { background: #4a1f1f; } .danger { color: #ff8a80; } }
 """
 
@@ -417,9 +420,12 @@ def handler(page: FacesPage, password: str, visits=None) -> type[BaseHTTPRequest
             if length > MAX_BODY:
                 self.send_error(413)
                 return
-            form = urllib.parse.parse_qs(self.rfile.read(length).decode("utf-8", "replace"))
+            # Blank values too: a visit's label set back to "What was it?" clears it.
+            form = urllib.parse.parse_qs(
+                self.rfile.read(length).decode("utf-8", "replace"), keep_blank_values=True
+            )
             action = urllib.parse.urlsplit(self.path).path.rsplit("/", 1)[-1]
-            which = visits if visits and action == "label" else page
+            which = visits if visits and action == "labels" else page
             if not hmac.compare_digest(form.get("token", [""])[0], page.token):
                 self._page(
                     403, which, error="That form is out of date: reload the page and try again."
@@ -428,7 +434,9 @@ def handler(page: FacesPage, password: str, visits=None) -> type[BaseHTTPRequest
             one = lambda key: form.get(key, [""])[0]  # noqa: E731
             try:
                 if which is visits:
-                    done = visits.label(one("visit"), one("label"))
+                    done = visits.save(
+                        {k[6:]: v[0] for k, v in form.items() if k.startswith("label:")}
+                    )
                 elif action == "enroll":
                     done = page.enroll(
                         one("name"), _chosen(form.get("face", [])), one("consent") == "yes"
@@ -449,7 +457,8 @@ def handler(page: FacesPage, password: str, visits=None) -> type[BaseHTTPRequest
                 return
             # Back to the page (relative, so it works behind a path prefix).
             self.send_response(303)
-            self.send_header("Location", "./?" + urllib.parse.urlencode({"done": done}))
+            back = {"done": done, **({"days": one("days")} if one("days").isdigit() else {})}
+            self.send_header("Location", "./?" + urllib.parse.urlencode(back))
             self.send_header("Content-Length", "0")
             self.end_headers()
 
