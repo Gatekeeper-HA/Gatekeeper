@@ -141,7 +141,8 @@ services:
       - ntfy
     shm_size: "1gb"
     ports:
-      # The household faces page (behind GATEKEEPER_WEB_PASSWORD; nothing listens without it).
+      # The web page: visits and household faces (behind GATEKEEPER_WEB_PASSWORD; nothing
+      # listens without it).
       - "${SERVER_IP:?set SERVER_IP in .env}:8098:8098"
     environment:
       TZ: "${TZ:-America/Chicago}"
@@ -180,7 +181,8 @@ services:
       # are biometric data; enroll people with their consent, see the README).
       FACE_RECOGNITION: "${FACE_RECOGNITION:-0}"
       FACE_DIR: "/faces"
-      # The household faces page on :8098, off unless GATEKEEPER_WEB_PASSWORD is set.
+      # The web page (visits, household faces) on :8098, off unless GATEKEEPER_WEB_PASSWORD
+      # is set.
       WEB_PASSWORD: "${GATEKEEPER_WEB_PASSWORD:-}"
       # Gatekeeper's own person detection, next to Frigate's: off unless
       # OWN_PERCEPTION=shadow in .env. It only logs its tracks; the daily report compares

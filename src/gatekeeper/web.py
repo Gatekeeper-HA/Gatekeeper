@@ -1,4 +1,6 @@
-"""Gatekeeper's web page (``WEB_PORT``, behind ``WEB_PASSWORD``): the household's faces.
+"""Gatekeeper's web page (``WEB_PORT``, behind ``WEB_PASSWORD``): the visits at the door
+(``/``, visits.py, where the owner says what each visit was) and the household's faces
+(``faces/``).
 
 With face recognition on, the faces of people who went in by the front door are kept
 for enrollment (face_watch.py). This page shows them grouped by person: tick the faces
@@ -69,8 +71,13 @@ input[type=text] { font-size: 1em; padding: 6px; width: 14em; max-width: 100%; }
 button { font-size: 1em; padding: 6px 12px; margin: 4px 4px 4px 0; }
 .danger { color: #a40000; }
 table { border-collapse: collapse; } td { padding: 4px 12px 4px 0; }
+nav { margin: 12px 0 0; } nav a, nav strong { margin-right: 12px; }
+.visit { display: flex; gap: 12px; align-items: flex-start; background: #fff;
+  border: 1px solid #ddd; border-radius: 8px; padding: 8px; margin: 8px 0; }
+.visit img { width: 160px; max-width: 40%; border-radius: 6px; }
+.visit form { margin-top: 6px; } select { font-size: 1em; padding: 4px; max-width: 100%; }
 @media (prefers-color-scheme: dark) {
-  body { background: #17171a; color: #e8e8ea; } .group { background: #222226;
+  body { background: #17171a; color: #e8e8ea; } .group, .visit { background: #222226;
   border-color: #3a3a40; } .note { color: #aaa; } .done { background: #1f3a24; }
   .error { background: #4a1f1f; } .danger { color: #ff8a80; } }
 """
@@ -219,6 +226,7 @@ class FacesPage:
             "<!doctype html><html lang=en><head><meta charset=utf-8>",
             '<meta name=viewport content="width=device-width, initial-scale=1">',
             f"<title>Household faces</title><style>{STYLE}</style></head><body>",
+            nav("faces"),
             "<h1>Household faces</h1>",
         ]
         if message:
@@ -322,6 +330,14 @@ def _day(ts: float) -> str:
     return datetime.datetime.fromtimestamp(ts).strftime("%a %d %b") if ts else "?"
 
 
+def nav(current: str) -> str:
+    """The links between the pages: Visits is at ``./``, Faces at ``faces/`` (relative,
+    so they work behind a path prefix)."""
+    if current == "faces":
+        return '<nav><a href="../">Visits</a> <strong>Faces</strong></nav>'
+    return '<nav><strong>Visits</strong> <a href="faces/">Faces</a></nav>'
+
+
 def _chosen(values: list[str]) -> set[tuple[str, int]]:
     out = set()
     for v in values:
@@ -335,7 +351,9 @@ class _Server(ThreadingHTTPServer):
     daemon_threads = True
 
 
-def handler(page: FacesPage, password: str) -> type[BaseHTTPRequestHandler]:
+def handler(page: FacesPage, password: str, visits=None) -> type[BaseHTTPRequestHandler]:
+    """``visits``: the Visits page (visits.VisitsPage) at ``/``, with the faces at
+    ``faces/``; without it the faces are at ``/``."""
     expected = password.encode()
 
     class Handler(BaseHTTPRequestHandler):
@@ -364,25 +382,33 @@ def handler(page: FacesPage, password: str) -> type[BaseHTTPRequestHandler]:
             self.end_headers()
             self.wfile.write(body)
 
-        def _page(self, status: int = 200, **kw) -> None:
-            self._send(status, page.render(**kw).encode(), "text/html; charset=utf-8")
+        def _page(self, status: int = 200, which=None, **kw) -> None:
+            body = (which or page).render(**kw).encode()
+            self._send(status, body, "text/html; charset=utf-8")
 
         def do_GET(self) -> None:
             if not self._authorized():
                 return
             path = urllib.parse.urlsplit(self.path).path
+            jpeg = None
             if m := re.fullmatch(r".*/face/([^/]+)/(\d+)\.jpg", path):
                 jpeg = page.face_jpeg(urllib.parse.unquote(m[1]), int(m[2]))
-                if jpeg is None:
-                    self.send_error(404)
+            elif visits and (m := re.fullmatch(r".*/visit/([^/]+)\.jpg", path)):
+                jpeg = visits.image(urllib.parse.unquote(m[1]))
+            elif path.endswith("/"):
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                message = query.get("done", [""])[0][:200]
+                if visits and not path.endswith("/faces/"):
+                    days = query.get("days", [""])[0]
+                    days = min(max(int(days), 1), 30) if days.isdigit() else 3
+                    self._page(which=visits, message=message, days=days)
                 else:
-                    self._send(200, jpeg, "image/jpeg")
+                    self._page(message=message)
                 return
-            if not path.endswith("/"):
+            if jpeg is None:
                 self.send_error(404)
-                return
-            query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
-            self._page(message=query.get("done", [""])[0][:200])
+            else:
+                self._send(200, jpeg, "image/jpeg")
 
         def do_POST(self) -> None:
             if not self._authorized():
@@ -392,13 +418,18 @@ def handler(page: FacesPage, password: str) -> type[BaseHTTPRequestHandler]:
                 self.send_error(413)
                 return
             form = urllib.parse.parse_qs(self.rfile.read(length).decode("utf-8", "replace"))
-            if not hmac.compare_digest(form.get("token", [""])[0], page.token):
-                self._page(403, error="That form is out of date: reload the page and try again.")
-                return
             action = urllib.parse.urlsplit(self.path).path.rsplit("/", 1)[-1]
+            which = visits if visits and action == "label" else page
+            if not hmac.compare_digest(form.get("token", [""])[0], page.token):
+                self._page(
+                    403, which, error="That form is out of date: reload the page and try again."
+                )
+                return
             one = lambda key: form.get(key, [""])[0]  # noqa: E731
             try:
-                if action == "enroll":
+                if which is visits:
+                    done = visits.label(one("visit"), one("label"))
+                elif action == "enroll":
                     done = page.enroll(
                         one("name"), _chosen(form.get("face", [])), one("consent") == "yes"
                     )
@@ -414,7 +445,7 @@ def handler(page: FacesPage, password: str) -> type[BaseHTTPRequestHandler]:
                     self.send_error(404)
                     return
             except ValueError as e:
-                self._page(400, error=str(e))
+                self._page(400, which, error=str(e))
                 return
             # Back to the page (relative, so it works behind a path prefix).
             self.send_response(303)
@@ -428,9 +459,15 @@ def handler(page: FacesPage, password: str) -> type[BaseHTTPRequestHandler]:
     return Handler
 
 
-def serve(page: FacesPage, password: str, port: int = DEFAULT_PORT) -> ThreadingHTTPServer:
-    """Serve the page on ``port`` in a daemon thread."""
-    server = _Server(("0.0.0.0", port), handler(page, password))
+def serve(
+    page: FacesPage, password: str, port: int = DEFAULT_PORT, visits=None
+) -> ThreadingHTTPServer:
+    """Serve the pages on ``port`` in a daemon thread."""
+    if visits is not None:
+        visits.token = page.token  # one token proves a form came from either page
+    server = _Server(("0.0.0.0", port), handler(page, password, visits))
     threading.Thread(target=server.serve_forever, name="web", daemon=True).start()
-    log.info("faces page on :%d", server.server_address[1])
+    log.info(
+        "%s on :%d", "visits and faces pages" if visits else "faces page", server.server_address[1]
+    )
     return server

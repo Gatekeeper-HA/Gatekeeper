@@ -79,6 +79,20 @@ class FrigatePerception:
                 return image
         return _fetch(f"{self.api}/api/{q(self.camera)}/latest.jpg?h=720&quality=85", timeout)
 
+    def event_snapshot(self, event_id: str, height: int = 240) -> bytes | None:
+        """Frigate's snapshot of event ``event_id`` with its box, or None (expired)."""
+        q = urllib.parse.quote
+        url = f"{self.api}/api/events/{q(event_id)}/snapshot.jpg?bbox=1&h={height}&quality=80"
+        try:
+            with urllib.request.urlopen(url, timeout=self.timeout) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as e:
+            if e.code != 404:  # 404: expired, as old visits' are (not worth a warning)
+                log.warning("no snapshot of %s: %s", event_id, e)
+        except (urllib.error.URLError, OSError) as e:
+            log.warning("no snapshot of %s: %s", event_id, e)
+        return None
+
     def person_snapshot(self, since: float) -> bytes | None:
         """Frigate's snapshot of the first person seen since ``since``."""
         query = urllib.parse.urlencode(

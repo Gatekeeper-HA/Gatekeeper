@@ -1126,3 +1126,23 @@ def test_a_couriers_further_trips_are_counted_apart():
     left = visit(NOW - 9000, NOW - 8997, outcome="left")
     trip = visit(NOW - 8900, NOW - 8898, outcome="delivery_trip")
     assert report.return_gaps([left, trip]) == [{"seconds": 100, "greeted": False}]
+
+
+def test_the_owners_labels_are_compared_with_what_gatekeeper_did():
+    labelled = [
+        visit(NOW - 9000, NOW - 8997, outcome="left", label="food"),
+        visit(NOW - 5000, NOW - 4970, classification="no_response", label="groceries"),
+        visit(NOW - 4900, NOW - 4898, outcome="delivery_trip", label="groceries"),
+        {"event_id": "1700000000.0-gone", "label": "ups"},  # older than the log
+    ]
+    r = build(inputs(labelled=labelled))
+    assert r["counts"]["labels"] == {
+        "food": {"left": 1},
+        "groceries": {"no_response": 1, "delivery_trip": 1},
+        "ups": {"?": 1},
+    }
+    assert (
+        "Your labels (Visits page): Food delivery (pizza, DoorDash, Uber Eats...) 1 "
+        "(Gatekeeper: left 1); Groceries (Instacart, Walmart...) 2 (Gatekeeper: "
+        "no_response 1, delivery_trip 1); UPS 1 (Gatekeeper: ? 1)" in render_text(r)
+    )

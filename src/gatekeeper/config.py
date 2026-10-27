@@ -346,6 +346,11 @@ class Settings(BaseSettings):
         return self.face_dir / "candidates"
 
     @property
+    def visit_labels_file(self) -> Path:
+        """The owner's labels for visits, from the Visits page (visits.py)."""
+        return self.log_dir / "visit-labels.json"
+
+    @property
     def snapshot_dir(self) -> Path:
         """Photos kept during conversations (e.g. a warrant held up to the camera)."""
         return self.audio_dir / "snapshots"

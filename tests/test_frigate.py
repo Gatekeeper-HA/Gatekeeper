@@ -225,3 +225,26 @@ def test_zones_load_in_the_background(frigate):
     perception._spawn = started.append
     zone = perception.zone("door")
     assert zone.polygon is None and started == [zone.load_until_known]
+
+
+def test_an_events_snapshot_is_none_once_it_expired(monkeypatch, caplog):
+    import io
+    import urllib.error
+    import urllib.request
+
+    from gatekeeper.frigate import FrigatePerception
+
+    asked = []
+
+    def urlopen(url, timeout):
+        asked.append(url)
+        if "gone" in url:
+            raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+        return io.BytesIO(b"JPEG")
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    perception = FrigatePerception("http://frigate:5000", "front_door", subscribe=lambda t, h: None)
+    assert perception.event_snapshot("1800000000.000000-aaa111") == b"JPEG"
+    assert "/api/events/1800000000.000000-aaa111/snapshot.jpg?bbox=1&h=240" in asked[0]
+    assert perception.event_snapshot("gone") is None  # never the camera now instead
+    assert len(asked) == 2 and "no snapshot" not in caplog.text

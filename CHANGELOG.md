@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Visits page** (`http://<SERVER_IP>:8098/`, with `GATEKEEPER_WEB_PASSWORD`). The last few
+  days at the door, newest first: what Gatekeeper did in words, what it heard, and the
+  camera's picture. The owner says what each visit really was (Amazon, UPS, FedEx, USPS,
+  a food delivery, groceries, the household, a guest...). The daily report lists the
+  labels added each day next to what Gatekeeper made of those visits. The faces page
+  moves to `faces/`, linked from it.
 - **Daily report: what was done on the household faces page.** A *Faces page* line (and
   `counts.recognized.faces_page`) lists the faces enrolled per name, kept faces deleted,
   names forgotten, purges and captures at the door, from Gatekeeper's log.
