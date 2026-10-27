@@ -462,7 +462,10 @@ Gatekeeper made of the visit, so its mistakes show. They're also the examples fo
 teaching it to tell visitors apart by sight.
 
 The page has no scripts and works on a phone, like the faces page (`faces/`, linked
-from it). Pictures come from the camera's snapshots of each visit while it keeps them.
+from it). Pictures come from the camera's snapshots of each visit while it keeps them; a
+visit that started with a doorbell press, before anyone was seen, shows the frame sent
+with its notification (kept `AUDIO_RETENTION_DAYS`). A press during a visit is part of
+that visit, so it has no label of its own.
 
 ## Household faces
 

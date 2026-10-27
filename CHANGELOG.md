@@ -149,6 +149,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **Visits page: doorbell presses.** A press during a visit had a label of its own and no
+  picture, though it's part of that visit: it's now a note with no label. A visit that
+  started with a press, before anyone was seen, shows the frame sent with its
+  notification, now kept for the page (like other snapshots, `AUDIO_RETENTION_DAYS`).
 - **A canvasser who already said who they are isn't asked again** (#78). When a civic
   visitor's first sentence gives their name and who they're with (*"My name is …, a
   volunteer with …"*), it's taken as who they are and Gatekeeper goes straight to their
