@@ -250,3 +250,12 @@ def test_without_the_visits_page_the_faces_stay_at_the_top(tmp_path):
             assert b"<h1>Household faces</h1>" in r.read()
     finally:
         server.shutdown()
+
+
+def test_a_press_during_a_visit_is_part_of_it_and_a_press_alone_has_its_picture(log, tmp_path):
+    assert not labelable(record("press-1", 1, trigger="button", outcome="pressed_during_visit"))
+    page = page_for(log, tmp_path)
+    assert page.image("press-1799999800.000") is None  # no picture kept
+    (tmp_path / "snapshots" / "press-1799999800.000.jpg").write_bytes(b"PRESS")
+    assert page.image("press-1799999800.000") == b"PRESS"
+    assert 'src="visit/press-1799999800.000.jpg"' in page.render(days=3)

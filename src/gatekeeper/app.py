@@ -334,9 +334,20 @@ def main() -> None:
     )
     publisher.set_will()
 
+    def snapshot(visit) -> bytes | None:
+        image = perception.snapshot(visit.event_id)
+        if image and visit.event_id.startswith("press-"):
+            # A press before anyone was seen has no snapshot of its own: keep the frame
+            # sent for the Visits page (snapshots are kept AUDIO_RETENTION_DAYS).
+            try:
+                (settings.snapshot_dir / f"{visit.event_id}.jpg").write_bytes(image)
+            except OSError as e:
+                log.warning("couldn't keep the press's picture: %s", e)
+        return image
+
     notifier = Notifier(
         build_notify_backends(settings),
-        snapshot=lambda visit: perception.snapshot(visit.event_id),
+        snapshot=snapshot,
         log_to=EventLog(settings.notification_log_file),
         actions=quick.buttons if quick else lambda visit: [],
     )

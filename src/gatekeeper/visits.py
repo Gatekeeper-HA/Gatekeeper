@@ -52,7 +52,7 @@ OUTCOMES = {
     "returned": "Taken for the household coming back (not greeted)",
     "entered": "Greeted, then went in by the front door: taken for the household",
     "delivery_trip": "Another trip of a delivery (not greeted)",
-    "pressed_during_visit": "Doorbell pressed during a visit",
+    "pressed_during_visit": "Doorbell pressed during the visit (part of it, no label needed)",
     "package_delivered": "Package left at the door",
     "package_picked_up": "Package picked up",
     "talkback_failed": "Couldn't speak at the door (the speaker didn't connect)",
@@ -136,10 +136,14 @@ def started(record: dict) -> float:
 
 
 def labelable(record: dict) -> bool:
-    """A visit by someone (a person seen, or a doorbell press), not a package or a reply."""
-    return record.get("trigger", "person") in ("person", "button") and not str(
-        record.get("outcome", "")
-    ).startswith("package_")
+    """A visit by someone (a person seen, or a doorbell press), not a package or a reply,
+    nor a press during a visit (it's part of that visit)."""
+    outcome = str(record.get("outcome", ""))
+    return (
+        record.get("trigger", "person") in ("person", "button")
+        and not outcome.startswith("package_")
+        and outcome != "pressed_during_visit"
+    )
 
 
 def describe(record: dict) -> str:
@@ -204,8 +208,11 @@ class VisitsPage:
     def image(self, event_id: str) -> bytes | None:
         """The picture for a visit: the photo saved with a package record, else the
         camera's snapshot of the person event."""
-        if not EVENT_ID.match(event_id) or event_id.startswith("press-"):
+        if not EVENT_ID.match(event_id):
             return None
+        if event_id.startswith("press-"):
+            path = self._press_photo(event_id)
+            return path.read_bytes() if path.is_file() else None
         if event_id.startswith("package-"):
             for kind in ("delivered", "picked_up"):
                 path = self.snapshot_dir / f"{event_id}-{kind}.jpg"
@@ -213,6 +220,11 @@ class VisitsPage:
                     return path.read_bytes()
             return None
         return self._snapshot(event_id)
+
+    def _press_photo(self, event_id: str) -> Path:
+        """The camera's frame sent with a doorbell press's notification (app.py keeps it):
+        a press before anyone was seen has no snapshot of its own."""
+        return self.snapshot_dir / f"{event_id}.jpg"
 
     # -- the page ----------------------------------------------------------------
 
@@ -255,7 +267,7 @@ class VisitsPage:
                 out.append(f"<h2>{e(day)}</h2>")
             eid = str(r.get("event_id", ""))
             out.append("<div class=visit>")
-            if not eid.startswith("press-"):
+            if not eid.startswith("press-") or self._press_photo(eid).is_file():
                 src = f"visit/{urllib.parse.quote(eid)}.jpg"
                 out.append(f'<img src="{src}" alt="" loading=lazy>')
             out.append(f"<div><strong>{e(_time(at))}</strong> {e(describe(r))}")
