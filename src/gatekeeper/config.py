@@ -14,6 +14,49 @@ from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPLY_KEYS = ("no_answer", "delivery", "sales", "maintenance", "generic", "pressed")
+
+# Gatekeeper's personality when someone at the door doesn't answer the greeting: friendly
+# and funny, and every line still gets them to say why they came, or go. One is said at
+# random (not the same twice in a row). The owner's examples, written for speaking.
+NO_ANSWER_LINES = (
+    "Hello! You've reached the Department of People Who Show Up Without Explaining "
+    "Themselves. How can I not help you today?",
+    "Hi! Are we having a conversation, or are you just here to admire my front door?",
+    "Press one to explain why you're here. Press two to leave. Silence will automatically "
+    "select option two.",
+    "You came all the way here just to stand there and ignore a camera? That's an impressive "
+    "waste of everybody's time.",
+    "I know you can hear me. The awkward silence is getting its own zip code.",
+    "Listen, I can see you, the camera can see you, and apparently neither of us knows why "
+    "you're here. Let's fix that.",
+    "You have two options: explain yourself, or become part of the doorbell footage "
+    "documentary.",
+    "Welcome! Today's grand prize is getting to tell me why you stopped by! But hurry, "
+    "contestant, because the alternative is leaving!",
+    "You have five seconds to tell me what you want. Five... four... three... this is not "
+    "looking good for you!",
+    "Is it a delivery? An emergency? A social visit? Find out after this very uncomfortable "
+    "silence!",
+    "And behind door number one... a person who refuses to explain why they're standing "
+    "outside!",
+    "Hey, if you have something to say, now's the time. Otherwise, I'll let you get back to "
+    "whatever this performance is.",
+    "I'm happy to talk, but I'm not playing charades through a doorbell camera.",
+    "You can tell me why you're here, or you can enjoy the walk back. Totally your call.",
+    "I'm giving you one last chance to make this visit make sense.",
+    "No pressure, but standing there silently is a pretty weird way to start a conversation.",
+    "Just so you know, this camera has better communication skills than you do.",
+    "Should I call someone, or are you waiting for the director to yell cut?",
+    "I'm going to need you to either speak or unlock the bonus level, because this "
+    "standing-around thing is getting repetitive.",
+    "This is a doorbell camera, not a staring contest. And honestly, I'm winning.",
+)
+# After a doorbell press, these can be said too (they mention the bell).
+NO_ANSWER_PRESSED_LINES = (
+    "You rang the bell, my friend. This is your opportunity to speak before your free trial "
+    "expires.",
+    "You rang my bell, not my emotional support hotline. What do you need?",
+)
 # Lines of the multi-turn conversations (dialogue.py), PHRASE_<KEY> in the environment.
 PHRASE_KEYS = (
     "emergency_wait",
@@ -154,9 +197,12 @@ class Settings(BaseSettings):
 
     # What Gatekeeper says
     greeting: str = "Hello. This property is monitored. Please state the purpose of your visit."
-    reply_no_answer: str = (
-        "You are being recorded. Please state your purpose or leave the property."
-    )
+    # Said when the visitor doesn't answer the greeting: one of NO_ANSWER_LINES at random
+    # (NO_ANSWER_PRESSED_LINES too after a doorbell press); each a JSON list to replace
+    # them. REPLY_NO_ANSWER, if set, is the only line.
+    reply_no_answer: str = ""
+    no_answer_lines: list[str] = list(NO_ANSWER_LINES)
+    no_answer_pressed_lines: list[str] = list(NO_ANSWER_PRESSED_LINES)
     reply_delivery: str = "Thank you. Please leave the package at the door."
     reply_sales: str = "No solicitation. Please leave the property."
     reply_maintenance: str = "Please wait while I notify the resident."
@@ -308,8 +354,24 @@ class Settings(BaseSettings):
 
     @property
     def replies(self) -> dict[str, str]:
-        """Reply text by reply key (see ``classify.classify_response``)."""
-        return {key: getattr(self, f"reply_{key}") for key in REPLY_KEYS}
+        """Reply text by reply key (see ``classify.classify_response``); the no-answer
+        line is one of ``no_answer_texts``."""
+        return {
+            key: getattr(self, f"reply_{key}") for key in REPLY_KEYS if key != "no_answer"
+        }
+
+    def no_answer_texts(self, pressed: bool | None = None) -> dict[str, str]:
+        """The no-answer lines by phrase key: "no_answer" alone with REPLY_NO_ANSWER, else
+        no_answer_1... and, after a press (or with ``pressed`` None: all of them, to
+        pre-synthesize), no_answer_pressed_1..."""
+        if self.reply_no_answer:
+            return {"no_answer": self.reply_no_answer}
+        lines = {f"no_answer_{n}": t for n, t in enumerate(self.no_answer_lines, 1)}
+        if pressed is not False:
+            lines |= {
+                f"no_answer_pressed_{n}": t for n, t in enumerate(self.no_answer_pressed_lines, 1)
+            }
+        return lines or {"no_answer": "Please tell me why you're here."}
 
     @property
     def phrases(self) -> dict[str, str]:

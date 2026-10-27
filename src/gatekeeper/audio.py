@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import threading
 import time
 import wave
 from collections.abc import Callable
@@ -239,8 +240,13 @@ class Synthesizer:
     def __init__(self, voice: str) -> None:
         self.voice = voice
         self._pipeline = None
+        self._lock = threading.Lock()  # one at a time: phrases also synthesize in the background
 
     def synthesize(self, text: str, wav_path: Path) -> bool:
+        with self._lock:
+            return self._synthesize(text, wav_path)
+
+    def _synthesize(self, text: str, wav_path: Path) -> bool:
         try:
             import numpy as np
             import soundfile as sf

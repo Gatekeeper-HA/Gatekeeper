@@ -259,12 +259,18 @@ def main() -> None:
     if settings.health_port:
         serve(health, settings.health_port)
     synth = Synthesizer(settings.kokoro_voice)
+    # The personality's no-answer lines: a few now, the rest in the background (about 10 s
+    # each on a CPU); only lines ready are said.
+    lines = settings.no_answer_texts()
+    pressed = [k for k in lines if k.startswith("no_answer_pressed")]
+    first_lines = {k: lines[k] for k in [*[k for k in lines if k not in pressed][:3], *pressed[:1]]}
     presynth = presynth_all(
         synth,
         settings.out_dir,
         {
             "greeting": settings.greeting,
             **settings.replies,
+            **first_lines,
             **settings.phrases,
             **{
                 f"quick_{key}": settings.quick_reply_phrases[key]
@@ -272,6 +278,12 @@ def main() -> None:
             },
         },
     )
+
+    later = {k: t for k, t in lines.items() if k not in presynth}
+    if later:
+        start_thread(
+            "presynth-lines", lambda: presynth.update(presynth_all(synth, settings.out_dir, later))
+        )
 
     transcriber = Transcriber(
         settings.whisper_model,

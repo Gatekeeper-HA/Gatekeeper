@@ -592,6 +592,26 @@ def test_silent_twice_ends_after_the_question(settings):
     assert len(notified) == 1
 
 
+def test_the_no_answer_line_is_one_of_many_never_twice_in_a_row(settings):
+    settings.reply_no_answer = ""  # the pool
+    settings.no_answer_lines = ["First.", "Second.", "Third."]
+    settings.no_answer_pressed_lines = ["You rang the bell."]
+    keys = ("greeting", *settings.no_answer_texts())
+    said = []
+    for _ in range(12):
+        rig = Rig(settings, answer="", answer2="", presynth_keys=keys)
+        rig.interaction._random.seed(len(said))
+        rig.interaction._last_no_answer = said[-1] if said else None
+        visit = rig.interaction.run(EID)
+        (played,) = [c[1] for c in rig.calls if c[0] == "play" and "no_answer" in c[1]]
+        key = played.removeprefix("_presynth_").removesuffix(".wav")
+        assert visit.response == settings.no_answer_texts(pressed=False)[key]
+        assert visit.dialogue[-1]["asked"] == key  # the report counts answers per line
+        said.append(key)
+    assert all(a != b for a, b in zip(said, said[1:], strict=False))
+    assert set(said) == {"no_answer_1", "no_answer_2", "no_answer_3"}  # never the bell's
+
+
 def test_failed_second_question_is_logged(settings):
     settings.talkback_session = "clip"
     rig = Rig(settings, answer="", connect_fails={2})
