@@ -75,6 +75,7 @@ class Session:
     created: float = 0.0  # when Frigate first reported the person
     path_start: Point | None = None  # where they appeared
     path_now: Point | None = None  # where they are now
+    lowest: float = 0.0  # the lowest they've been in the frame: the closest to the door
     faces: dict[str, int] = field(default_factory=dict)  # face matches by name
     known: str | None = None  # who they are, once their face matched often enough
     alone: bool = False  # nobody else on camera when they appeared, nor just before
@@ -170,6 +171,7 @@ class SessionTracker:
                 self._last_person = now
                 if event.path:  # the whole path so far, in every message
                     session.path_start, session.path_now = event.path[0], event.path[-1]
+                    session.lowest = max(session.lowest, *(y for _, y in event.path))
                 zones = session.zones | frozenset(event.entered_zones)
                 if self._in_trigger_zone(zones) and not self._in_trigger_zone(session.zones):
                     session.first_seen = now  # dwell counts from entering the zone
@@ -349,6 +351,17 @@ class SessionTracker:
             self._on_recognized(visit, name)
         else:
             self.maybe_start(event_id)  # due a greeting now? Then they won't get one
+
+    def walking_away(self, margin: float = 0.08) -> bool:
+        """Is everyone on camera walking away, or gone? A doorbell camera looks out from the
+        door, so someone leaving moves up the frame: true once each person's feet are
+        ``margin`` above the lowest (closest) they came. A courier who dropped something
+        off is on their way back by the time the greeting gets no answer."""
+        with self._lock:
+            people = [s for eid, s in self.sessions.items() if not eid.startswith("press-")]
+            return all(
+                s.path_now is not None and s.lowest - s.path_now[1] >= margin for s in people
+            )
 
     def person_present(self) -> bool:
         """Does Frigate still see someone (in a trigger zone, if any are set)?

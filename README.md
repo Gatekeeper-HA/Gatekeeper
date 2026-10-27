@@ -169,6 +169,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `REPLY_NO_ANSWER` | *(none)* | Reply to silence or a one-word answer, if you want only one line. Without it, Gatekeeper's [personality](#personality) picks one of `NO_ANSWER_LINES` |
 | `NO_ANSWER_LINES` | 20 lines (`config.py`) | What Gatekeeper says when someone doesn't answer the greeting, one at random, never the same twice in a row. A JSON list replaces them |
 | `NO_ANSWER_PRESSED_LINES` | 2 lines | Said too after a doorbell press: they mention the bell |
+| `GOODBYE_LINES` | 7 send-offs | Said instead of a no-answer line to someone already walking away when the greeting gets no answer (a courier who dropped something off, mostly). A JSON list replaces them; `REPLY_GOODBYE` sets a single one |
 | `REPLY_PRESSED` | *The resident has already been notified.* | Said when the doorbell is pressed during a visit's cooldown |
 | `PHRASE_EMERGENCY_WAIT` | *I have alerted the resident. Please wait.* | To someone reporting an emergency |
 | `PHRASE_POLICE_ASK_REASON` | *This is an automated assistant, and this conversation is recorded. What is the reason for your visit, and do you have a warrant?* | First question to law enforcement, unless their first sentence already said why they came or whether they have a warrant |
@@ -286,6 +287,11 @@ example:
   silence!"*
 - After a doorbell press: *"You rang my bell, not my emotional support hotline. What do
   you need?"*
+
+**Someone already walking away** when the greeting gets no answer (a courier who dropped
+something off, mostly: on a doorbell camera, leaving is moving back up the frame) gets a
+send-off instead, such as *"Leaving so soon? Thanks for stopping by!"*, and Gatekeeper
+doesn't wait for an answer.
 
 Each is picked at random, never the same twice in a row. Set your own with
 `GREETING_LINES` and `NO_ANSWER_LINES` (JSON lists), or `GREETING` and `REPLY_NO_ANSWER`

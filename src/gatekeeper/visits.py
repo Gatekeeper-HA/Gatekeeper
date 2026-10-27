@@ -162,6 +162,8 @@ def describe(record: dict) -> str:
         return FLOWS[record["flow"]]
     said = CLASSIFICATIONS.get(record.get("classification") or "", "")
     what = "Doorbell pressed: greeted" if pressed else "Greeted"
+    if details.get("walked_away"):
+        return f"{what}, they walked away: a send-off"
     return f"{what}, {said}" if said else what
 
 
