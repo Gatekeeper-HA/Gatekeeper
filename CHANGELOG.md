@@ -12,6 +12,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   a food delivery, groceries, the household, a guest...). The daily report lists the
   labels added each day next to what Gatekeeper made of those visits. The faces page
   moves to `faces/`, linked from it.
+  One Save button for the whole page, in a bar that stays at the bottom: change any
+  visits' labels, then save them together.
+
 - **Daily report: what was done on the household faces page.** A *Faces page* line (and
   `counts.recognized.faces_page`) lists the faces enrolled per name, kept faces deleted,
   names forgotten, purges and captures at the door, from Gatekeeper's log.

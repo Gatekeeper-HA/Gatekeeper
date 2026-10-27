@@ -137,7 +137,8 @@ def test_the_page_shows_each_visit_and_a_label_for_people(log, tmp_path):
     assert f"<h2>{day}</h2>" in text
     assert "Another trip of a delivery" in text and "Package left at the door" in text
     assert "Heard: &ldquo;Your pizza &lt;is&gt; here&rdquo;" in text  # escaped
-    assert text.count('action="label"') == 3  # not for the package
+    assert text.count('name="label:') == 3  # not for the package
+    assert text.count("<form") == 1 and 'action="labels"' in text and "Save labels" in text
     assert '<option value="groceries" selected>' in text
     assert 'src="visit/1799999600.000000-aaa111.jpg"' in text
     assert "visit/press-" not in text  # no picture for a press with nobody seen
@@ -200,21 +201,39 @@ def test_visits_at_the_top_and_faces_under_it(client):
     assert b"1 day(s)" in client.get("?days=1")[1]
 
 
-def test_a_visit_is_labelled_from_the_page(client):
+def test_the_pages_labels_are_saved_at_once(client):
     token = re.search(r'name=token value="([^"]+)"', client.get()[1].decode())[1]
+    client.visits.labels.set("1799999720.000000-bbb222", "groceries")
     status, _, headers = client.post(
-        "label", {"token": token, "visit": "1799999600.000000-aaa111", "label": "groceries"}
+        "labels",
+        {
+            "token": token,
+            "days": "3",
+            "label:1799999600.000000-aaa111": "groceries",  # new
+            "label:1799999720.000000-bbb222": "groceries",  # unchanged
+            "label:press-1799999800.000": "",  # still none
+        },
     )
-    assert status == 303 and headers["Location"].startswith("./?done=Saved")
-    assert client.visits.labels.all()["1799999600.000000-aaa111"]["label"] == "groceries"
+    assert status == 303
+    assert headers["Location"] == "./?done=Saved+1+label%28s%29.&days=3"
+    labels = client.visits.labels.all()
+    assert {eid: x["label"] for eid, x in labels.items()} == {
+        "1799999600.000000-aaa111": "groceries",
+        "1799999720.000000-bbb222": "groceries",
+    }
+    # Clearing one is a change too.
+    status, _, headers = client.post(
+        "labels", {"token": token, "label:1799999720.000000-bbb222": ""}
+    )
+    assert "Saved+1" in headers["Location"] and len(client.visits.labels.all()) == 1
     # The faces page's token works for both: one page, one token.
     assert client.visits.token == token
     status, body, _ = client.post(
-        "label", {"token": "stale", "visit": "1799999600.000000-aaa111", "label": "food"}
+        "labels", {"token": "stale", "label:1799999600.000000-aaa111": "food"}
     )
     assert status == 403 and "<h1>Visits</h1>" in body
     status, body, _ = client.post(
-        "label", {"token": token, "visit": "1799999600.000000-aaa111", "label": "pizza"}
+        "labels", {"token": token, "label:1799999600.000000-aaa111": "pizza"}
     )
     assert status == 400 and "Pick what the visit was" in body
 
