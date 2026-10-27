@@ -181,9 +181,9 @@ def test_whisper_falls_back_to_the_cpu_when_the_gpu_fails(fake_whisper):
 def test_whisper_gets_the_hotwords_and_no_temperature_fallback(fake_whisper, tmp_path):
     from gatekeeper.audio import Transcriber
 
-    t = Transcriber("large-v3-turbo", device="cpu", hotwords=" Abeler, Lindgren ")
+    t = Transcriber("large-v3-turbo", device="cpu", hotwords=" Doe, Rivera ")
     assert t.transcribe(write_wav(tmp_path / "answer.wav")) == []
-    assert fake_whisper.calls[-1]["hotwords"] == "Abeler, Lindgren"
+    assert fake_whisper.calls[-1]["hotwords"] == "Doe, Rivera"
     assert fake_whisper.calls[-1]["temperature"] == 0.0
 
 

@@ -734,7 +734,7 @@ def walk_up(h, clock, event_id):
 
 
 def test_a_couriers_further_trips_arent_greeted(clock):
-    # The rig's Instacart delivery: four trips in three minutes, greeted twice.
+    # A grocery delivery in four trips in three minutes, greeted twice before.
     h = DoorHarness(clock)
     walk_up(h, clock, "A")  # the first trip: greeted
     clock.advance(30)

@@ -140,10 +140,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   bursts: one over within 3 minutes is a camera dropout, and the check fails on more than
   two dropouts or more than 50 lines outside them (an outage). The *frigate log* line
   says how many dropouts.
-- **A courier making several trips isn't greeted and warned each time.** On the rig, an
-  Instacart driver brought groceries in four trips. Gatekeeper greeted her twice, and
-  told her twice to state her purpose or leave the property, the second time 18 s after
-  it had sent *Package at the front door* for her bags. Once a delivery is seen (a
+- **A courier making several trips isn't greeted and warned each time.** On the rig, a
+  grocery delivery came in four trips. Gatekeeper greeted the courier twice, and twice
+  told them to state their purpose or leave the property, the second time just after it
+  had sent *Package at the front door* for the bags. Once a delivery is seen (a
   package left, or a visitor who says they're delivering), people walking up within
   `DELIVERY_TRIP_SECONDS` (180) of it or of the last trip are logged as `delivery_trip`
   and not greeted. The pickup ends it, the door rules come first, and a doorbell press
@@ -169,7 +169,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   median 18 ms (3 h)*), so a GPU falling back to the CPU shows too. Its *since* stays
   within the report's window.
 - **The doorbell button after the doorbell restarts.** Reolink doorbells restart weekly
-  (maintenance, Sundays at 02:00 by default) and after firmware updates, and their push
+  (scheduled maintenance) and after firmware updates, and their push
   events stop. reolink-aio resubscribes by itself, but logs it only at debug level, so
   nothing showed whether presses were heard again. Now, once push events have come in,
   two minutes without them make Gatekeeper reconnect, and say so.
@@ -207,7 +207,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - **Also:** Frigate's frame keeps its shape (854x480 for a 16:9 camera) instead of being
     squeezed to 640x480.
 - **Rig: recordings that lose their audio are fixed without you.** After a short camera
-  dropout, Frigate's recordings could stay silent until Frigate restarted. On 10-21 that
+  dropout, Frigate's recordings could stay silent until Frigate restarted. Once, that
   was 19 hours of alerts that nobody acted on. `scripts/rig/audio-check.sh` now restarts
   Frigate itself (at most every 6 h, after any visit in progress, never during a deploy),
   sends a quiet notification when the audio is back, and alerts only when the restart

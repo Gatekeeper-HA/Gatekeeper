@@ -88,7 +88,7 @@ def test_officer_without_a_warrant_is_asked_to_leave_once_if_they_go(settings):
     rig = rig_for(
         settings,
         ("greeting", "Police, we're investigating a break-in down the street, no warrant"),
-        ("police_ask_identity", "Officer Dana Smith, Lino Lakes police, badge 4471"),
+        ("police_ask_identity", "Officer Dana Smith, Springfield police, badge 4471"),
         present=lambda: False,
     )
     visit = rig.interaction.run(EID)
@@ -104,7 +104,7 @@ def test_officer_without_a_warrant_is_asked_to_leave_once_if_they_go(settings):
     assert visit.details == {
         "reason": "Police, we're investigating a break-in down the street, no warrant",
         "warrant": False,
-        "identity": "Officer Dana Smith, Lino Lakes police, badge 4471",
+        "identity": "Officer Dana Smith, Springfield police, badge 4471",
         "decision": "asked_to_leave",
         "left": True,
     }
@@ -143,7 +143,7 @@ def test_judge_signed_warrant_identity_first_then_resident_notified(settings):
     rig = rig_for(
         settings,
         ("greeting", "Sheriff's office, we have a search warrant for this address"),
-        ("police_ask_identity", "Deputy Lee, Anoka County Sheriff, badge 210"),
+        ("police_ask_identity", "Deputy Lee, Greene County Sheriff, badge 210"),
         ("police_show_warrant", "Yes, it's signed by Judge Martinez"),
         grab_frame=grab,
     )
@@ -164,7 +164,7 @@ def test_judge_signed_warrant_identity_first_then_resident_notified(settings):
     final = compose(rig.notified[-1])
     assert final.title == "Law enforcement with a judge-signed warrant at the front door"
     assert "Warrant: yes, signed by a judge, they say." in final.message
-    assert 'Identified as: "Deputy Lee, Anoka County Sheriff, badge 210"' in final.message
+    assert 'Identified as: "Deputy Lee, Greene County Sheriff, badge 210"' in final.message
 
 
 def test_warrant_not_signed_by_a_judge_means_please_leave(settings):

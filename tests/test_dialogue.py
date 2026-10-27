@@ -63,7 +63,7 @@ def test_judge_signed(text, expected):
         ("Police", False),
         ("Police department", False),
         ("Sheriff's office, open the door", False),
-        ("I'm Officer Dana Smith with the Lino Lakes police", False),
+        ("I'm Officer Dana Smith with the Springfield police", False),
     ],
 )
 def test_gave_reason(text, reason):

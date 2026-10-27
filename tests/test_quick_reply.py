@@ -7,7 +7,7 @@ from conftest import FakeClock
 from gatekeeper.interaction import Visit
 from gatekeeper.quick_reply import NtfyReplies, QuickReplies
 
-EID = "1792033159.758298-y9p87o"
+EID = "1800000000.758298-y9p87o"
 
 
 def quick(clock, said, **kw):

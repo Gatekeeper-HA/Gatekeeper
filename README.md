@@ -332,7 +332,7 @@ With `REOLINK_HOST` set, Gatekeeper listens for presses of a Reolink doorbell's 
 Visit records carry `trigger`: `person` (Frigate detection) or `button`.
 
 **When the doorbell restarts.** Reolink doorbells restart for their weekly maintenance
-(*Settings → System → Maintenance*, Sundays at 02:00 by default) and after a firmware
+(*Settings → System → Maintenance*, on a weekly schedule) and after a firmware
 update (*Auto update*), and their push events stop. Gatekeeper notices when the events
 stop and connects again, and the log says so: `doorbell button listener stopped: push
 events stopped (did the doorbell restart?)`, then `listening for button presses on …
@@ -505,7 +505,7 @@ Detections become tracks, and each track walks through Gatekeeper's zones, outli
 Frigate's config for now. When a track ends, the log says so:
 
 ```
-own perception: person track 1792847770.909771-own3 start=1792847770.9 end=1792847790.2 zones=porch,door path=(0.31,0.62)->(0.86,0.97) best=0.88 hits=41
+own perception: person track 1800000000.123456-own3 start=1800000000.1 end=1800000019.4 zones=porch,door path=(0.31,0.62)->(0.86,0.97) best=0.88 hits=41
 ```
 
 Every hour it logs how many frames it looked at, how long the detector took and where it
