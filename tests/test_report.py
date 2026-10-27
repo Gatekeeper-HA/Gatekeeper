@@ -1146,3 +1146,29 @@ def test_the_owners_labels_are_compared_with_what_gatekeeper_did():
         "(Gatekeeper: left 1); Groceries (Instacart, Walmart...) 2 (Gatekeeper: "
         "no_response 1, delivery_trip 1); UPS 1 (Gatekeeper: ? 1)" in render_text(r)
     )
+
+
+def test_which_no_answer_lines_get_people_talking():
+    def silent(start, key, heard=""):
+        return visit(
+            start,
+            start + 20,
+            classification="no_response" if not heard else "cooperative_other",
+            dialogue=[{"asked": "greeting", "heard": ""}, {"asked": key, "heard": heard}],
+        )
+
+    visits = [
+        silent(NOW - 9000, "no_answer_3"),
+        silent(NOW - 8000, "no_answer_3", heard="Oh sorry, I'm here for the meter"),
+        silent(NOW - 7000, "no_answer_5"),
+    ]
+    texts = {"no_answer_3": "Press one to explain why you're here. Press two to leave."}
+    r = build(inputs(visits=visits, window_visits=visits, no_answer_texts=texts, notifications=[]))
+    assert r["counts"]["no_answer_lines"] == {
+        "no_answer_3": {"said": 2, "answered": 1},
+        "no_answer_5": {"said": 1, "answered": 0},
+    }
+    assert (
+        "No-answer lines: said 3 time(s), answered after 1: no_answer_3 (Press one to explain "
+        "why you're here. Pr...)" in render_text(r)
+    )

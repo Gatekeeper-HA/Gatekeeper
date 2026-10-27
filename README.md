@@ -164,7 +164,9 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `REPLY_SALES` | *No solicitation. Please leave the property.* | Reply to a solicitor |
 | `REPLY_MAINTENANCE` | *Please wait while I notify the resident.* | Reply to a service visit |
 | `REPLY_GENERIC` | *Thank you. Please wait while I notify the resident.* | Reply to any other answer |
-| `REPLY_NO_ANSWER` | *You are being recorded. Please state your purpose or leave the property.* | Reply to silence or a one-word answer |
+| `REPLY_NO_ANSWER` | *(none)* | Reply to silence or a one-word answer, if you want only one line. Without it, Gatekeeper's [personality](#personality) picks one of `NO_ANSWER_LINES` |
+| `NO_ANSWER_LINES` | 20 lines (`config.py`) | What Gatekeeper says when someone doesn't answer the greeting, one at random, never the same twice in a row. A JSON list replaces them |
+| `NO_ANSWER_PRESSED_LINES` | 2 lines | Said too after a doorbell press: they mention the bell |
 | `REPLY_PRESSED` | *The resident has already been notified.* | Said when the doorbell is pressed during a visit's cooldown |
 | `PHRASE_EMERGENCY_WAIT` | *I have alerted the resident. Please wait.* | To someone reporting an emergency |
 | `PHRASE_POLICE_ASK_REASON` | *This is an automated assistant, and this conversation is recorded. What is the reason for your visit, and do you have a warrant?* | First question to law enforcement, unless their first sentence already said why they came or whether they have a warrant |
@@ -257,6 +259,27 @@ The default image stays CPU-only.
    Ubuntu's headless and server driver packages leave out (install
    `libnvidia-decode-<version>` to add it). Without it, Frigate gets no frames at all: check
    that the camera shows about 5 fps on the *System* page after restarting Frigate.
+
+## Personality
+
+Visitors talk to a doorbell that talks like a person, not like an automated announcement.
+When someone doesn't answer the greeting, Gatekeeper says one of its no-answer lines:
+friendly, funny, and every one still asks why they came, or tells them they can go. For
+example:
+
+- *"Hi! Are we having a conversation, or are you just here to admire my front door?"*
+- *"Press one to explain why you're here. Press two to leave. Silence will automatically
+  select option two."*
+- *"Is it a delivery? An emergency? A social visit? Find out after this very uncomfortable
+  silence!"*
+- After a doorbell press: *"You rang my bell, not my emotional support hotline. What do
+  you need?"*
+
+One is picked at random, never the same twice in a row. Set your own with
+`NO_ANSWER_LINES` (a JSON list), or `REPLY_NO_ANSWER` for a single line. Each takes 4-8 s
+to say. A few are synthesized at startup and the rest in the background (about 10 s each
+on a CPU, once; they're cached). The daily report shows how often each line got the
+visitor talking.
 
 ## Visitor classification
 

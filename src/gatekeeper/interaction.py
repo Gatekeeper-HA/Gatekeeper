@@ -8,6 +8,7 @@ import functools
 import json
 import logging
 import math
+import random
 import threading
 import time
 from collections.abc import Awaitable, Callable, Sequence
@@ -247,6 +248,8 @@ class Interaction:
         self._synth = synth
         self._transcriber = transcriber
         self._presynth = presynth
+        self._random = random.Random()
+        self._last_no_answer: str | None = None  # not the same line twice in a row
         self._event_log = event_log
         self._connect = connect or self._connect_go2rtc
         # The persistent audio tap (audio_tap.AudioTap), or None: record a
@@ -546,6 +549,17 @@ class Interaction:
         visit.dialogue.append({"asked": key, "heard": heard})
         return heard
 
+    def _no_answer_line(self, visit: Visit) -> tuple[str, str]:
+        """The no-answer line to say: (phrase key, text). At random, not the one said last
+        time; the lines that mention the bell only after a doorbell press."""
+        lines = self.settings.no_answer_texts(pressed=visit.trigger == "button")
+        # Those synthesized already (the rest come in the background after startup).
+        lines = {k: t for k, t in lines.items() if k in self._presynth} or lines
+        keys = [k for k in lines if k != self._last_no_answer] or list(lines)
+        key = self._random.choice(keys)
+        self._last_no_answer = key
+        return key, lines[key]
+
     async def _ask(self, visit: Visit, key: str, prompt: str, playback) -> str:
         """Hear the answer to ``prompt`` and classify it. Returns the reply key."""
         visit.transcript = await self._hear(visit, key, prompt, playback)
@@ -703,19 +717,20 @@ class Interaction:
 
         if reply_key == "no_answer":
             self._check_stop(visit)  # no need to ask an empty porch again
-            # The no-answer reply asks again ("...please state your purpose"):
-            # listen once more after it.
-            question = await self._say(talk, visit, "no_answer", s.replies["no_answer"])
+            # The no-answer reply asks again, in Gatekeeper's voice (one of
+            # NO_ANSWER_LINES): listen once more after it.
+            key, line = self._no_answer_line(visit)
+            question = await self._say(talk, visit, key, line)
             if question is None:
                 visit.response = None
                 visit.outcome = "reply_failed"
                 self._notify(visit)
                 return
-            reply_key = await self._ask(visit, "no_answer", s.replies["no_answer"], question)
+            reply_key = await self._ask(visit, key, line, question)
             if reply_key == "no_answer":
                 self._check_stop(visit)
                 # Still silent: the question was the reply.
-                visit.response = s.replies["no_answer"]
+                visit.response = line
                 self._notify(visit)
                 visit.outcome = "completed"
                 return

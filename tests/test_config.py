@@ -47,7 +47,27 @@ def test_explicit_audio_url_wins(monkeypatch):
 
 
 def test_replies_cover_all_keys():
-    assert set(Settings().replies) == set(REPLY_KEYS)
+    # The no-answer line is one of no_answer_texts.
+    assert set(Settings().replies) == set(REPLY_KEYS) - {"no_answer"}
+
+
+def test_no_answer_lines(monkeypatch):
+    from gatekeeper.config import NO_ANSWER_LINES, NO_ANSWER_PRESSED_LINES
+
+    monkeypatch.delenv("REPLY_NO_ANSWER", raising=False)
+    s = Settings()
+    plain, pressed, everything = (s.no_answer_texts(p) for p in (False, True, None))
+    assert len(plain) == len(NO_ANSWER_LINES) and plain["no_answer_1"] == NO_ANSWER_LINES[0]
+    assert pressed["no_answer_pressed_2"] == NO_ANSWER_PRESSED_LINES[1]
+    assert everything == pressed and len(everything) == len(plain) + 2
+    assert not any("smile" in line.lower() for line in everything.values())
+    # REPLY_NO_ANSWER is the only line; NO_ANSWER_LINES replaces the pool.
+    monkeypatch.setenv("REPLY_NO_ANSWER", "Hello? Anybody home in there?")
+    assert Settings().no_answer_texts() == {"no_answer": "Hello? Anybody home in there?"}
+    monkeypatch.delenv("REPLY_NO_ANSWER")
+    monkeypatch.setenv("NO_ANSWER_LINES", '["One.", "Two."]')
+    monkeypatch.setenv("NO_ANSWER_PRESSED_LINES", "[]")
+    assert Settings().no_answer_texts() == {"no_answer_1": "One.", "no_answer_2": "Two."}
 
 
 def test_trigger_zones(monkeypatch):

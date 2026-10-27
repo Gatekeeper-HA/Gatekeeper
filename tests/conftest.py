@@ -25,7 +25,12 @@ def write_wav(path: Path, seconds: float = 1.0, rate: int = 16000) -> Path:
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    s = Settings(audio_dir=tmp_path / "audio", log_dir=tmp_path / "logs")
+    # One fixed no-answer line (REPLY_NO_ANSWER), so tests know which is said.
+    s = Settings(
+        audio_dir=tmp_path / "audio",
+        log_dir=tmp_path / "logs",
+        reply_no_answer="Please state your purpose or leave the property.",
+    )
     for d in (s.in_dir, s.out_dir, s.snapshot_dir, s.log_dir):
         d.mkdir(parents=True)
     return s

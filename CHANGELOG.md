@@ -117,6 +117,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     someone the camera hasn't caught going inside.
 
 ### Changed
+- **A personality when the visitor doesn't answer.** Instead of one flat warning (*"You are
+  being recorded. Please state your purpose or leave the property."*), Gatekeeper says one
+  of 20 friendly, funny lines, at random and never the same twice in a row. Two more that
+  mention the bell are only for after a doorbell press. Each still gets them to say why
+  they came, or go. `NO_ANSWER_LINES` / `NO_ANSWER_PRESSED_LINES` replace them, and
+  `REPLY_NO_ANSWER` sets a single line. The daily report shows how often each line got an
+  answer.
 - **Frigate is behind a perception interface** (`gatekeeper.perception`, inside the code,
   no change in behaviour). Person events, zones, the camera's latest frame and snapshots
   come from a `Perception`, which Frigate provides today (`frigate.FrigatePerception`).
