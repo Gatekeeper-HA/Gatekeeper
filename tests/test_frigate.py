@@ -244,7 +244,7 @@ def test_an_events_snapshot_is_none_once_it_expired(monkeypatch, caplog):
 
     monkeypatch.setattr(urllib.request, "urlopen", urlopen)
     perception = FrigatePerception("http://frigate:5000", "front_door", subscribe=lambda t, h: None)
-    assert perception.event_snapshot("1792975409.168628-p16wn1") == b"JPEG"
-    assert "/api/events/1792975409.168628-p16wn1/snapshot.jpg?bbox=1&h=240" in asked[0]
+    assert perception.event_snapshot("1800000000.000000-aaa111") == b"JPEG"
+    assert "/api/events/1800000000.000000-aaa111/snapshot.jpg?bbox=1&h=240" in asked[0]
     assert perception.event_snapshot("gone") is None  # never the camera now instead
     assert len(asked) == 2 and "no snapshot" not in caplog.text
