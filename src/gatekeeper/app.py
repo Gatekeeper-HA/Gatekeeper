@@ -29,6 +29,7 @@ from gatekeeper.publish import QUICK_REPLY_TOPIC, Publisher
 from gatekeeper.quick_reply import NtfyReplies, QuickReplies
 from gatekeeper.retention import Retention
 from gatekeeper.sessions import SessionTracker
+from gatekeeper.zones import Zones, ZonesPage, ZoneStore
 
 log = logging.getLogger(__name__)
 
@@ -109,10 +110,16 @@ def start_thread(name: str, target, *args, **kwargs) -> None:
 
 
 def start_packages(
-    settings: Settings, perception: Perception, tracker, notifier, interaction, publisher
+    settings: Settings,
+    perception: Perception,
+    tracker,
+    notifier,
+    interaction,
+    publisher,
+    zones: Zones | None = None,
 ) -> None:
     """Package alerts: check the doorstep after each visit (packages.py)."""
-    zone = perception.zone(settings.package_zone)
+    zone = (zones or perception).zone(settings.package_zone)
     model = PackageModel()
 
     def on_change(kind, package, after, came) -> None:
@@ -299,17 +306,30 @@ def stop_on_sigterm(
     signal.signal(signal.SIGTERM, stop)
 
 
-def start_own_perception(settings: Settings, perception: Perception):
+def used_zones(settings: Settings) -> dict[str, str]:
+    """The zones Gatekeeper uses, by name, with what each is for (the Zones page)."""
+    purposes: dict[str, str] = {}
+    for name in settings.trigger_zone_list:
+        purposes.setdefault(name, "visitors here are greeted")
+    if settings.door_zone:
+        purposes.setdefault(
+            settings.door_zone, "the front door: someone appearing here is the household"
+        )
+    if settings.package_zone:
+        purposes.setdefault(settings.package_zone, "the doorstep, checked for packages")
+    return purposes
+
+
+def start_own_perception(settings: Settings, zones: Zones):
     """Our own perception in shadow mode (own_perception.py): it logs each person track,
     with the zones it walked through, next to Frigate's events. The zones are those
-    Gatekeeper uses, outlined in Frigate's config for now. The model downloads on first
-    use. Returns the OwnPerception."""
+    Gatekeeper uses (zones.py: drawn on the Zones page, else Frigate's). The model
+    downloads on first use. Returns the OwnPerception."""
     from gatekeeper import own_perception as own
 
-    names = settings.trigger_zone_list + [settings.door_zone, settings.package_zone]
-    zones = {name: perception.zone(name) for name in dict.fromkeys(n for n in names if n)}
+    shapes = {name: zones.zone(name) for name in used_zones(settings)}
     tracker = own.Tracker(
-        settings.camera_name, lambda: {name: zone.polygon for name, zone in zones.items()}
+        settings.camera_name, lambda: {name: zone.polygon for name, zone in shapes.items()}
     )
     service = own.OwnPerception(
         settings.own_perception_url, None, tracker, fps=settings.own_perception_fps
@@ -333,7 +353,7 @@ def start_own_perception(settings: Settings, perception: Perception):
         log.info(
             "own perception on (shadow): %s, zones %s, detector on %s",
             settings.own_perception_url.split("@")[-1],
-            ", ".join(zones) or "none",
+            ", ".join(shapes) or "none",
             service.detector.device,
         )
         service.start(start_thread)
@@ -427,6 +447,8 @@ def main() -> None:
         subscribe=commands.__setitem__,
     )
     perception.start(lambda event: tracker.handle_event(event))
+    # The zones: drawn on the Zones page, else Frigate's.
+    zones = Zones(ZoneStore(settings.zones_file, settings.camera_name), perception.zone)
     # The callbacks reference `publisher`, defined below.
     client = build_mqtt_client(
         settings,
@@ -518,7 +540,7 @@ def main() -> None:
             watcher.keep(event_id, "household")
 
     # Someone appearing at the door is the household coming out (SessionTracker).
-    door = perception.zone(settings.door_zone) if settings.door_zone else None
+    door = zones.zone(settings.door_zone) if settings.door_zone else None
     tracker = SessionTracker(
         camera=settings.camera_name,
         dwell_seconds=settings.dwell_seconds,
@@ -560,14 +582,23 @@ def main() -> None:
             guesses=guesser.guesses if guesser else None,
             knocks=knock_log(settings),
         )
-        web.serve(page, settings.web_password.get_secret_value(), settings.web_port, visits)
+        zones_page = ZonesPage(
+            zones, used_zones(settings), lambda: (shot := perception.latest_frame()) and shot.jpeg
+        )
+        web.serve(
+            page,
+            settings.web_password.get_secret_value(),
+            settings.web_port,
+            visits,
+            zones=zones_page,
+        )
     start_thread(
         "sweep", tracker.sweep_forever, settings.sweep_interval_seconds, on_sweep=health.sweep_done
     )
     if settings.package_zone:
-        start_packages(settings, perception, tracker, notifier, interaction, publisher)
+        start_packages(settings, perception, tracker, notifier, interaction, publisher, zones)
     if settings.own_perception == "shadow":
-        on_stop.append(start_own_perception(settings, perception).stop)
+        on_stop.append(start_own_perception(settings, zones).stop)
     if settings.knock_listener == "shadow":
         if tap is None:
             log.warning("KNOCK_LISTENER needs the audio tap (AUDIO_TAP); not listening")

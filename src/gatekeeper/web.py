@@ -1,6 +1,6 @@
 """Gatekeeper's web page (``WEB_PORT``, behind ``WEB_PASSWORD``): the visits at the door
-(``/``, visits.py, where the owner says what each visit was) and the household's faces
-(``faces/``).
+(``/``, visits.py, where the owner says what each visit was), the household's faces
+(``faces/``) and the zones (``zones/``, zones.py, drawn on the camera's picture).
 
 With face recognition on, the faces of people who went in by the front door are kept
 for enrollment (face_watch.py). This page shows them grouped by person: tick the faces
@@ -16,8 +16,9 @@ Faces are biometric data:
   from your browser;
 - nothing is cached.
 
-It's plain HTML with relative links, no scripts, so it works on a phone and behind a
-proxy that adds a path prefix (Home Assistant's ingress).
+It's plain HTML with relative links, so it works on a phone and behind a proxy that adds
+a path prefix (Home Assistant's ingress). Only the Zones page has a script (to draw by
+clicking), and works without it.
 """
 
 from __future__ import annotations
@@ -334,11 +335,19 @@ def _day(ts: float) -> str:
 
 
 def nav(current: str) -> str:
-    """The links between the pages: Visits is at ``./``, Faces at ``faces/`` (relative,
-    so they work behind a path prefix)."""
-    if current == "faces":
-        return '<nav><a href="../">Visits</a> <strong>Faces</strong></nav>'
-    return '<nav><strong>Visits</strong> <a href="faces/">Faces</a></nav>'
+    """The links between the pages: Visits is at ``./``, Faces at ``faces/``, Zones at
+    ``zones/`` (relative, so they work behind a path prefix)."""
+    up = "" if current == "visits" else "../"
+    links = [("visits", "Visits", up or "./"), ("faces", "Faces", f"{up}faces/")]
+    links.append(("zones", "Zones", f"{up}zones/"))
+    return (
+        "<nav>"
+        + " ".join(
+            f"<strong>{text}</strong>" if key == current else f'<a href="{href}">{text}</a>'
+            for key, text, href in links
+        )
+        + "</nav>"
+    )
 
 
 def _chosen(values: list[str]) -> set[tuple[str, int]]:
@@ -354,9 +363,12 @@ class _Server(ThreadingHTTPServer):
     daemon_threads = True
 
 
-def handler(page: FacesPage, password: str, visits=None) -> type[BaseHTTPRequestHandler]:
+def handler(
+    page: FacesPage, password: str, visits=None, zones=None
+) -> type[BaseHTTPRequestHandler]:
     """``visits``: the Visits page (visits.VisitsPage) at ``/``, with the faces at
-    ``faces/``; without it the faces are at ``/``."""
+    ``faces/``; without it the faces are at ``/``. ``zones``: the Zones page
+    (zones.ZonesPage) at ``zones/``."""
     expected = password.encode()
 
     class Handler(BaseHTTPRequestHandler):
@@ -398,6 +410,12 @@ def handler(page: FacesPage, password: str, visits=None) -> type[BaseHTTPRequest
                 jpeg = page.face_jpeg(urllib.parse.unquote(m[1]), int(m[2]))
             elif visits and (m := re.fullmatch(r".*/visit/([^/]+)\.jpg", path)):
                 jpeg = visits.image(urllib.parse.unquote(m[1]))
+            elif zones and path.endswith("/zones/frame.jpg"):
+                jpeg = zones.frame_jpeg()
+            elif zones and path.endswith("/zones/"):
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                self._page(which=zones, message=query.get("done", [""])[0][:200])
+                return
             elif path.endswith("/"):
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 message = query.get("done", [""])[0][:200]
@@ -424,8 +442,11 @@ def handler(page: FacesPage, password: str, visits=None) -> type[BaseHTTPRequest
             form = urllib.parse.parse_qs(
                 self.rfile.read(length).decode("utf-8", "replace"), keep_blank_values=True
             )
-            action = urllib.parse.urlsplit(self.path).path.rsplit("/", 1)[-1]
+            path = urllib.parse.urlsplit(self.path).path
+            action = path.rsplit("/", 1)[-1]
             which = visits if visits and action == "labels" else page
+            if zones and path.endswith("/zones/save"):
+                which = zones
             if not hmac.compare_digest(form.get("token", [""])[0], page.token):
                 self._page(
                     403, which, error="That form is out of date: reload the page and try again."
@@ -437,6 +458,8 @@ def handler(page: FacesPage, password: str, visits=None) -> type[BaseHTTPRequest
                     done = visits.save(
                         {k[6:]: v[0] for k, v in form.items() if k.startswith("label:")}
                     )
+                elif which is zones:
+                    done = zones.save({k: v[0] for k, v in form.items() if k.startswith("zone:")})
                 elif action == "enroll":
                     done = page.enroll(
                         one("name"), _chosen(form.get("face", [])), one("consent") == "yes"
@@ -469,12 +492,13 @@ def handler(page: FacesPage, password: str, visits=None) -> type[BaseHTTPRequest
 
 
 def serve(
-    page: FacesPage, password: str, port: int = DEFAULT_PORT, visits=None
+    page: FacesPage, password: str, port: int = DEFAULT_PORT, visits=None, zones=None
 ) -> ThreadingHTTPServer:
     """Serve the pages on ``port`` in a daemon thread."""
-    if visits is not None:
-        visits.token = page.token  # one token proves a form came from either page
-    server = _Server(("0.0.0.0", port), handler(page, password, visits))
+    for other in (visits, zones):
+        if other is not None:
+            other.token = page.token  # one token proves a form came from any page
+    server = _Server(("0.0.0.0", port), handler(page, password, visits, zones))
     threading.Thread(target=server.serve_forever, name="web", daemon=True).start()
     log.info(
         "%s on :%d", "visits and faces pages" if visits else "faces page", server.server_address[1]
