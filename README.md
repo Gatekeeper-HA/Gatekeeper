@@ -313,7 +313,7 @@ Categories are checked top to bottom; the first match wins.
 |----------------|----------|-------|
 | `emergency` | emergency, welfare check, 911, ambulance, fire department, on fire, smoke, gas leak, injured… | A conversation: see [Conversations](#conversations) |
 | `law_enforcement` | police, officer, sheriff, deputy, detective, trooper, warrant, FBI, homeland security, immigration… | A conversation |
-| `civic` | candidate, campaign, running for, election, vote, register to vote, senator, city council, petition, canvassing, DFL, GOP… | A conversation |
+| `civic` | candidate, campaign, running for, election, vote, register to vote, senator, city council, petition, canvassing, canvasser, political, PAC, DFL, GOP… | A conversation |
 | `solicitor` | selling, sales, survey, donations, charity, solar, church… | `REPLY_SALES` |
 | `likely_delivery` | delivery, package, parcel, FedEx, UPS, USPS, Amazon, DoorDash, Uber Eats, groceries… | `REPLY_DELIVERY` |
 | `service_visit` | repair, maintenance, technician, plumber, electrician, meter, appointment, install… | `REPLY_MAINTENANCE` |

@@ -84,6 +84,9 @@ def test_gave_reason(text, reason):
         ("Hi, I'm Chris Doe, I'm running for state senate", True),
         ("I'm a volunteer with the Smith campaign", False),  # no name
         ("Just asking people to register to vote", False),
+        ("Hi, I'm Robin with the Clean Water Political Action Fund.", True),
+        ("This is Pat from the Neighbors PAC", True),
+        ("I'm with the Clean Water Action Fund", False),  # no name
     ],
 )
 def test_introduced(text, said):
