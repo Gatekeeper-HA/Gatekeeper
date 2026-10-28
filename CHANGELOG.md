@@ -175,6 +175,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **A clean stop.** Gatekeeper now handles SIGTERM. As the container's PID 1, Python
+  ignored it, so every `docker stop` (each deploy, each add-on restart) waited 10 s and
+  then killed Gatekeeper. It now logs `Gatekeeper stopping` and exits in about a second,
+  and own perception first logs the tracks still open, so someone at the door during a
+  restart still counts. The daily report lists porch arrivals that came while Gatekeeper
+  restarted (from stopping until own perception reads the stream again) apart from its
+  misses, and gives that as the reason an arrival wasn't greeted. On the rig, the two
+  arrivals own perception "missed" one night came during two back-to-back deploys;
+  replayed, it tracks both through the porch and the door.
 - **A canvasser for a political group is `civic`** (#89). *Political*, *politics*,
   *politician*, *PAC* and *canvasser* are civic words, so a canvasser who introduces
   themselves as being "with the … Political Action Fund" gets the civic conversation rather

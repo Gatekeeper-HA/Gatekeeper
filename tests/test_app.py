@@ -171,3 +171,21 @@ def test_a_package_left_opens_the_delivery_and_its_pickup_ends_it(monkeypatch, t
     watchers[0].on_change("delivered", package, after, 0.0)
     watchers[0].on_change("picked_up", package, after, 1800000600.0)
     assert calls == [("delivered", "package-1800000000.250"), ("picked_up",)]
+
+
+def test_sigterm_stops_cleanly(monkeypatch):
+    # As PID 1 in a container, Python ignores SIGTERM unless it handles it.
+    import signal
+
+    from gatekeeper import app
+
+    handlers = {}
+    monkeypatch.setattr(signal, "signal", lambda sig, fn: handlers.__setitem__(sig, fn))
+    calls, codes = [], []
+
+    def boom():
+        raise RuntimeError("boom")
+
+    app.stop_on_sigterm([lambda: calls.append("own perception"), boom], exit_fn=codes.append)
+    handlers[signal.SIGTERM](signal.SIGTERM, None)
+    assert calls == ["own perception"] and codes == [0]

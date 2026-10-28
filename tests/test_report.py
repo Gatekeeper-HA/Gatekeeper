@@ -995,6 +995,44 @@ def test_own_perception_is_compared_with_frigates_arrivals():
     )
 
 
+def test_an_arrival_while_gatekeeper_restarted_isnt_an_own_perception_miss():
+    arrivals = [
+        {"id": "1-restart", "start_time": NOW - 4000, "end_time": NOW - 3990},
+        {"id": "2-missed", "start_time": NOW - 2000, "end_time": NOW - 1990},
+    ]
+    on = "own perception on (shadow): go2rtc:8554/front_door_sub, zones porch"
+    reading = "own perception reading rtsp://go2rtc:8554/front_door_sub"
+    log = own_log(
+        (NOW - 8000, "app", on),
+        (NOW - 7990, "own_perception", reading),
+        (NOW - 4010, "app", "Gatekeeper stopping (SIGTERM)"),
+        (NOW - 3950, "app", "Gatekeeper 0.3.0 starting: camera=front_door"),
+        (NOW - 3900, "app", "connected to MQTT rc=Success"),
+        (NOW - 3850, "app", on),
+        (NOW - 3845, "own_perception", reading),
+    )
+    r = build(
+        inputs(
+            arrivals=arrivals,
+            log_text=log,
+            trigger_zones=("porch",),
+            own_perception="shadow",
+            visits=[],
+            window_visits=[],
+        )
+    )
+    own = r["own_perception"]
+    assert (own["arrivals"], own["seen"]) == (2, 0)
+    assert own["missed"] == [report.local(NOW - 2000)]
+    assert own["restarting"] == [report.local(NOW - 4000)]
+    assert f"1 while Gatekeeper restarted ({report.local(NOW - 4000)})" in render_text(r)
+    # And it wasn't greeted because Gatekeeper wasn't listening.
+    assert [w["gatekeeper"] for w in r["arrivals"]["why"]] == [
+        "not listening (Gatekeeper restarting)",
+        None,
+    ]
+
+
 def test_own_perception_on_but_silent_fails_a_check():
     assert build(inputs())["own_perception"] is None
     assert "own_perception" not in failing(build(inputs()))

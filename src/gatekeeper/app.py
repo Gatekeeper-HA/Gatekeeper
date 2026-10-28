@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import signal
 import threading
 import time
 from collections.abc import Callable
@@ -278,6 +280,25 @@ def start_knock_listener(settings: Settings, tap, tracker):
     log.info("knock listener on (shadow)")
 
 
+def stop_on_sigterm(
+    on_stop: list[Callable[[], None]], exit_fn: Callable[[int], None] = os._exit
+) -> None:
+    """A clean stop when Docker (or the Home Assistant Supervisor) stops the container.
+    As PID 1, Python ignores SIGTERM unless it handles it: Docker then waited 10 s and
+    killed it, losing whatever was in progress. Each of ``on_stop`` runs, then it exits."""
+
+    def stop(signum, frame) -> None:
+        log.info("Gatekeeper stopping (%s)", signal.Signals(signum).name)
+        for fn in on_stop:
+            try:
+                fn()
+            except Exception:
+                log.exception("couldn't stop cleanly")
+        exit_fn(0)
+
+    signal.signal(signal.SIGTERM, stop)
+
+
 def start_own_perception(settings: Settings, perception: Perception):
     """Our own perception in shadow mode (own_perception.py): it logs each person track,
     with the zones it walked through, next to Frigate's events. The zones are those
@@ -334,6 +355,8 @@ def main() -> None:
         settings.go2rtc_api,
     )
 
+    on_stop: list[Callable[[], None]] = []
+    stop_on_sigterm(on_stop)
     ensure_dirs(settings)
     health = Health(
         sweep_max_age=max(10 * settings.sweep_interval_seconds, 10.0),
@@ -544,7 +567,7 @@ def main() -> None:
     if settings.package_zone:
         start_packages(settings, perception, tracker, notifier, interaction, publisher)
     if settings.own_perception == "shadow":
-        start_own_perception(settings, perception)
+        on_stop.append(start_own_perception(settings, perception).stop)
     if settings.knock_listener == "shadow":
         if tap is None:
             log.warning("KNOCK_LISTENER needs the audio tap (AUDIO_TAP); not listening")

@@ -260,6 +260,25 @@ def test_a_failing_callback_doesnt_stop_it():
     assert [e.type for e in service.look(moved, 1.2)] == ["new"]
 
 
+def test_stopping_reports_the_tracks_still_open():
+    # Gatekeeper restarting (a deploy) while someone is at the door: still seen.
+    seen, tracks = [], []
+    detector = Detector([person(0.25, 0.15, 0.4, 0.7)])
+    service = OwnPerception(
+        "rtsp://x", detector, Tracker("x"), on_event=seen.append, on_track=tracks.append
+    )
+    moved = frame()
+    moved[20:80, 40:60] = 230
+    service.look(frame(), 1.0)
+    service.look(moved, 1.2)  # one stray box: not reported
+    service.look(moved, 1.4)
+    service.tracker.update([person(0.7, 0.1, 0.8, 0.3)], 1.6)  # someone else, seen once
+    service.stop()
+    assert [e.type for e in seen] == ["new", "end"]
+    assert [t.last for t in tracks] == [1.4]
+    assert not service.tracker.active
+
+
 def test_tracks_end_when_the_stream_stops():
     tracks = []
     clock = [10.0]
