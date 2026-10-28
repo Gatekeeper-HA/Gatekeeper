@@ -505,6 +505,11 @@ class Settings(BaseSettings):
         return self.log_dir / "visit-guesses.json"
 
     @property
+    def zones_file(self) -> Path:
+        """Gatekeeper's own zones, drawn on the Zones page (zones.py)."""
+        return self.log_dir / "zones.json"
+
+    @property
     def visit_labels_file(self) -> Path:
         """The owner's labels for visits, from the Visits page (visits.py)."""
         return self.log_dir / "visit-labels.json"

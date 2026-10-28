@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Zones page** (`http://<SERVER_IP>:8098/zones/`). The camera's picture with the zones
+  Gatekeeper uses drawn on it (where visitors are greeted, the front door, the doorstep):
+  pick one and click its corners, or type the points. They're kept in `zones.json` and
+  apply at once. A zone not drawn is Frigate's, as before, so a setup with Frigate
+  changes nothing until a zone is drawn. Own perception, the household-at-the-door
+  check and the doorstep check use them: a hub without Frigate needs zones of its own.
 - **Knocks, in shadow** (`KNOCK_LISTENER=shadow`, off by default). Gatekeeper listens for
   knocks at the door: a cheap check for sharp sounds on the audio tap, then a sound
   classifier (AST, BSD-3-Clause, ONNX on the GPU) on those 2 seconds. Each knock is

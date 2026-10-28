@@ -83,7 +83,7 @@ Only services that require a login are published, on `SERVER_IP`:
 | 8971 | Frigate UI and API | HTTPS, Frigate login |
 | 1883 | MQTT | Per-account passwords (see [MQTT](#mqtt)) |
 | 8090 | ntfy notifications | Gatekeeper token / `phone` user; anyone may post a quick reply (signed, see [Quick replies](#quick-replies)) |
-| 8098 | Gatekeeper's web page: [visits](#visits) and [household faces](#household-faces) | `GATEKEEPER_WEB_PASSWORD` (plain HTTP; off without a password) |
+| 8098 | Gatekeeper's web page: [visits](#visits), [household faces](#household-faces) and [zones](#zones) | `GATEKEEPER_WEB_PASSWORD` (plain HTTP; off without a password) |
 | 8123 | Home Assistant (optional `ha` profile) | Home Assistant login |
 
 Frigate's unauthenticated API (5000) and go2rtc (API/UI, RTSP restream, WebRTC) are used
@@ -143,7 +143,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `KNOCK_LISTENER` | `off` | `shadow`: Gatekeeper listens for knocks at the door and logs them: [knocks](#knocks-shadow). Needs the audio tap and an NVIDIA GPU to be quick. The compose stack reads it from `.env` |
 | `KNOCK_THRESHOLD` | `0.5` | The sound classifier's *Knock* score (0–1) that counts as a knock |
 | `MODEL_DIR` | `~/.cache/gatekeeper/models` | Where the detector's model is downloaded (once) |
-| `WEB_PORT` | `8098` | The web page: [visits](#visits) and [household faces](#household-faces) |
+| `WEB_PORT` | `8098` | The web page: [visits](#visits), [household faces](#household-faces) and [zones](#zones) |
 | `WEB_PASSWORD` | *(none)* | Its password (HTTP Basic, any user name). Without one the page is off. The compose stack reads `GATEKEEPER_WEB_PASSWORD` from `.env` |
 | `FACE_CANDIDATE_DAYS` | `14` | How long the faces of people who went in by the door are kept for you to enroll |
 | `LISTEN_SECONDS` | `4` | How long to wait for the visitor to start answering after the greeting (or, without the audio tap, how long to record after it) |
@@ -488,6 +488,21 @@ visit that started with a doorbell press, before anyone was seen, shows the fram
 with its notification (kept `AUDIO_RETENTION_DAYS`). A press during a visit is part of
 that visit, so it has no label of its own.
 
+## Zones
+
+`http://<SERVER_IP>:8098/zones/` shows the camera's picture with the zones Gatekeeper uses
+drawn on it: where visitors are greeted (`TRIGGER_ZONES`), the front door (`DOOR_ZONE`) and
+the doorstep checked for packages (`PACKAGE_ZONE`). To draw one, pick it and click its
+corners on the picture in order (or type the points, `x,y` from the top left as fractions
+of the picture), then tap *Save zones*. They're kept in `LOG_DIR/zones.json` and apply at
+once.
+
+A zone you haven't drawn is Frigate's, read from Frigate's config, so with Frigate nothing
+changes until you draw one; clearing it goes back to Frigate's. Gatekeeper's own
+perception, the household-at-the-door check and the doorstep check use these shapes.
+Which of Frigate's events start a visit is still decided by Frigate's own zones, so keep
+the two alike while Frigate starts the visits.
+
 ## Household faces
 
 With `FACE_RECOGNITION` on, Gatekeeper recognizes the people you enroll. When one of them
@@ -703,6 +718,7 @@ its own ~2.4 s before it's heard.
 | `gatekeeper/audio/in/` | Captured visitor audio clips |
 | `gatekeeper/audio/out/` | Synthesized TTS files |
 | `gatekeeper/logs/events.jsonl` | Today's visit log (JSON Lines); earlier days are rotated to `events-YYYY-MM-DD.jsonl` |
+| `gatekeeper/logs/zones.json` | The [zones](#zones) drawn on the Zones page |
 | `gatekeeper/cache/` | Kokoro, Whisper and face model cache |
 | `gatekeeper/faces/` | [Household faces](#household-faces): enrolled people and faces kept for enrollment (mode 600) |
 | `frigate/config/` | Frigate database, model cache and secrets (`config.yml` comes from the repo) |
