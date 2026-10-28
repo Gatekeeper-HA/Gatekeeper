@@ -39,6 +39,19 @@ def played(rig):
 # Civic visitors: candidates, campaigns, canvassers.
 
 
+def test_a_conversation_whose_first_phrase_never_plays_fails(settings, monkeypatch):
+    # Gatekeeper#90: talkback lost after the greeting fails the visit at once.
+    from gatekeeper import interaction
+
+    monkeypatch.setattr(interaction, "MAX_PLAYBACK_LAG_SECONDS", 0.05)
+    rig = rig_for(settings, ("greeting", "Hi, I'm running for state senate"))
+    rig.never_starts = {"_presynth_civic_ask_identity.wav"}
+    visit = rig.interaction.run(EID)
+
+    assert played(rig) == ["greeting", "civic_ask_identity"]
+    assert (visit.classification, visit.outcome) == ("civic", "reply_failed")
+
+
 def test_candidate_is_asked_for_their_message_and_thanked(settings):
     rig = rig_for(
         settings,

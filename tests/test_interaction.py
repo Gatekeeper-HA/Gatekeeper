@@ -39,6 +39,8 @@ class FakeSession:
         loop = asyncio.get_running_loop()
         seconds = wav_duration(wav)
         started, sent = loop.create_future(), loop.create_future()
+        if wav.name in rig.never_starts:
+            return Playback(seconds, started, sent)  # the connection stopped taking audio
         started.set_result(rig.now)
         done_at = rig.now + seconds + rig.lag
         if rig.sent_delay is None:
@@ -139,6 +141,7 @@ class Rig:
         self.sleeps: list[float] = []
         self.now = T0
         self.lag, self.sent_delay = lag, sent_delay
+        self.never_starts: set[str] = set()
         self.connects = 0
         self.connect_fails = set(connect_fails)
         self.synth = FakeSynth()
@@ -255,6 +258,26 @@ def test_talkback_gives_up_waiting_for_a_clip_that_never_finishes(settings, monk
     visit = rig.interaction.run(EID)
     assert visit.outcome == "completed"
     assert rig.calls[-1] == ("close", 1)
+
+
+def test_a_reply_that_never_starts_playing_fails_the_visit_without_a_timeout(
+    settings, monkeypatch, caplog
+):
+    # Gatekeeper#90: the talkback connection died after the greeting; the reply waited
+    # for its first frame until the visit timed out (180 s).
+    from gatekeeper import interaction
+
+    monkeypatch.setattr(interaction, "MAX_PLAYBACK_LAG_SECONDS", 0.05)
+    rig = Rig(settings, speech=[(ECHO_END + 0.1, ECHO_END + 1.5)])
+    rig.never_starts = {"_presynth_delivery.wav"}
+    started = time.monotonic()
+    visit = rig.interaction.run(EID)
+
+    assert time.monotonic() - started < 3
+    assert visit.outcome == "reply_failed"
+    assert (visit.classification, visit.reply_latency) == ("likely_delivery", None)
+    assert rig.calls[-1] == ("close", 1)
+    assert "clip never started playing" in caplog.text
 
 
 def test_recording_starts_while_greeting_plays(settings):

@@ -156,6 +156,19 @@ class Stopped(Exception):
 HOUSEHOLD_OUTCOMES = ("entered", "household")
 
 
+async def wait_started(playback) -> float | None:
+    """When the clip's first frame was sent (time.monotonic()), or None if it still
+    hasn't MAX_PLAYBACK_LAG_SECONDS after being queued: the talkback connection stopped
+    taking audio (Gatekeeper#90). For a clip queued with nothing ahead of it."""
+    try:
+        return await asyncio.wait_for(asyncio.shield(playback.started), MAX_PLAYBACK_LAG_SECONDS)
+    except TimeoutError:
+        log.warning(
+            "clip never started playing after %.0f s: talkback lost", MAX_PLAYBACK_LAG_SECONDS
+        )
+        return None
+
+
 async def wait_sent(playback) -> float | None:
     """When the clip's last frame was sent (time.monotonic()), or None if it still
     hasn't been MAX_PLAYBACK_LAG_SECONDS after it should have."""
@@ -763,17 +776,26 @@ class Interaction:
         if reply is None:
             visit.outcome = "reply_failed"
             return
-        await self._time_reply(visit, reply)
+        if not await self._time_reply(visit, reply):
+            visit.outcome = "reply_failed"
+            return
         await talk.heard(reply)
         visit.outcome = "completed"
 
-    async def _time_reply(self, visit: Visit, playback) -> None:
+    async def _time_reply(self, visit: Visit, playback) -> bool:
         """Set ``reply_latency`` from the first reply played after the visitor's answer:
-        the one-line reply, or a conversation's first phrase (Gatekeeper#25)."""
-        if visit.reply_latency is not None or visit.speech_end is None:
-            return
-        visit.reply_latency = round(await asyncio.shield(playback.started) - visit.speech_end, 2)
-        log.info("reply started %.2f s after the visitor stopped talking", visit.reply_latency)
+        the one-line reply, or a conversation's first phrase (Gatekeeper#25). False if
+        that reply never started playing (talkback lost, Gatekeeper#90) rather than
+        waiting for it until the visit times out."""
+        if visit.reply_latency is not None:
+            return True
+        started = await wait_started(playback)
+        if started is None:
+            return False
+        if visit.speech_end is not None:
+            visit.reply_latency = round(started - visit.speech_end, 2)
+            log.info("reply started %.2f s after the visitor stopped talking", visit.reply_latency)
+        return True
 
 
 class _Turns:
@@ -796,16 +818,14 @@ class _Turns:
             first = await self._i._say(
                 self._talk, self._visit, preface, self._i.settings.phrases[preface]
             )
-            if first is None:
+            if first is None or not await self._i._time_reply(self._visit, first):
                 return None
-            await self._i._time_reply(self._visit, first)
             if self._talk.per_clip:
                 await self._talk.heard(first)  # one session per phrase: not two at once
         text = self._i.settings.phrases[key]
         playback = await self._i._say(self._talk, self._visit, key, text)
-        if playback is None:
+        if playback is None or not await self._i._time_reply(self._visit, playback):
             return None
-        await self._i._time_reply(self._visit, playback)
         # Photos while they answer, e.g. while holding a warrant up to the camera.
         taking = asyncio.ensure_future(self._photos(playback)) if photos else None
         try:
@@ -824,9 +844,8 @@ class _Turns:
 
     async def say(self, key: str) -> bool:
         playback = await self._i._say(self._talk, self._visit, key, self._i.settings.phrases[key])
-        if playback is None:
+        if playback is None or not await self._i._time_reply(self._visit, playback):
             return False
-        await self._i._time_reply(self._visit, playback)
         await self._talk.heard(playback)
         return True
 
