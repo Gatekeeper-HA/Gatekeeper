@@ -135,7 +135,7 @@ MQTT_CONNECTED = re.compile(r"^connected to MQTT ")
 MQTT_DISCONNECTED = re.compile(r"^disconnected from MQTT")
 # own_perception.py's lines (shadow mode): each person track that ended, and every hour
 # how much it looked.
-OWN_ON = re.compile(r"^own perception on \(shadow\)")
+OWN_ON = re.compile(r"^own perception on \((shadow|visits)\)")
 OWN_READING = re.compile(r"^own perception reading ")
 # recording.py's lines: recording on, each clip written, and each that failed.
 RECORDING_ON = re.compile(r"^recording clips to ")

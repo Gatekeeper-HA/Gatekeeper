@@ -183,6 +183,10 @@ class Settings(BaseSettings):
     face_candidate_days: float = 14.0
     face_model_dir: Path = Path.home() / ".cache" / "gatekeeper" / "faces"
 
+    # What sees the door and starts the visits: "frigate" (its MQTT events) or "own" (our
+    # own perception, own_service.py: Frigate isn't needed; with frigate_api set, Frigate
+    # only stands in for zones not drawn here and for older visits' pictures).
+    perception: Literal["frigate", "own"] = "frigate"
     # Gatekeeper's own perception (own_perception.py): it reads the camera's
     # low-resolution stream and finds and tracks people itself (YOLOX), to replace
     # Frigate on our hub. "shadow": it runs next to Frigate and only logs its tracks,

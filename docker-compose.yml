@@ -188,6 +188,10 @@ services:
       # OWN_PERCEPTION=shadow in .env. It only logs its tracks; the daily report compares
       # them with Frigate's. The rig's CPU takes ~265 ms a frame through the detector.
       OWN_PERCEPTION: "${OWN_PERCEPTION:-off}"
+      # What starts the visits: Frigate's events, or with PERCEPTION=own in .env
+      # Gatekeeper's own perception (Frigate then only stands in for zones not drawn on
+      # the Zones page and for older visits' pictures).
+      PERCEPTION: "${PERCEPTION:-frigate}"
       OWN_PERCEPTION_FPS: "3"
       # Gatekeeper's guess at each greeted visitor (a delivery or not), in shadow: off
       # unless DELIVERY_GUESS=1 in .env.

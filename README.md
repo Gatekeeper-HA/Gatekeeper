@@ -133,6 +133,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `FACE_MIN_WIDTH` | `80` | Faces narrower than this, in pixels of the high-resolution frame, are too small to tell |
 | `FACE_RTSP_URL` | `AUDIO_RTSP_URL` | The camera's high-resolution stream (video) |
 | `FACE_DIR` | `/faces` | Enrolled faces (`gallery.json`) and faces kept for enrollment (`candidates/`) |
+| `PERCEPTION` | `frigate` | What starts the visits: `frigate` (its events over MQTT) or `own`, Gatekeeper's [own perception](#own-perception-starting-the-visits), with Frigate optional. The compose stack reads it from `.env` |
 | `OWN_PERCEPTION` | `off` | `shadow`: Gatekeeper also finds and tracks people itself, next to Frigate, and only logs them: [own perception](#own-perception-shadow). The compose stack reads it from `.env` |
 | `OWN_PERCEPTION_URL` | `AUDIO_RTSP_URL` + `_sub` | The camera's low-resolution stream (go2rtc's `<CAMERA_NAME>_sub`) |
 | `OWN_PERCEPTION_FPS` | `5` | Frames looked at per second, at most. The compose stack sets `3` |
@@ -505,6 +506,33 @@ changes until you draw one; clearing it goes back to Frigate's. Gatekeeper's own
 perception, the household-at-the-door check and the doorstep check use these shapes.
 Which of Frigate's events start a visit is still decided by Frigate's own zones, so keep
 the two alike while Frigate starts the visits.
+
+## Own perception starting the visits
+
+With `PERCEPTION=own`, Gatekeeper's own perception starts the visits instead of Frigate's
+events, and Frigate isn't needed. Everything Gatekeeper used Frigate for comes from its
+own parts:
+- **who's there:** its own perception's tracks;
+- **zones:** those drawn on the [Zones page](#zones);
+- **the latest frame** (the doorstep check, the Zones page): its own perception's newest
+  frame;
+- **snapshots** (notifications, who came for a package): each person's best picture, the
+  frame where the detector was surest of them;
+- **pictures on the Visits page and frames for the delivery guess:** its own
+  [recordings](#recordings), when `RECORDING` is on.
+
+If `FRIGATE_API` is set, Frigate still stands in for zones not drawn on the Zones page and
+for the pictures of visits from before the switch; set it empty when there's no Frigate.
+
+**How it compares on the rig.** Detections from 65 porch visits over two days were
+replayed through own perception and Gatekeeper's own visit logic, then compared with what
+Gatekeeper did with Frigate's events. 45 of 50 were greeted (or not) the same. Of the
+other 5:
+- 2 were the household, recognized by face (not part of the replay).
+- 2 were the household going out and coming back in, which own perception's tracks
+  caught and Frigate's didn't.
+- 1 was a courier who came 235 s after someone left by the door, so they were taken for
+  them coming back.
 
 ## Recordings
 

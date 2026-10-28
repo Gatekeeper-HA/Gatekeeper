@@ -261,6 +261,15 @@ class Recorder:
 
 
 def snapshot(clip: Path, at: float, picture: Path) -> bool:
+    """The clip's frame at ``at`` seconds into it, kept as ``picture``."""
+    data = clip_frame(clip, at)
+    if data is None:
+        return False
+    picture.write_bytes(data)
+    return True
+
+
+def clip_frame(clip: Path, at: float) -> bytes | None:
     """The clip's frame at ``at`` seconds into it, as a full-resolution JPEG."""
     import av
 
@@ -272,8 +281,7 @@ def snapshot(clip: Path, at: float, picture: Path) -> bool:
             c.seek(max(0, int((at - 0.1) / v.time_base)), stream=v, backward=True)
             for frame in c.decode(v):
                 if frame.pts is not None and float(frame.pts * v.time_base) >= at:
-                    picture.write_bytes(jpeg_bytes(frame.to_ndarray(format="bgr24")))
-                    return True
+                    return jpeg_bytes(frame.to_ndarray(format="bgr24"))
     except Exception as e:
         log.warning("couldn't take a picture from %s: %s", clip.name, e)
-    return False
+    return None

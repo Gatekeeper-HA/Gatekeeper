@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Own perception starts the visits** (`PERCEPTION=own`, `frigate` by default). Frigate
+  isn't needed. Person events, zones, the latest frame and snapshots come from
+  Gatekeeper's own perception. The Visits page's pictures and the delivery guess's frames
+  come from its own recordings. With `FRIGATE_API` set, Frigate only stands in for zones
+  not drawn and for older visits' pictures. Replayed on two days of the rig's porch
+  visits, 45 of 50 were greeted (or not) as with Frigate. The rest were the household:
+  recognized by face (not replayed), or going out and back in.
 - **Recordings** (`RECORDING=1`, off by default; needs `OWN_PERCEPTION`). Gatekeeper keeps
   its own clips of the door: from 3 s before its own perception sees someone until 2 s
   after they've gone. The high-resolution stream goes in as it came (not re-encoded) with
