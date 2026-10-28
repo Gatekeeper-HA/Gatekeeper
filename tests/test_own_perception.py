@@ -70,6 +70,34 @@ def test_nms_keeps_the_best_of_overlapping_boxes():
     assert own.nms(boxes, np.array([0.5, 0.9, 0.4]), 0.5) == [1, 2]
 
 
+def test_part_of_a_bigger_box_isnt_another_person():
+    boxes = np.array(
+        [
+            [0.58, 0.55, 0.96, 0.99],  # bending over a bag at the door
+            [0.57, 0.66, 0.77, 1.0],  # their upper body: 0.85 inside, but it scores higher
+            [0.1, 0.2, 0.3, 0.9],  # someone else
+            [0.25, 0.3, 0.45, 0.9],  # beside them, overlapping a little
+        ]
+    )
+    assert own.without_parts(boxes, [1, 0, 2, 3]) == [0, 2, 3]
+    assert own.without_parts(boxes, [1]) == [1]
+    same = np.array([[0.1, 0.1, 0.2, 0.2], [0.1, 0.1, 0.2, 0.2]])
+    assert own.without_parts(same, [0, 1]) == [0, 1]  # neither is bigger
+
+
+def test_decode_drops_part_of_someone():
+    grid_xy, stride = own.grid(416)
+    i = 52 * 52 + 8 * 26 + 10  # stride 16, cell (10, 8): centre (168, 136) at 416
+    out = raw(
+        {
+            i: (0.5, 0.5, np.log(4), np.log(8), 0.9, 0, 0.8),  # 64 x 128 px
+            17 * 52 + 21: (0.0, 0.0, np.log(2), np.log(2), 0.9, 0, 0.9),  # 16 x 16 px inside it
+        }
+    )
+    found = own.decode(out, grid_xy, stride, 0.65, 640, 480, 0.25)
+    assert [round(d.score, 2) for d in found] == [0.72]
+
+
 def test_fit_is_the_size_before_padding():
     class Fake(own.Yolox):
         def __init__(self):
@@ -183,6 +211,17 @@ def test_someone_walking_fast_stays_one_track():
     # Each frame the box moves by its width: no overlap, but well within half its height.
     events = walk(tracker, [person(0.1 + 0.1 * n, 0.2, 0.2 + 0.1 * n, 0.8) for n in range(4)])
     assert [e.type for e in events] == ["new", "update", "update"]
+    assert len(tracker.tracks) == 1
+
+
+def test_someone_coming_out_from_behind_a_pillar_stays_one_track():
+    # Their head over the pillar, then nothing for a few frames, then all of them: lower
+    # and bigger, too far for half the small box's height.
+    tracker = Tracker("front_door")
+    head = [person(0.45, 0.54, 0.5, 0.61) for _ in range(4)]
+    whole = [person(0.48, 0.56, 0.53, 0.79) for _ in range(4)]
+    events = walk(tracker, head + [None] * 3 + whole)
+    assert [e.type for e in events] == ["new", "update"]
     assert len(tracker.tracks) == 1
 
 

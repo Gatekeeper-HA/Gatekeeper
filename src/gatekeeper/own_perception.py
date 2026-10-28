@@ -38,6 +38,12 @@ YOLOX_TINY = (
     "427cc366d34e27ff7a03e2899b5e3671425c262ea2291f88bb942bc1cc70b0f7",
 )
 NMS_IOU = 0.5
+# A box this much inside a bigger one is part of that person, not someone else: the
+# detector finds the upper body of someone bending over, at the edge of the frame or half
+# behind a pillar, as well as all of them. On the rig's porch visits, without this, one
+# person was often two tracks (and their track broke when the whole of them came into
+# view).
+PART_OF = 0.8
 # On an NVIDIA GPU: a cheap first choice of convolution algorithms (the exhaustive search
 # takes seconds at startup for a model this small), and a cap on the memory it takes from
 # Frigate and Whisper.
@@ -143,7 +149,8 @@ def decode(
     h: int,
     threshold: float,
 ) -> list[Detection]:
-    """YOLOX's raw rows (cx, cy, w, h, objectness, 80 class scores) as people, after NMS."""
+    """YOLOX's raw rows (cx, cy, w, h, objectness, 80 class scores) as people, after NMS,
+    without the boxes that are part of a bigger one."""
     scores = out[:, 4] * out[:, 5]  # objectness x person (COCO class 0)
     keep = np.nonzero(scores >= threshold)[0]
     if not len(keep):
@@ -152,9 +159,10 @@ def decode(
     wh = np.exp(out[keep, 2:4]) * stride[keep]
     boxes = np.concatenate([xy - wh / 2, xy + wh / 2], 1) / r / np.array([w, h, w, h])
     boxes = boxes.clip(0, 1)
+    kept = nms(boxes, scores[keep], NMS_IOU)
     return [
         Detection(tuple(float(v) for v in boxes[i]), float(scores[keep][i]))
-        for i in nms(boxes, scores[keep], NMS_IOU)
+        for i in without_parts(boxes, kept)
     ]
 
 
@@ -184,6 +192,22 @@ def nms(boxes: np.ndarray, scores: np.ndarray, threshold: float) -> list[int]:
             overlap = iou(boxes[[i]], boxes[order])[0]
             order = [j for j, o in zip(order, overlap, strict=True) if o < threshold]
     return kept
+
+
+def without_parts(boxes: np.ndarray, kept: list[int], share: float = PART_OF) -> list[int]:
+    """``kept`` without the boxes that lie ``share`` or more inside a bigger box of them
+    (whatever their scores: the upper body can score higher than the whole person)."""
+    if len(kept) < 2:
+        return kept
+    b = boxes[kept]
+    x0 = np.maximum(b[:, None, 0], b[None, :, 0])
+    y0 = np.maximum(b[:, None, 1], b[None, :, 1])
+    x1 = np.minimum(b[:, None, 2], b[None, :, 2])
+    y1 = np.minimum(b[:, None, 3], b[None, :, 3])
+    inter = np.clip(x1 - x0, 0, None) * np.clip(y1 - y0, 0, None)  # [i, j]: i's and j's
+    area = (b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1])
+    part = (inter >= share * area[:, None]) & (area[None, :] > area[:, None])
+    return [i for i, inside_bigger in zip(kept, part.any(axis=1), strict=True) if not inside_bigger]
 
 
 class Motion:
@@ -299,14 +323,15 @@ class Tracker:
     def _match(self, detections: list[Detection]) -> list[tuple[int, int]]:
         """(track, detection) pairs: by overlap first; then, for someone who moved more
         than their box between two frames (walking fast, a few frames a second), the
-        nearest detection within half their height."""
+        nearest detection within half their height, or the detection's if it's bigger:
+        coming out from behind a pillar, they reappear whole, lower and bigger."""
         if not self.tracks or not detections:
             return []
         tracks = np.array([t.box for t in self.tracks])
         boxes = np.array([d.box for d in detections])
         overlap = iou(tracks, boxes)
         distance = np.linalg.norm(centres(tracks)[:, None] - centres(boxes)[None], axis=2)
-        reach = (tracks[:, 3] - tracks[:, 1])[:, None] / 2
+        reach = np.maximum((tracks[:, 3] - tracks[:, 1])[:, None], (boxes[:, 3] - boxes[:, 1])) / 2
         pairs: list[tuple[int, int]] = []
         for cost, ok in ((-overlap, overlap >= self.min_iou), (distance, distance < reach)):
             for i, j in sorted(zip(*np.nonzero(ok), strict=True), key=lambda ij: cost[ij]):
