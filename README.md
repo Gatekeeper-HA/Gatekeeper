@@ -614,8 +614,10 @@ newest frame, so a slow CPU skips frames and never falls behind. A few times a s
 cheap motion check looks at the frame. Only if something moved, or someone is being
 tracked, does the frame go to the person detector: YOLOX-tiny (Apache-2.0, 20 MB,
 downloaded once and checked). On the rig's footage it was as good as Frigate's YOLOv9.
-Detections become tracks, and each track walks through Gatekeeper's zones, outlined in
-Frigate's config for now. When a track ends, the log says so:
+A box that lies mostly inside a bigger one is part of that person (the upper body of
+someone bending over, at the edge of the picture or half behind a pillar), not someone
+else. Detections become tracks, and each track walks through Gatekeeper's
+[zones](#zones). When a track ends, the log says so:
 
 ```
 own perception: person track 1800000000.123456-own3 start=1800000000.1 end=1800000019.4 zones=porch,door path=(0.31,0.62)->(0.86,0.97) best=0.88 hits=41

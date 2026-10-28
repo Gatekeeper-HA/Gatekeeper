@@ -181,6 +181,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **Own perception: one track per person.** The detector also finds part of someone
+  (the upper body of someone bending over, at the edge of the picture, or half behind a
+  pillar) as well as all of them, and the tracker made that a second person. A box
+  mostly inside a bigger one is now dropped. Someone coming out from behind a pillar,
+  lower and bigger, stays the same track. Replayed on 65 porch visits from the rig: 82
+  tracks instead of 104, and 2 visits (not 14) where it saw more people at once than
+  Frigate. No porch arrival was lost, and it never saw fewer people than Frigate.
 - **A clean stop.** Gatekeeper now handles SIGTERM. As the container's PID 1, Python
   ignored it, so every `docker stop` (each deploy, each add-on restart) waited 10 s and
   then killed Gatekeeper. It now logs `Gatekeeper stopping` and exits in about a second,
