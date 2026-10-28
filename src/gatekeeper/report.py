@@ -137,6 +137,12 @@ MQTT_DISCONNECTED = re.compile(r"^disconnected from MQTT")
 # how much it looked.
 OWN_ON = re.compile(r"^own perception on \(shadow\)")
 OWN_READING = re.compile(r"^own perception reading ")
+# recording.py's lines: recording on, each clip written, and each that failed.
+RECORDING_ON = re.compile(r"^recording clips to ")
+RECORDED = re.compile(
+    r"^recorded \S+: (?P<seconds>\d+) s, (?P<people>\d+) person\(s\), (?P<mb>[\d.]+) MB"
+)
+RECORDING_FAILED = re.compile(r"^recording failed")
 OWN_TRACK = re.compile(
     r"own perception: person track (?P<id>\S+) start=(?P<start>[\d.]+) end=(?P<end>[\d.]+) "
     r"zones=(?P<zones>\S+)"
@@ -374,6 +380,34 @@ def doorbell_info(lines: list[str]) -> dict | None:
             {"at": local(x["at"]), "why": x["why"], "back_minutes": x["back_minutes"]}
             for x in stops
         ],
+    }
+
+
+def recording_info(lines: list[str]) -> dict | None:
+    """Gatekeeper's own clips (recording.py) in the window: how many, how long, how big,
+    and those that failed. None when it logged nothing (off)."""
+    on = clips = seconds = people = failed = 0
+    mb = 0.0
+    for line in lines:
+        m = GATEKEEPER_LINE.match(line)
+        message = m["message"] if m else line
+        if RECORDING_ON.match(message):
+            on += 1
+        elif r := RECORDED.match(message):
+            clips += 1
+            seconds += int(r["seconds"])
+            people += int(r["people"])
+            mb += float(r["mb"])
+        elif RECORDING_FAILED.match(message):
+            failed += 1
+    if not (on or clips or failed):
+        return None
+    return {
+        "clips": clips,
+        "minutes": round(seconds / 60, 1),
+        "people": people,
+        "mb": round(mb),
+        "failed": failed,
     }
 
 
@@ -1012,6 +1046,9 @@ def build(i: Inputs) -> dict:
         )
     if i.own_perception != "off":
         check("own_perception", own is not None, "own perception is on but logged nothing")
+    recording = recording_info(sources.get("gatekeeper", []))
+    if recording:
+        check("recording", not recording["failed"], f"{recording['failed']} recording(s) failed")
     failed_deploys = [d for d in deploys if d.get("result") not in ("deployed", "moved")]
     check("deploys", not failed_deploys, f"{len(failed_deploys)} failed deploy(s)")
 
@@ -1077,6 +1114,7 @@ def build(i: Inputs) -> dict:
         ),
         "frigate": frigate,
         "own_perception": own,
+        "recording": recording,
         "delivery_guess": i.delivery_guess,
         "knocks": None
         if i.knocks is None
@@ -1192,6 +1230,12 @@ def summary_lines(report: dict) -> list[str]:
                     else ""
                 )
             )
+    if rec := report.get("recording"):
+        lines.append(
+            f"Recording: {rec['clips']} clip(s), {rec['minutes']:g} min, {rec['mb']} MB, "
+            f"{rec['people']} person(s) pictured"
+            + (f"; {rec['failed']} failed" if rec["failed"] else "")
+        )
     if (kn := report.get("knocks")) is not None:
         lines.append(
             f"Knocks heard (shadow): {kn['heard']}"

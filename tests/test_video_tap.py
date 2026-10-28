@@ -163,3 +163,26 @@ def test_reading_keeps_the_stream_packets_and_closes_the_connection():
     tap._read_once()
     assert [p.data.n for p in tap._packets] == [0, 1]
     assert tap._serial == 1 and tap._stream == "video stream" and container.closed
+
+
+def test_packets_come_as_they_came_from_the_keyframe_before_since():
+    clock = Clock()
+    tap = tap_with(clock, 200)  # 10 s: keyframes at packets 80, 120, 160 still kept
+    tap._stream = "stream 1"
+    got = []
+    for p, stream in tap.packets(clock.t - 2.5, stop=lambda: len(got) >= 50):
+        got.append((p.data.n, p.keyframe, stream))
+    assert got[0] == (120, True, "stream 1") and [n for n, _, _ in got] == list(range(120, 170))
+
+
+def test_packets_end_when_the_stream_reconnects():
+    clock = Clock()
+    tap = tap_with(clock, 60)
+    got = []
+    for p, _stream in tap.packets(0.0, stop=lambda: False):
+        got.append(p.data.n)
+        if len(got) == 3:
+            tap._serial += 1  # what _read_once does on a new connection
+    # Those already taken from the old connection, then it ends (the new one's
+    # timestamps start over).
+    assert got == list(range(60))

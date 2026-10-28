@@ -239,6 +239,7 @@ class Track:
     hits: int = 1
     confirmed: bool = False
     best: float = 0.0  # best detection score
+    best_at: float = 0.0  # when it was (a recording's picture of them is from then)
     path: list[Point] = field(default_factory=list)
     entered: list[str] = field(default_factory=list)  # zones, in the order entered
     current: tuple[str, ...] = ()
@@ -294,7 +295,9 @@ class Tracker:
         for j in sorted(unmatched):
             self._n += 1
             d = detections[j]
-            track = Track(f"{now:.6f}-own{self._n}", d.box, now, now, best=d.score, path=[d.foot])
+            track = Track(
+                f"{now:.6f}-own{self._n}", d.box, now, now, best=d.score, best_at=now, path=[d.foot]
+            )
             self._zone(track, now)
             self.tracks.append(track)
             if self.min_hits <= 1:
@@ -341,7 +344,8 @@ class Tracker:
 
     def _extend(self, track: Track, d: Detection, now: float) -> list[PersonEvent]:
         track.box, track.last, track.hits = d.box, now, track.hits + 1
-        track.best = max(track.best, d.score)
+        if d.score > track.best:
+            track.best, track.best_at = d.score, now
         moved = abs(d.foot[0] - track.path[-1][0]) + abs(d.foot[1] - track.path[-1][1])
         if moved >= self.min_move:
             track.path.append(d.foot)

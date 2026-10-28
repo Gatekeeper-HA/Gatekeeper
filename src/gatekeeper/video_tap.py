@@ -176,6 +176,34 @@ class VideoTap:
                 if stop():
                     return
 
+    def packets(self, since: float, stop: Callable[[], bool]) -> Iterator[tuple[_Packet, Any]]:
+        """The packets as they came, each with the stream it's from: from the keyframe at
+        or before ``since`` (the oldest kept, if none), then live until ``stop()``. It ends
+        early if the stream reconnects (its timestamps start over) or it fell more than the
+        buffer behind."""
+        serial, seq, stream = None, 0, None
+        while not stop():
+            with self._cond:
+                if serial is None:
+                    start = self._start(since)
+                    if start is None:
+                        self._cond.wait(WAIT_SECONDS)
+                        continue
+                    serial, seq, stream = self._serial, start.seq, self._stream
+                elif serial != self._serial:
+                    return
+                pending = [p for p in self._packets if p.seq >= seq]
+                if pending and pending[0].seq > seq:
+                    return
+                if not pending:
+                    self._cond.wait(WAIT_SECONDS)
+                    continue
+                seq = pending[-1].seq + 1
+            for p in pending:
+                yield p, stream
+                if stop():
+                    return
+
     def _start(self, since: float) -> _Packet | None:
         """The keyframe to decode from: the last at or before ``since``, else the first."""
         keys = [p for p in self._packets if p.keyframe]

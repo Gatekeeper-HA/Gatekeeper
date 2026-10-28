@@ -35,6 +35,7 @@ doorbell = [
 ]
 dev = [
     "numpy",  # the audio tap and VAD work on numpy arrays; cheap, unlike torch
+    "av",  # PyAV: the recording tests write and read real clips
     "pytest>=8",
     "pyyaml",  # tests compare the Frigate configs
     "pytest-cov>=5",

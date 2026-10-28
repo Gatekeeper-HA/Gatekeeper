@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Recordings** (`RECORDING=1`, off by default; needs `OWN_PERCEPTION`). Gatekeeper keeps
+  its own clips of the door: from 3 s before its own perception sees someone until 2 s
+  after they've gone. The high-resolution stream goes in as it came (not re-encoded) with
+  the doorbell's microphone, and each person gets a full-resolution picture. Kept in
+  `CLIP_DIR`, a folder a day, for `CLIP_RETENTION_DAYS` (7). The daily report counts
+  them. Our hub needs this to do without Frigate.
 - **Zones page** (`http://<SERVER_IP>:8098/zones/`). The camera's picture with the zones
   Gatekeeper uses drawn on it (where visitors are greeted, the front door, the doorstep):
   pick one and click its corners, or type the points. They're kept in `zones.json` and

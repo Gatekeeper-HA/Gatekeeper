@@ -139,6 +139,9 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `OWN_PERCEPTION_THRESHOLD` | `0.3` | The detector's score (0–1) that counts as a person |
 | `OWN_PERCEPTION_THREADS` | `2` | CPU threads for the detector |
 | `OWN_PERCEPTION_DEVICE` | `auto` | `auto`: the detector runs on an NVIDIA GPU when the image has CUDA ([GPU](#gpu-nvidia)) and it works, else on the CPU. `cuda` logs a warning when it falls back. The GPU override sets `cuda` |
+| `RECORDING` | `false` | Gatekeeper's own clips while someone's at the door, from `FACE_RTSP_URL` and the microphone: [recordings](#recordings). Needs `OWN_PERCEPTION`; the compose stack reads it from `.env` |
+| `CLIP_DIR` | `/clips` | Where the clips are kept, a folder a day |
+| `CLIP_RETENTION_DAYS` | `7` | Days clips are kept (0 = forever) |
 | `DELIVERY_GUESS` | `false` | Gatekeeper's guess at each greeted visitor, a delivery or not: [delivery guess](#delivery-guess-shadow). Shadow only; the compose stack reads it from `.env` |
 | `KNOCK_LISTENER` | `off` | `shadow`: Gatekeeper listens for knocks at the door and logs them: [knocks](#knocks-shadow). Needs the audio tap and an NVIDIA GPU to be quick. The compose stack reads it from `.env` |
 | `KNOCK_THRESHOLD` | `0.5` | The sound classifier's *Knock* score (0–1) that counts as a knock |
@@ -503,6 +506,23 @@ perception, the household-at-the-door check and the doorstep check use these sha
 Which of Frigate's events start a visit is still decided by Frigate's own zones, so keep
 the two alike while Frigate starts the visits.
 
+## Recordings
+
+With `RECORDING=1` (and `OWN_PERCEPTION=shadow`), Gatekeeper keeps its own clips of the
+door: one each time its own perception sees someone, from 3 seconds before they appeared
+until 2 seconds after the last of them has gone (5 minutes at most). The camera's
+high-resolution stream goes into the clip as it came, so nothing is re-encoded (a few
+percent of a core); the doorbell's microphone is added as AAC. Each person seen also gets
+a full-resolution picture, the frame where the detector was surest of them. It's how our
+hub will keep recordings without Frigate.
+
+Clips are kept in `CLIP_DIR` (`gatekeeper/clips/` under `DATA_DIR` in the compose stack),
+a folder a day: `<start>.mp4`, `<start>.json` (when, and each person's track, zones and
+picture) and `<start>-<n>.jpg`. From the Reolink that's about 4 Mbit/s, so a 30-second
+visit is about 16 MB. They're deleted after `CLIP_RETENTION_DAYS` (7). Clips hold
+visitors' faces and voices: keep them only as long as you need. The daily report counts
+the day's clips, their minutes and size, and any that failed.
+
 ## Household faces
 
 With `FACE_RECOGNITION` on, Gatekeeper recognizes the people you enroll. When one of them
@@ -721,6 +741,7 @@ its own ~2.4 s before it's heard.
 | `gatekeeper/audio/out/` | Synthesized TTS files |
 | `gatekeeper/logs/events.jsonl` | Today's visit log (JSON Lines); earlier days are rotated to `events-YYYY-MM-DD.jsonl` |
 | `gatekeeper/logs/zones.json` | The [zones](#zones) drawn on the Zones page |
+| `gatekeeper/clips/` | Gatekeeper's own [recordings](#recordings), a folder a day |
 | `gatekeeper/cache/` | Kokoro, Whisper and face model cache |
 | `gatekeeper/faces/` | [Household faces](#household-faces): enrolled people and faces kept for enrollment (mode 600) |
 | `frigate/config/` | Frigate database, model cache and secrets (`config.yml` comes from the repo) |
