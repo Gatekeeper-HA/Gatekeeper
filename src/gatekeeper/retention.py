@@ -63,6 +63,14 @@ class Retention:
                 now,
             ),
         }
+        # Gatekeeper's own recordings: clips, their index and pictures, by day.
+        removed["clips"] = purge(s.clip_dir.glob("*/*"), s.clip_retention_days, now)
+        for day in s.clip_dir.glob("*"):
+            try:
+                if day.is_dir() and not any(day.iterdir()):
+                    day.rmdir()
+            except OSError:
+                pass
         if any(removed.values()):
             log.info("retention: removed %s", removed)
         return removed

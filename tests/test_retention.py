@@ -29,7 +29,9 @@ def test_removes_old_audio_and_logs_but_keeps_presynth(settings):
     new_photo = touch(settings.snapshot_dir / "e2-warrant-1.jpg", 1)
     removed = Retention(settings, clock=lambda: NOW).run_once()
 
-    assert removed == {"audio_in": 1, "snapshots": 1, "audio_out": 1, "event_logs": 2}
+    assert removed == {
+        "audio_in": 1, "snapshots": 1, "audio_out": 1, "event_logs": 2, "clips": 0,
+    }  # fmt: skip
     assert not old_photo.exists() and new_photo.exists()
     assert not old_in.exists() and not old_reply.exists() and not old_log.exists()
     assert not old_notifications.exists()
@@ -42,9 +44,20 @@ def test_zero_days_keeps_everything(settings):
     old = touch(settings.in_dir / "old.wav", 1000)
     old_log = touch(settings.log_dir / "events-2020-01-01.jsonl", 1000)
     assert Retention(settings, clock=lambda: NOW).run_once() == {
-        "audio_in": 0, "snapshots": 0, "audio_out": 0, "event_logs": 0,
+        "audio_in": 0, "snapshots": 0, "audio_out": 0, "event_logs": 0, "clips": 0,
     }  # fmt: skip
     assert old.exists() and old_log.exists()
+
+
+def test_old_clips_go_and_their_day_with_them(settings):
+    old_day, new_day = settings.clip_dir / "2026-10-01", settings.clip_dir / "2026-10-27"
+    for d in (old_day, new_day):
+        d.mkdir(parents=True)
+    old = [touch(old_day / name, 8) for name in ("1.mp4", "1.json", "1-1.jpg")]
+    new = touch(new_day / "2.mp4", 1)
+    assert Retention(settings, clock=lambda: NOW).run_once()["clips"] == 3
+    assert not any(p.exists() for p in old) and not old_day.exists()
+    assert new.exists()
 
 
 def test_event_log_rotates_daily(tmp_path):

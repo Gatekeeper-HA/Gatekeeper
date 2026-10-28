@@ -196,6 +196,13 @@ class Settings(BaseSettings):
     own_perception_fps: float = 5.0
     # The detector's score (0-1) for a person.
     own_perception_threshold: float = 0.3
+    # Gatekeeper's own recordings (recording.py): a clip (MP4) while own perception sees
+    # someone, from the high-resolution stream (face_rtsp_url) as it came and the
+    # microphone, and a picture of each person. Needs own_perception.
+    recording: bool = False
+    clip_dir: Path = Path("/clips")
+    # Days clips are kept (0 = forever). They hold visitors' faces and voices.
+    clip_retention_days: float = 7.0
     own_perception_threads: int = 2
     # "auto": an NVIDIA GPU if onnxruntime has CUDA (the GPU image) and it works, else
     # the CPU.

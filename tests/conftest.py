@@ -30,6 +30,7 @@ def settings(tmp_path: Path) -> Settings:
     s = Settings(
         audio_dir=tmp_path / "audio",
         log_dir=tmp_path / "logs",
+        clip_dir=tmp_path / "clips",
         greeting="Hello. This property is monitored. Please state the purpose of your visit.",
         reply_no_answer="Please state your purpose or leave the property.",
     )

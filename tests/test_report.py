@@ -1264,3 +1264,18 @@ def test_send_offs_are_counted():
     assert "Walked away after the greeting: 1 (a send-off, not the no-answer line)" in render_text(
         r
     )
+
+
+def test_gatekeepers_own_clips_are_reported():
+    log = own_log(
+        (NOW - 9000, "app", "recording clips to /clips"),
+        (NOW - 5000, "recording", "recording 1800000000.100.mp4"),
+        (NOW - 4980, "recording", "recorded 1800000000.100.mp4: 20 s, 1 person(s), 10.5 MB"),
+        (NOW - 3000, "recording", "recorded 1800002000.100.mp4: 70 s, 2 person(s), 36.0 MB"),
+        (NOW - 1000, "recording", "recording failed"),
+    )
+    r = build(inputs(log_text=log))
+    assert r["recording"] == {"clips": 2, "minutes": 1.5, "people": 3, "mb": 46, "failed": 1}
+    assert failing(r)["recording"] == "1 recording(s) failed"
+    assert "Recording: 2 clip(s), 1.5 min, 46 MB, 3 person(s) pictured; 1 failed" in render_text(r)
+    assert build(inputs())["recording"] is None

@@ -194,6 +194,10 @@ services:
       DELIVERY_GUESS: "${DELIVERY_GUESS:-0}"
       # Hearing knocks at the door, in shadow: off unless KNOCK_LISTENER=shadow in .env.
       KNOCK_LISTENER: "${KNOCK_LISTENER:-off}"
+      # Gatekeeper's own clips while someone's at the door (needs OWN_PERCEPTION): off
+      # unless RECORDING=1 in .env. About 4 Mbit/s from the Reolink, kept 7 days.
+      RECORDING: "${RECORDING:-0}"
+      CLIP_DIR: "/clips"
       LISTEN_SECONDS: "4"
       WHISPER_MODEL: "base.en"
       WHISPER_COMPUTE_TYPE: "int8"
@@ -208,6 +212,7 @@ services:
       - ${DATA_DIR:-./data}/gatekeeper/logs:/logs
       - ${DATA_DIR:-./data}/gatekeeper/cache:/root/.cache
       - ${DATA_DIR:-./data}/gatekeeper/faces:/faces
+      - ${DATA_DIR:-./data}/gatekeeper/clips:/clips
 
 networks:
   surveil:

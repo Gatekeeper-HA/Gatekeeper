@@ -158,14 +158,12 @@ def start_packages(
     start_thread("packages", watcher.run_forever)
 
 
-def start_faces(settings: Settings, tracker):
-    """Face recognition (face_watch.py): the video tap and the watcher, each on its own
-    thread. The models download on first use. Returns the watcher."""
+def start_faces(settings: Settings, tracker, tap):
+    """Face recognition (face_watch.py) on the video tap, on its own thread. The models
+    download on first use. Returns the watcher."""
     from gatekeeper import faces
     from gatekeeper.face_watch import FaceWatcher
-    from gatekeeper.video_tap import VideoTap
 
-    tap = VideoTap(settings.face_rtsp_url)
     watcher = FaceWatcher(
         tap,
         detector=None,
@@ -197,7 +195,6 @@ def start_faces(settings: Settings, tracker):
                 time.sleep(delay)
                 delay = min(delay * 2, 600.0)
         log.info("face recognition on: %d people enrolled", len(watcher.gallery.names))
-        start_thread("video-tap", tap.run_forever)
         watcher.run_forever()
 
     start_thread("face-watch", run)
@@ -320,19 +317,31 @@ def used_zones(settings: Settings) -> dict[str, str]:
     return purposes
 
 
-def start_own_perception(settings: Settings, zones: Zones):
+def start_own_perception(settings: Settings, zones: Zones, recorder=None):
     """Our own perception in shadow mode (own_perception.py): it logs each person track,
-    with the zones it walked through, next to Frigate's events. The zones are those
-    Gatekeeper uses (zones.py: drawn on the Zones page, else Frigate's). The model
-    downloads on first use. Returns the OwnPerception."""
+    with the zones it walked through, next to Frigate's events, and tells ``recorder``
+    (recording.py) who's there. The zones are those Gatekeeper uses (zones.py: drawn on
+    the Zones page, else Frigate's). The model downloads on first use. Returns the
+    OwnPerception."""
     from gatekeeper import own_perception as own
 
     shapes = {name: zones.zone(name) for name in used_zones(settings)}
     tracker = own.Tracker(
         settings.camera_name, lambda: {name: zone.polygon for name, zone in shapes.items()}
     )
+
+    def on_track(track) -> None:
+        log.info(own.summary(track))
+        if recorder is not None:
+            recorder.on_track(track)
+
     service = own.OwnPerception(
-        settings.own_perception_url, None, tracker, fps=settings.own_perception_fps
+        settings.own_perception_url,
+        None,
+        tracker,
+        fps=settings.own_perception_fps,
+        on_event=recorder.on_event if recorder is not None else lambda event: None,
+        on_track=on_track,
     )
 
     def run() -> None:
@@ -560,8 +569,15 @@ def main() -> None:
         on_recognized=interaction.recognized,
         run_visit=run_visit,
     )
+    # The high-resolution stream, kept a few seconds back, for faces and recordings.
+    video = None
+    if settings.face_recognition or settings.recording:
+        from gatekeeper.video_tap import VideoTap
+
+        video = VideoTap(settings.face_rtsp_url)
+        start_thread("video-tap", video.run_forever)
     if settings.face_recognition:
-        watcher = start_faces(settings, tracker)
+        watcher = start_faces(settings, tracker, video)
     if settings.web_password.get_secret_value():
         from gatekeeper import web
 
@@ -597,8 +613,19 @@ def main() -> None:
     )
     if settings.package_zone:
         start_packages(settings, perception, tracker, notifier, interaction, publisher, zones)
+    recorder = None
+    if settings.recording and settings.own_perception == "off":
+        log.warning("RECORDING needs OWN_PERCEPTION (it starts the clips); not recording")
+    elif settings.recording:
+        from gatekeeper.recording import Recorder
+
+        recorder = Recorder(video, tap, settings.clip_dir, settings.camera_name)
+        start_thread("recording", recorder.run_forever)
+        log.info("recording clips to %s", settings.clip_dir)
     if settings.own_perception == "shadow":
-        on_stop.append(start_own_perception(settings, zones).stop)
+        on_stop.append(start_own_perception(settings, zones, recorder).stop)
+    if recorder is not None:
+        on_stop.append(recorder.stop)  # after own perception: its last tracks go in
     if settings.knock_listener == "shadow":
         if tap is None:
             log.warning("KNOCK_LISTENER needs the audio tap (AUDIO_TAP); not listening")
