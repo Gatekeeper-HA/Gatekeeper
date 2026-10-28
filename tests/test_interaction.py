@@ -39,6 +39,8 @@ class FakeSession:
         loop = asyncio.get_running_loop()
         seconds = wav_duration(wav)
         started, sent = loop.create_future(), loop.create_future()
+        if wav.name in rig.stalls:
+            return Playback(seconds, started, sent)  # the speaker stopped taking audio
         started.set_result(rig.now)
         done_at = rig.now + seconds + rig.lag
         if rig.sent_delay is None:
@@ -128,6 +130,7 @@ class Rig:
         tap_up_until=math.inf,
         lag=0.0,
         sent_delay=None,
+        stalls=(),
         wav_seconds=WAV_SECONDS,
         present=None,
         leaving=None,
@@ -138,7 +141,7 @@ class Rig:
         self.calls: list = []
         self.sleeps: list[float] = []
         self.now = T0
-        self.lag, self.sent_delay = lag, sent_delay
+        self.lag, self.sent_delay, self.stalls = lag, sent_delay, set(stalls)
         self.connects = 0
         self.connect_fails = set(connect_fails)
         self.synth = FakeSynth()
@@ -459,6 +462,42 @@ def test_tap_ends_the_turn_when_the_visitor_stops_talking(settings):
     # Measured from the end of speech, so it includes the 0.8 s of silence. (No upper
     # bound: the fake clock runs on while the transcription thread finishes.)
     assert record["reply_latency"] >= 0.8
+
+
+def test_a_reply_that_never_starts_playing_ends_the_visit(settings, monkeypatch):
+    # The doorbell's speaker stopped taking audio after the greeting: the visit once
+    # waited for the reply until its 3-minute timeout.
+    from gatekeeper import interaction
+
+    monkeypatch.setattr(interaction, "TALKBACK_START_SECONDS", 0.05)
+    rig = Rig(
+        settings, speech=[(ECHO_END + 0.1, ECHO_END + 1.5)], stalls={"_presynth_delivery.wav"}
+    )
+    notified = []
+    rig.interaction._on_notify = [lambda visit: notified.append(visit.classification)]
+    started = time.monotonic()
+    visit = rig.interaction.run(EID)
+    assert time.monotonic() - started < 3
+    assert visit.outcome == "reply_failed"
+    assert notified == ["likely_delivery"]
+    assert rig.calls[-1] == ("close", 1)
+    (record,) = rig.log_records()
+    assert (record["outcome"], record["transcript"]) == (
+        "reply_failed",
+        "I have a package for you",
+    )
+    assert record["response"] == settings.reply_delivery
+
+
+def test_a_greeting_that_never_starts_playing_ends_the_visit(settings, monkeypatch):
+    from gatekeeper import interaction
+
+    monkeypatch.setattr(interaction, "TALKBACK_START_SECONDS", 0.05)
+    rig = Rig(settings, speech=[], stalls={"_presynth_greeting.wav"})
+    visit = rig.interaction.run(EID)
+    assert visit.outcome == "talkback_failed"
+    assert not any(c[0] == "slice" for c in rig.calls)
+    assert rig.calls[-1] == ("close", 1)
 
 
 def test_tap_silence_ends_at_the_no_input_deadline_and_asks_again(settings):

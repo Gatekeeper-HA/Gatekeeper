@@ -183,6 +183,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   picture, though it's part of that visit: it's now a note with no label. A visit that
   started with a press, before anyone was seen, shows the frame sent with its
   notification, now kept for the page (like other snapshots, `AUDIO_RETENTION_DAYS`).
+- **A visit no longer hangs when the doorbell's speaker stops taking audio** (#90). A
+  phrase that hasn't started playing 20 s after it was queued ends the visit, as
+  `reply_failed` (or `talkback_failed` if not even the greeting played), logged and
+  notified with what was heard, instead of waiting out the 3-minute visit timeout and
+  holding the speaker from the next visitor. On the rig, a visit sat silent that long
+  after the visitor had answered.
 - **A canvasser who already said who they are isn't asked again** (#78). When a civic
   visitor's first sentence gives their name and who they're with (*"My name is …, a
   volunteer with …"*), it's taken as who they are and Gatekeeper goes straight to their
