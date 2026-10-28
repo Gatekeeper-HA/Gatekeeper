@@ -283,6 +283,16 @@ class Tracker:
                 self.ended.append(track)
         return events
 
+    def end_all(self) -> list[PersonEvent]:
+        """End every track now (Gatekeeper is stopping); those confirmed are reported."""
+        events = []
+        for track in self.tracks:
+            if track.confirmed:
+                events.append(self._event("end", track))
+                self.ended.append(track)
+        self.tracks = []
+        return events
+
     def _max_age(self, track: Track) -> float:
         return self.max_age if track.confirmed else self.max_age_unconfirmed
 
@@ -382,6 +392,7 @@ class OwnPerception:
         self._motion = Motion()
         self._cond = threading.Condition()
         self._frame: tuple[float, Any] | None = None  # the newest (time, av.VideoFrame)
+        self._looking = threading.Lock()  # the tracker: one frame (or the stop) at a time
         self._stopping = False
         self.frames = self.detected = 0  # frames looked at; of those, through the detector
         self._detect_seconds: list[float] = []
@@ -392,9 +403,16 @@ class OwnPerception:
         start_thread("own-perception", self.look_forever)
 
     def stop(self) -> None:
+        """Stop, and report the tracks still open: someone at the door while Gatekeeper
+        restarts was still seen."""
         self._stopping = True
         with self._cond:
             self._cond.notify_all()
+        if self._looking.acquire(timeout=2.0):
+            try:
+                self._handle(self.tracker.end_all())
+            finally:
+                self._looking.release()
 
     # -- reading ---------------------------------------------------------------
 
@@ -459,15 +477,16 @@ class OwnPerception:
     def look(self, bgr: np.ndarray, now: float) -> list[PersonEvent]:
         """One frame: the motion check; the detector if something moved or someone is
         being tracked."""
-        self.frames += 1
-        moved = self._motion.update(bgr)
-        if not moved and not self.tracker.active:
-            return []
-        self.detected += 1
-        started = time.perf_counter()
-        found = self.detector.detect(bgr)
-        self._detect_seconds.append(time.perf_counter() - started)
-        return self._handle(self.tracker.update(found, now))
+        with self._looking:
+            self.frames += 1
+            moved = self._motion.update(bgr)
+            if not moved and not self.tracker.active:
+                return []
+            self.detected += 1
+            started = time.perf_counter()
+            found = self.detector.detect(bgr)
+            self._detect_seconds.append(time.perf_counter() - started)
+            return self._handle(self.tracker.update(found, now))
 
     def log_stats(self, now: float) -> None:
         """Every ``STATS_SECONDS``: how many frames it looked at, how many went through the
@@ -494,9 +513,10 @@ class OwnPerception:
     def end_stale(self) -> list[PersonEvent]:
         """End the tracks of people not seen for a while when no frames come (the
         stream dropped)."""
-        if not self.tracker.active:
-            return []
-        return self._handle(self.tracker.update([], self._clock()))
+        with self._looking:
+            if not self.tracker.active:
+                return []
+            return self._handle(self.tracker.update([], self._clock()))
 
     def _handle(self, events: list[PersonEvent]) -> list[PersonEvent]:
         for event in events:

@@ -130,11 +130,13 @@ DOORSTEP_SCORE = re.compile(r"doorstep change at .*: package score ([\d.]+) \(be
 PERSON_EVENT = re.compile(r"person event (?P<id>\S+) (?P<why>.+)$")
 # app.py's lines on when Gatekeeper starts and stops listening for Frigate's events.
 GATEKEEPER_STARTING = re.compile(r"^Gatekeeper \S+ starting: ")
+GATEKEEPER_STOPPING = re.compile(r"^Gatekeeper stopping ")
 MQTT_CONNECTED = re.compile(r"^connected to MQTT ")
 MQTT_DISCONNECTED = re.compile(r"^disconnected from MQTT")
 # own_perception.py's lines (shadow mode): each person track that ended, and every hour
 # how much it looked.
 OWN_ON = re.compile(r"^own perception on \(shadow\)")
+OWN_READING = re.compile(r"^own perception reading ")
 OWN_TRACK = re.compile(
     r"own perception: person track (?P<id>\S+) start=(?P<start>[\d.]+) end=(?P<end>[\d.]+) "
     r"zones=(?P<zones>\S+)"
@@ -149,6 +151,9 @@ BUTTON_LISTENING = re.compile(r"listening for button presses on .+ \(firmware (?
 BUTTON_STOPPED = re.compile(r"doorbell button listener stopped: (?P<why>.+)$")
 # A track and a Frigate event this close in time are the same person.
 OWN_SLACK_SECONDS = 5.0
+# A restart takes a few minutes (loading the models); a stream down for longer than this
+# after one is a miss, not the restart.
+RESTART_SECONDS = 600.0
 # How long after someone left by the door the next person to walk up is listed
 # (return_gaps): the data for tuning RETURN_WINDOW_SECONDS.
 RETURN_GAP_SECONDS = 30 * 60
@@ -209,19 +214,31 @@ def greeted(visit: dict) -> bool:
 
 
 def not_listening(lines: list[str]) -> list[tuple[float, float, str]]:
-    """When Gatekeeper wasn't listening for Frigate's events, from its log: from starting
-    up (or losing MQTT) to connecting to MQTT. A stretch still open at the end of the log
-    runs to the end of time."""
+    """When Gatekeeper wasn't listening for Frigate's events, from its log: from stopping
+    or starting up (or losing MQTT) to connecting to MQTT. A stretch still open at the end
+    of the log runs to the end of time."""
+    return down_while(lines, MQTT_CONNECTED, mqtt=True)
+
+
+def down_while(
+    lines: list[str], up: re.Pattern, mqtt: bool = False
+) -> list[tuple[float, float, str]]:
+    """Stretches from Gatekeeper stopping (or starting, when it didn't log stopping: it
+    was killed) to a line matching ``up``, with why; ``mqtt``: losing MQTT starts one too.
+    A stretch still open at the end of the log runs to the end of time."""
     gaps, began, why = [], None, ""
     for line in lines:
         if not (m := GATEKEEPER_LINE.match(line)):
             continue
         message = m["message"]
-        if GATEKEEPER_STARTING.match(message):
-            began, why = log_time(m["time"]), "not listening yet (Gatekeeper starting)"
-        elif MQTT_DISCONNECTED.match(message) and began is None:
+        if GATEKEEPER_STOPPING.match(message):
+            began, why = log_time(m["time"]), "not listening (Gatekeeper restarting)"
+        elif GATEKEEPER_STARTING.match(message):
+            if began is None or why != "not listening (Gatekeeper restarting)":
+                began, why = log_time(m["time"]), "not listening yet (Gatekeeper starting)"
+        elif mqtt and MQTT_DISCONNECTED.match(message) and began is None:
             began, why = log_time(m["time"]), "not listening (MQTT disconnected)"
-        elif MQTT_CONNECTED.match(message) and began is not None:
+        elif up.match(message) and began is not None:
             gaps.append((began, log_time(m["time"]), why))
             began = None
     if began is not None:
@@ -248,10 +265,10 @@ def missed_why(missed: list[dict], lines: list[str], log_start: float | None = N
     for e in missed:
         start, end = e["start_time"], e.get("end_time")
         why = said.get(e.get("id", ""))
-        if why is None and log_start is not None and start < log_start:
-            why = "before Gatekeeper's log starts (container recreated)"
         if why is None:
             why = next((w for a, b, w in gaps if a <= start <= b), None)
+        if why is None and log_start is not None and start < log_start:
+            why = "before Gatekeeper's log starts (container recreated)"
         out.append(
             {
                 "start": local(start),
@@ -400,7 +417,9 @@ def own_perception_info(
     since = max(since, window_start)  # the first stats line covers the hour before it
     # (Frigate sees someone a moment before a track starts: the same slack as matching.)
     compared = [e for e in arrivals if e["start_time"] >= since - OWN_SLACK_SECONDS]
-    seen, elsewhere, missed = [], [], []
+    # Gatekeeper restarting (a deploy, say): from stopping to reading the stream again.
+    down = down_while(lines, OWN_READING)
+    seen, elsewhere, missed, restarting = [], [], [], []
     for e in compared:
         start, end = e["start_time"], e.get("end_time") or now
         overlapping = [t for t in tracks if near(start, end, t[0], t[1])]
@@ -408,6 +427,8 @@ def own_perception_info(
             seen.append(e)
         elif overlapping:
             elsewhere.append(e)
+        elif any(a <= start <= min(b, a + RESTART_SECONDS) for a, b, _ in down):
+            restarting.append(e)
         else:
             missed.append(e)
     extra = [
@@ -428,6 +449,7 @@ def own_perception_info(
         "seen": len(seen),
         "seen_elsewhere": [local(e["start_time"]) for e in elsewhere],
         "missed": [local(e["start_time"]) for e in missed],
+        "restarting": [local(e["start_time"]) for e in restarting],
         "tracks": len(tracks),
         "extra": [local(t[0]) for t in extra],
         "frames": sum(st["frames"] for st in stats),
@@ -1306,6 +1328,12 @@ def summary_lines(report: dict) -> list[str]:
             f"{own['arrivals']} porch arrivals in the zone"
             + (f", {len(own['seen_elsewhere'])} elsewhere" if own["seen_elsewhere"] else "")
             + (f", missed {', '.join(own['missed'])}" if own["missed"] else "")
+            + (
+                f", {len(own['restarting'])} while Gatekeeper restarted"
+                f" ({', '.join(own['restarting'])})"
+                if own.get("restarting")
+                else ""
+            )
             + f"; {own['tracks']} track(s), {len(own['extra'])} on the porch Frigate didn't have"
             + (f" ({', '.join(own['extra'][:10])})" if own["extra"] else "")
             + (
