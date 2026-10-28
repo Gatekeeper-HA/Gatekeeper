@@ -204,6 +204,13 @@ class Settings(BaseSettings):
     # shadow: kept for the Visits page and the daily report, nothing at the door yet.
     # Downloads SigLIP (~200 MB) once.
     delivery_guess: bool = False
+    # Hearing a knock at the door (knock.py): "shadow" logs each knock, for the Visits
+    # page and the daily report; nothing at the door yet. Needs the audio tap, and an
+    # NVIDIA GPU to be quick (the classifier takes seconds on a CPU). Downloads AST
+    # (~350 MB) once.
+    knock_listener: Literal["off", "shadow"] = "off"
+    # The classifier's "Knock" score (0-1) that counts as one.
+    knock_threshold: float = 0.5
     model_dir: Path = Path.home() / ".cache" / "gatekeeper" / "models"
 
     # Listening. With the audio tap, Gatekeeper reads the camera's audio all the
@@ -486,6 +493,11 @@ class Settings(BaseSettings):
     def candidate_dir(self) -> Path:
         """Faces kept for enrollment (face_watch.FaceWatcher.keep)."""
         return self.face_dir / "candidates"
+
+    @property
+    def knocks_file(self) -> Path:
+        """The knocks heard (knock.py)."""
+        return self.log_dir / "knocks.jsonl"
 
     @property
     def visit_guesses_file(self) -> Path:

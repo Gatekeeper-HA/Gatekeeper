@@ -1153,6 +1153,21 @@ def test_the_delivery_guess_is_held_to_the_owners_labels():
     assert delivery_guess_info({}, labels, 0) is None
 
 
+def test_knocks_are_counted():
+    knocks = [
+        {"at": NOW - 3600, "score": 0.9, "on_camera": False, "in_visit": False},
+        {"at": NOW - 1800, "score": 0.7, "on_camera": True, "in_visit": True},
+    ]
+    r = build(inputs(knocks=knocks))
+    assert r["knocks"]["heard"] == 2 and r["knocks"]["nobody_on_camera"] == 1
+    assert (
+        f"Knocks heard (shadow): 2 (1 with nobody on camera, 1 during a visit): "
+        f"{report.local(NOW - 3600)}, {report.local(NOW - 1800)}" in render_text(r)
+    )
+    assert "Knocks heard (shadow): 0" in render_text(build(inputs(knocks=[])))
+    assert "Knocks heard" not in render_text(build(inputs()))  # the listener is off
+
+
 def test_the_owners_labels_are_compared_with_what_gatekeeper_did():
     labelled = [
         visit(NOW - 9000, NOW - 8997, outcome="left", label="food"),

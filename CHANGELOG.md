@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Knocks, in shadow** (`KNOCK_LISTENER=shadow`, off by default). Gatekeeper listens for
+  knocks at the door: a cheap check for sharp sounds on the audio tap, then a sound
+  classifier (AST, BSD-3-Clause, ONNX on the GPU) on those 2 seconds. Each knock is
+  logged with whether anyone was on camera and whether a visit was running, and shows on
+  the Visits page and in the daily report. On the rig's test, 4 of 4 sets of knocks were
+  heard and nothing else scored as one. Nothing at the door depends on it yet: later, a
+  knock with nobody on camera will be like a doorbell press.
 - **Delivery guess, in shadow** (`DELIVERY_GUESS`, off by default). For each greeted visit,
   Gatekeeper guesses whether it was a delivery: SigLIP (Apache-2.0) on full-resolution
   crops of the person, how they moved (left the way they came, walked away when greeted),

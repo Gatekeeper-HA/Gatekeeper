@@ -363,6 +363,11 @@ class SessionTracker:
                 s.path_now is not None and s.lowest - s.path_now[1] >= margin for s in people
             )
 
+    def in_visit(self) -> bool:
+        """Is a visit running?"""
+        with self._lock:
+            return self._active_visit is not None
+
     def person_present(self) -> bool:
         """Does Frigate still see someone (in a trigger zone, if any are set)?
         Its "end" event drops a person a few seconds after they've left."""

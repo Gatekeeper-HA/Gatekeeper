@@ -140,6 +140,8 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `OWN_PERCEPTION_THREADS` | `2` | CPU threads for the detector |
 | `OWN_PERCEPTION_DEVICE` | `auto` | `auto`: the detector runs on an NVIDIA GPU when the image has CUDA ([GPU](#gpu-nvidia)) and it works, else on the CPU. `cuda` logs a warning when it falls back. The GPU override sets `cuda` |
 | `DELIVERY_GUESS` | `false` | Gatekeeper's guess at each greeted visitor, a delivery or not: [delivery guess](#delivery-guess-shadow). Shadow only; the compose stack reads it from `.env` |
+| `KNOCK_LISTENER` | `off` | `shadow`: Gatekeeper listens for knocks at the door and logs them: [knocks](#knocks-shadow). Needs the audio tap and an NVIDIA GPU to be quick. The compose stack reads it from `.env` |
+| `KNOCK_THRESHOLD` | `0.5` | The sound classifier's *Knock* score (0–1) that counts as a knock |
 | `MODEL_DIR` | `~/.cache/gatekeeper/models` | Where the detector's model is downloaded (once) |
 | `WEB_PORT` | `8098` | The web page: [visits](#visits) and [household faces](#household-faces) |
 | `WEB_PASSWORD` | *(none)* | Its password (HTTP Basic, any user name). Without one the page is off. The compose stack reads `GATEKEEPER_WEB_PASSWORD` from `.env` |
@@ -552,6 +554,21 @@ were recognized, 12 of them before the greeting. Nobody was taken for someone el
 daylight the rig's camera looks into a bright sky, and faces on the walkway are often too
 dark to recognize. At night, under the porch light, they're clear. The daily report counts
 the recognitions and how often a face was seen.
+
+## Knocks (shadow)
+
+Some visitors knock instead of ringing, and some aren't seen at all: one walked up along the
+house, out of the camera's view, knocked, and was never on camera. With `KNOCK_LISTENER=shadow`,
+Gatekeeper listens for knocks and logs each one, with whether anyone was on camera and
+whether a visit was running. Knocks show on the Visits page and in the daily report.
+Nothing at the door depends on them yet.
+
+The audio tap hears the door all the time. A cheap check finds sharp sounds; only those
+2 seconds go to a sound classifier (AST, trained on AudioSet, BSD-3-Clause, ~350 MB,
+downloaded once), which tells a knock from a door closing, footsteps, voices or a passing
+car. On the rig's test, 4 of 4 sets of knocks were heard (scores 0.59–0.92), and nothing
+else in the 15 minutes around them scored over 0.05. The classifier needs an NVIDIA GPU
+([GPU](#gpu-nvidia)): about 0.1 s a check there, against about 12 s on a CPU core.
 
 ## Delivery guess (shadow)
 

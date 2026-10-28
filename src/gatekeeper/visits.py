@@ -130,7 +130,9 @@ def started(record: dict) -> float:
     """When the visit started: its event id is the time the person was first seen."""
     eid = str(record.get("event_id", ""))
     try:
-        return float(eid.removeprefix("press-").removeprefix("package-").split("-")[0])
+        return float(
+            eid.removeprefix("press-").removeprefix("package-").removeprefix("knock-").split("-")[0]
+        )
     except ValueError:
         return float(record.get("ts", 0))
 
@@ -154,6 +156,10 @@ def describe(record: dict) -> str:
     if outcome == "household":
         how = "stopped the greeting" if details.get("greeted") else "not greeted"
         return f"Recognized as {details.get('name') or 'someone enrolled'} ({how})"
+    if outcome == "knock":
+        where = "" if details.get("on_camera") else ", nobody on camera"
+        during = ", during a visit" if details.get("in_visit") else ""
+        return f"A knock at the door ({details.get('score', 0):.2f}){where}{during}"
     if outcome == "quick_reply":
         return f"You replied: {details.get('reply', '?')} ({details.get('result', '?')})"
     if outcome in OUTCOMES:
@@ -179,6 +185,7 @@ class VisitsPage:
         snapshot: Callable[[str], bytes | None],
         snapshot_dir: Path,
         guesses=None,
+        knocks=None,
         clock: Callable[[], float] = time.time,
     ) -> None:
         self.event_log = event_log
@@ -186,6 +193,7 @@ class VisitsPage:
         self._snapshot = snapshot
         self.snapshot_dir = snapshot_dir
         self.guesses = guesses  # Gatekeeper's guesses (visitor_type.Guesses), if it makes them
+        self.knocks = knocks  # the knocks heard (knock.Knocks), if it listens
         self._clock = clock
         self.token = ""  # set by web.serve (shared with the faces page)
 
@@ -194,6 +202,16 @@ class VisitsPage:
         since = self._clock() - days * 86400
         labels = self.labels.all()
         rows = [r for r in read_visits(self.event_log, since) if r.get("outcome") != "quick_reply"]
+        for k in self.knocks.since(since) if self.knocks else []:
+            rows.append(
+                {
+                    "event_id": f"knock-{k['at']:.3f}",
+                    "ts": k["at"],
+                    "trigger": "knock",
+                    "outcome": "knock",
+                    "details": k,
+                }
+            )
         for r in rows:
             r["label"] = (labels.get(str(r.get("event_id"))) or {}).get("label", "")
         return sorted(rows, key=started, reverse=True)
@@ -272,7 +290,9 @@ class VisitsPage:
                 out.append(f"<h2>{e(day)}</h2>")
             eid = str(r.get("event_id", ""))
             out.append("<div class=visit>")
-            if not eid.startswith("press-") or self._press_photo(eid).is_file():
+            if eid.startswith("knock-"):
+                pass  # heard, not seen
+            elif not eid.startswith("press-") or self._press_photo(eid).is_file():
                 src = f"visit/{urllib.parse.quote(eid)}.jpg"
                 out.append(f'<img src="{src}" alt="" loading=lazy>')
             out.append(f"<div><strong>{e(_time(at))}</strong> {e(describe(r))}")
