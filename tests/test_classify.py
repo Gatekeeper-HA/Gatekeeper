@@ -58,6 +58,9 @@ CASES = [
     ("I'm running for city council", CIVIC),
     ("I'm a volunteer with the DFL", CIVIC),
     ("I'm selling election signs", CIVIC),
+    ("Hi, I'm Sam with the Clean Water Political Action Fund", CIVIC),
+    ("I'm with a political action committee", CIVIC),
+    ("I'm a canvasser for the clean energy PAC", CIVIC),
     # Solicitors
     ("we're selling solar panels", SOLICITOR),
     ("I'm collecting donations for charity", SOLICITOR),

@@ -175,6 +175,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **A visit no longer hangs when the doorbell's speaker stops taking audio.** A reply
+  that hasn't started playing 20 s after it was queued ends the visit as
+  `talkback_failed`, logged and notified with what was heard, instead of waiting out the
+  3-minute visit timeout. On the rig, a canvasser's visit sat silent that long after
+  they'd answered.
+- **Canvassers for political groups are recognised**: "political", "politics", "action
+  fund", "PAC", "canvasser" and "advocacy" now count as civic, so they're asked for their
+  message instead of getting the generic reply.
 - **Visits page: doorbell presses.** A press during a visit had a label of its own and no
   picture, though it's part of that visit: it's now a note with no label. A visit that
   started with a press, before anyone was seen, shows the frame sent with its

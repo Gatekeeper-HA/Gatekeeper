@@ -41,6 +41,10 @@ PLAYBACK_HOLD_SECONDS = 5.0
 # it takes longer; wait up to this much longer for its last frame, and warn when
 # it's this late.
 MAX_PLAYBACK_LAG_SECONDS = 15.0
+# A queued phrase that hasn't started playing by then (after any phrase ahead of it): the
+# speaker's connection stopped taking audio. The visit ends as talkback_failed rather
+# than waiting for the visit's timeout (it once waited 3 minutes after a reply).
+TALKBACK_START_SECONDS = 20.0
 PLAYBACK_LAG_WARN_SECONDS = 1.0
 # The visitor's speech counts from this long before the prompt's echo is due to
 # end: the latency estimate is approximate, and Silero rarely mistakes the echo
@@ -154,6 +158,21 @@ class Stopped(Exception):
 
 # Outcomes of visits that turned out to be the household (Stopped, log_household).
 HOUSEHOLD_OUTCOMES = ("entered", "household")
+
+
+class TalkbackStalled(Exception):
+    """A phrase never started playing: the doorbell's speaker connection stopped."""
+
+
+async def wait_started(playback) -> float:
+    """When the clip's first frame went out (time.monotonic()); ``TalkbackStalled`` if it
+    hasn't within TALKBACK_START_SECONDS."""
+    try:
+        return await asyncio.wait_for(asyncio.shield(playback.started), TALKBACK_START_SECONDS)
+    except TimeoutError:
+        raise TalkbackStalled(
+            f"a phrase hasn't started playing {TALKBACK_START_SECONDS:.0f} s after it was queued"
+        ) from None
 
 
 async def wait_sent(playback) -> float | None:
@@ -317,6 +336,9 @@ class Interaction:
                     log.info("stopped: %s", stop.outcome)
                     visit.outcome = stop.outcome
                     visit.details.update(stop.details)
+                except TalkbackStalled as e:
+                    log.error("the doorbell's speaker stopped: %s; the visit ends", e)
+                    visit.outcome = "talkback_failed"
                 except TimeoutError:
                     log.error("visit timed out after %.0f s", self.settings.visit_timeout_seconds)
                     visit.outcome = "timeout"
@@ -609,7 +631,7 @@ class Interaction:
         """Listen on the audio tap until the visitor has finished answering. Returns
         the words and when the prompt's echo ended in the clip."""
         s = self.settings
-        started = await asyncio.shield(playback.started)
+        started = await wait_started(playback)
         sent = await wait_sent(playback) or started + playback.seconds
         echo_end = sent + TALKBACK_LATENCY_SECONDS
         listen_from = echo_end - ECHO_MARGIN_SECONDS
@@ -772,7 +794,7 @@ class Interaction:
         the one-line reply, or a conversation's first phrase (Gatekeeper#25)."""
         if visit.reply_latency is not None or visit.speech_end is None:
             return
-        visit.reply_latency = round(await asyncio.shield(playback.started) - visit.speech_end, 2)
+        visit.reply_latency = round(await wait_started(playback) - visit.speech_end, 2)
         log.info("reply started %.2f s after the visitor stopped talking", visit.reply_latency)
 
 
