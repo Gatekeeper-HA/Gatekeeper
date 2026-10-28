@@ -192,6 +192,8 @@ services:
       # Gatekeeper's guess at each greeted visitor (a delivery or not), in shadow: off
       # unless DELIVERY_GUESS=1 in .env.
       DELIVERY_GUESS: "${DELIVERY_GUESS:-0}"
+      # Hearing knocks at the door, in shadow: off unless KNOCK_LISTENER=shadow in .env.
+      KNOCK_LISTENER: "${KNOCK_LISTENER:-off}"
       LISTEN_SECONDS: "4"
       WHISPER_MODEL: "base.en"
       WHISPER_COMPUTE_TYPE: "int8"

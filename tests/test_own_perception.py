@@ -141,7 +141,9 @@ def test_a_track_moves_through_zones_and_ends():
     assert events[0].entered_zones == () and events[1].entered_zones == ("porch",)
     assert events[-1].entered_zones == ("porch", "door")
     assert events[-1].current_zones == ("porch", "door")
-    assert events[-1].path == pytest.approx(feet)
+    path = events[-1].path  # point by point: pytest.approx doesn't take nested lists
+    assert len(path) == len(feet)
+    assert all(p == pytest.approx(f) for p, f in zip(path, feet, strict=True))
     (track,) = tracker.ended
     assert track.first == 100.0 and track.last == 101.5 and track.hits == 7
 

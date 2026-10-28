@@ -79,7 +79,10 @@ def test_zone_polygon_in_fractions_of_the_frame(zone):
         }
     }
     polygon = zone_polygon(config, "front_door", "door")
-    assert polygon == pytest.approx([(0.7, 0.85), (1.0, 0.85), (1.0, 1.0), (0.7, 1.0)])
+    expected = [(0.7, 0.85), (1.0, 0.85), (1.0, 1.0), (0.7, 1.0)]
+    # Point by point: pytest.approx doesn't take nested lists (pytest 9.2).
+    assert len(polygon) == len(expected)
+    assert all(p == pytest.approx(q) for p, q in zip(polygon, expected, strict=True))
 
 
 def test_missing_or_broken_zones_are_none():

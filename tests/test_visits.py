@@ -280,3 +280,16 @@ def test_gatekeepers_guess_is_shown_next_to_the_label(log, tmp_path):
     assert guess_text({"guess": "other", "looks": None, "features": {}}) == (
         "Gatekeeper's guess: not a delivery (no good picture)"
     )
+
+
+def test_a_knock_is_a_row_of_its_own_with_no_picture_or_label(log, tmp_path):
+    from gatekeeper.knock import Knocks
+
+    page = page_for(log, tmp_path)
+    page.knocks = Knocks(tmp_path / "knocks.jsonl")
+    page.knocks.add({"at": 1799999900.0, "score": 0.92, "on_camera": False, "in_visit": False})
+    (knock,) = [r for r in page.visits(days=3) if r["outcome"] == "knock"]
+    assert not labelable(knock)
+    assert describe(knock) == "A knock at the door (0.92), nobody on camera"
+    text = page.render(days=3)
+    assert "A knock at the door (0.92)" in text and "visit/knock-" not in text

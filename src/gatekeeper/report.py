@@ -832,6 +832,8 @@ class Inputs:
     # Gatekeeper's greetings and no-answer lines by phrase key (Settings.greeting_texts,
     # no_answer_texts), to name them.
     line_texts: dict[str, str] = field(default_factory=dict)
+    # The knocks heard in the window (knock.py), or None when the listener is off.
+    knocks: list[dict] | None = None
     # Gatekeeper's delivery guesses (visitor_type.py) against the owner's labels.
     delivery_guess: dict | None = None
     # Visits the owner labelled in the window (Visits page): each record with its "label".
@@ -1054,6 +1056,14 @@ def build(i: Inputs) -> dict:
         "frigate": frigate,
         "own_perception": own,
         "delivery_guess": i.delivery_guess,
+        "knocks": None
+        if i.knocks is None
+        else {
+            "heard": len(i.knocks),
+            "nobody_on_camera": sum(1 for k in i.knocks if not k.get("on_camera")),
+            "during_visit": sum(1 for k in i.knocks if k.get("in_visit")),
+            "at": [local(k["at"]) for k in i.knocks],
+        },
         "line_texts": i.line_texts,
         "doorbell": doorbell,
         "deploys": deploys,
@@ -1160,6 +1170,16 @@ def summary_lines(report: dict) -> list[str]:
                     else ""
                 )
             )
+    if (kn := report.get("knocks")) is not None:
+        lines.append(
+            f"Knocks heard (shadow): {kn['heard']}"
+            + (
+                f" ({kn['nobody_on_camera']} with nobody on camera, {kn['during_visit']} during "
+                f"a visit): {', '.join(kn['at'][:10])}"
+                if kn["heard"]
+                else ""
+            )
+        )
     if dg := report.get("delivery_guess"):
         d, o = dg["deliveries"], dg["others"]
         lines.append(
@@ -1452,11 +1472,20 @@ def collect(
         trigger_zones=tuple(settings.trigger_zone_list),
         labelled=labelled_visits(settings, since),
         delivery_guess=delivery_guesses(settings, since),
+        knocks=knocks_heard(settings, since),
         line_texts={**settings.greeting_texts(), **settings.no_answer_texts()},
         own_perception=settings.own_perception,
         version=__version__,
         hours=hours,
     )
+
+
+def knocks_heard(settings, since: float) -> list[dict] | None:
+    if settings.knock_listener == "off":
+        return None
+    from gatekeeper.knock import Knocks
+
+    return Knocks(settings.knocks_file).since(since)
 
 
 def delivery_guesses(settings, since: float) -> dict | None:

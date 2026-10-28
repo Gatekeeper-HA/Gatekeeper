@@ -795,3 +795,14 @@ def test_walking_away_is_back_up_the_frame_from_the_closest_point(clock):
     assert h.tracker.walking_away()  # back down the walk
     h.tracker.handle_event(walk("B", (0.45, 0.6), type_="new"))
     assert not h.tracker.walking_away()  # but someone else is still there
+
+
+def test_in_visit(clock):
+    h = DoorHarness(clock)
+    assert not h.tracker.in_visit()
+    h.tracker.handle_event(walk("A", (0.45, 0.6), type_="new"))
+    clock.advance(1.0)
+    h.tracker.handle_event(walk("A", (0.45, 0.6), (0.6, 0.9)))
+    assert h.tracker.in_visit()  # started, its worker not run yet
+    h.run_workers()
+    assert not h.tracker.in_visit()

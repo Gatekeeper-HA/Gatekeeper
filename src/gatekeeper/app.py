@@ -237,6 +237,47 @@ def start_delivery_guess(settings: Settings, perception: FrigatePerception):
     )
 
 
+def knock_log(settings: Settings):
+    """The knocks heard, for the Visits page, when the listener is on."""
+    if settings.knock_listener == "off":
+        return None
+    from gatekeeper.knock import Knocks
+
+    return Knocks(settings.knocks_file)
+
+
+def start_knock_listener(settings: Settings, tap, tracker):
+    """Hearing knocks, in shadow (knock.py): each one logged, with whether anyone was on
+    camera and whether a visit was running. The classifier loads with the first check."""
+    from gatekeeper.knock import Classifier, KnockListener, Knocks
+
+    knocks = Knocks(settings.knocks_file)
+
+    def on_knock(score: float, at: float) -> None:
+        record = {
+            "at": round(at, 3),
+            "score": round(score, 3),
+            "on_camera": tracker.person_present(),
+            "in_visit": tracker.in_visit(),
+        }
+        knocks.add(record)
+        log.info(
+            "knock heard at the door (%.2f)%s%s",
+            score,
+            "" if record["on_camera"] else ", nobody on camera",
+            ", during a visit" if record["in_visit"] else "",
+        )
+
+    listener = KnockListener(
+        tap,
+        lambda: Classifier(settings.own_perception_device),
+        threshold=settings.knock_threshold,
+        on_knock=on_knock,
+    )
+    start_thread("knock", listener.run_forever)
+    log.info("knock listener on (shadow)")
+
+
 def start_own_perception(settings: Settings, perception: Perception):
     """Our own perception in shadow mode (own_perception.py): it logs each person track,
     with the zones it walked through, next to Frigate's events. The zones are those
@@ -494,6 +535,7 @@ def main() -> None:
             snapshot=perception.event_snapshot,
             snapshot_dir=settings.snapshot_dir,
             guesses=guesser.guesses if guesser else None,
+            knocks=knock_log(settings),
         )
         web.serve(page, settings.web_password.get_secret_value(), settings.web_port, visits)
     start_thread(
@@ -503,6 +545,11 @@ def main() -> None:
         start_packages(settings, perception, tracker, notifier, interaction, publisher)
     if settings.own_perception == "shadow":
         start_own_perception(settings, perception)
+    if settings.knock_listener == "shadow":
+        if tap is None:
+            log.warning("KNOCK_LISTENER needs the audio tap (AUDIO_TAP); not listening")
+        else:
+            start_knock_listener(settings, tap, tracker)
     start_thread("retention", Retention(settings).run_forever)
 
     def on_press() -> None:
