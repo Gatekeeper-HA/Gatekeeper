@@ -42,8 +42,9 @@ PLAYBACK_HOLD_SECONDS = 5.0
 # it's this late.
 MAX_PLAYBACK_LAG_SECONDS = 15.0
 # A queued phrase that hasn't started playing by then (after any phrase ahead of it): the
-# speaker's connection stopped taking audio. The visit ends as talkback_failed rather
-# than waiting for the visit's timeout (it once waited 3 minutes after a reply).
+# speaker's connection stopped taking audio. The visit ends (reply_failed, or
+# talkback_failed if nothing played) rather than waiting for the visit's timeout (it once
+# waited 3 minutes after a reply).
 TALKBACK_START_SECONDS = 20.0
 PLAYBACK_LAG_WARN_SECONDS = 1.0
 # The visitor's speech counts from this long before the prompt's echo is due to
@@ -204,6 +205,7 @@ class _Talk:
         self.per_clip = per_clip
         self._session = None
         self._closing: list[asyncio.Task] = []
+        self._playbacks: list = []
 
     async def say(self, wav: Path):
         """Queue ``wav``; return its Playback, or None if talkback can't connect."""
@@ -213,11 +215,16 @@ class _Talk:
             if session is None:
                 return None
         playback = session.play(wav)
+        self._playbacks.append(playback)
         if self.per_clip:
             self._closing.append(asyncio.ensure_future(self._close_after(session, playback)))
         else:
             self._session = session
         return playback
+
+    def played(self) -> bool:
+        """Whether any phrase started playing (someone at the door heard something)."""
+        return any(p.started.done() for p in self._playbacks)
 
     async def heard(self, playback) -> None:
         """Wait until ``playback`` has been sent and the camera has played it."""
@@ -336,9 +343,6 @@ class Interaction:
                     log.info("stopped: %s", stop.outcome)
                     visit.outcome = stop.outcome
                     visit.details.update(stop.details)
-                except TalkbackStalled as e:
-                    log.error("the doorbell's speaker stopped: %s; the visit ends", e)
-                    visit.outcome = "talkback_failed"
                 except TimeoutError:
                     log.error("visit timed out after %.0f s", self.settings.visit_timeout_seconds)
                     visit.outcome = "timeout"
@@ -731,6 +735,9 @@ class Interaction:
         talk = self._talk()
         try:
             await self._converse(visit, talk)
+        except TalkbackStalled as e:
+            log.error("the doorbell's speaker stopped: %s; the visit ends", e)
+            visit.outcome = "reply_failed" if talk.played() else "talkback_failed"
         finally:
             await talk.close()
 

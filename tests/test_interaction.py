@@ -478,12 +478,12 @@ def test_a_reply_that_never_starts_playing_ends_the_visit(settings, monkeypatch)
     started = time.monotonic()
     visit = rig.interaction.run(EID)
     assert time.monotonic() - started < 3
-    assert visit.outcome == "talkback_failed"
+    assert visit.outcome == "reply_failed"
     assert notified == ["likely_delivery"]
     assert rig.calls[-1] == ("close", 1)
     (record,) = rig.log_records()
     assert (record["outcome"], record["transcript"]) == (
-        "talkback_failed",
+        "reply_failed",
         "I have a package for you",
     )
     assert record["response"] == settings.reply_delivery

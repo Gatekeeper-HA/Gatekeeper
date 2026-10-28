@@ -37,7 +37,6 @@ CIVIC_PHRASES = [
     "vote", "voting", "voter", "voters", "register to vote", "ballot", "senate",
     "senator", "representative", "legislature", "legislator", "city council",
     "council member", "councilmember", "mayor", "petition", "canvass", "canvassing",
-    "canvasser", "political", "politics", "action fund", "pac", "advocacy",
     "dfl", "gop", "democrat", "democrats", "democratic", "republican", "republicans",
 ]  # fmt: skip
 
