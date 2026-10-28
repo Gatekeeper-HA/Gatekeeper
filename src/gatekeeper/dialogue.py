@@ -91,7 +91,7 @@ _NAME = re.compile(r"\b[Mm]y name(?:'s| is)\b|\b(?:I'm|I am|[Tt]his is) [A-Z][a-
 _GROUP = re.compile(
     r"\brunning for\b|\b(?:with|from|for|on behalf of|representing) (?:[\w']+ ){0,4}?"
     r"(?:campaign|party|democrats?|republicans?|gop|league|committee|union|association|"
-    r"council|coalition)\b"
+    r"council|coalition|pac|fund|action)\b"
 )
 
 

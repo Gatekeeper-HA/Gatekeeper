@@ -179,6 +179,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   talkback connection stops taking audio after the greeting, the reply (or a
   conversation's first phrase) is given up on after 15 s with a warning (*clip never
   started playing*), and the visit ends `reply_failed` instead of `timeout` at 180 s.
+- **A canvasser for a political group is `civic`** (#89). *Political*, *politics*,
+  *politician*, *PAC* and *canvasser* are civic words, so a canvasser who introduces
+  themselves as being "with the … Political Action Fund" gets the civic conversation rather
+  than the generic reply; *fund*, *PAC* and *action* also count as who they're with.
 - **Visits page: doorbell presses.** A press during a visit had a label of its own and no
   picture, though it's part of that visit: it's now a note with no label. A visit that
   started with a press, before anyone was seen, shows the frame sent with its
