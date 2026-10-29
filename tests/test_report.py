@@ -632,6 +632,18 @@ def test_the_talkback_check_passes_when_every_visit_was_spoken_to():
     assert {c["name"]: c["ok"] for c in r["checks"]}["talkback"] is True
 
 
+def test_the_knock_classifiers_mel_filter_warning_is_noise():
+    # Once per start, from transformers building AST's features (#99).
+    warning = (
+        "/usr/local/lib/python3.12/site-packages/transformers/audio_utils.py:576: UserWarning: "
+        "At least one mel filter has all zero values. The value for `num_mel_filters` (128) may "
+        "be set too high. Or, the value for `num_frequency_bins` (257) may be set too low."
+    )
+    logs = summarize_logs(f"### gatekeeper\n{warning}\n")
+    assert logs["ignored"] == 1
+    assert not logs["sources"].get("gatekeeper", {}).get("warnings")
+
+
 def test_ffmpeg_fixing_timestamps_after_a_dropout_is_noise():
     line = (
         "2026-10-14 00:38:00.000000000  [2026-10-13 19:38:00] ffmpeg.front_door.record"

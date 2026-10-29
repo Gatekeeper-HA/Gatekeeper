@@ -67,6 +67,9 @@ NOISE = [
         # reolink-aio when the doorbell restarts (weekly maintenance, updates); whether the
         # button is heard again is the doorbell_button check and the Doorbell line.
         r"lost event subscription after [\d.]+ s and failed to reestablish",
+        # The knock classifier's features (AST: 128 mel bins over 257 FFT bins at 16 kHz,
+        # as it was trained), once per start: the lowest filters are narrower than a bin.
+        r"At least one mel filter has all zero values",
     )
 ]
 
