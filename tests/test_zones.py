@@ -113,7 +113,10 @@ def test_the_page_draws_each_zone_on_the_picture(zones_page):
     assert 'name="zone:door" data-zone="door" value="" placeholder="0.480,0.780' in body
     assert "Now drawn here." in body and "Now Frigate's (blank: keep using it)." in body
     assert 'name=token value="tok"' in body and '<img src="frame.jpg"' in body
-    assert '<a href="../">Visits</a> <a href="../faces/">Faces</a> <strong>Zones</strong>' in body
+    assert (
+        '<a href="../">Visits</a> <a href="../live/">Live</a> <a href="../faces/">Faces</a> '
+        "<strong>Zones</strong>" in body
+    )
 
 
 class Client:

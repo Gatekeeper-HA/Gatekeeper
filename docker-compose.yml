@@ -74,9 +74,16 @@ services:
     container_name: go2rtc
     restart: unless-stopped
     networks: [surveil]
-    # No published ports: go2rtc's API/UI, RTSP restream and WebRTC have no
-    # authentication, and Frigate and Gatekeeper use them inside Docker.
+    # go2rtc's API/UI and RTSP restream have no authentication: not published;
+    # Frigate and Gatekeeper use them inside Docker. Only its WebRTC media port is,
+    # for Gatekeeper's Live page: a browser gets a session only through Gatekeeper's
+    # page (behind its password), which asks go2rtc's API for it.
+    ports:
+      - "${SERVER_IP:?set SERVER_IP in .env}:8555:8555/tcp"
+      - "${SERVER_IP:?set SERVER_IP in .env}:8555:8555/udp"
     environment:
+      # The address the Live page's browser reaches go2rtc's WebRTC port at.
+      SERVER_IP: "${SERVER_IP:?set SERVER_IP in .env}"
       # Substituted into go2rtc.yaml.
       CAMERA_IP: "${CAMERA_IP:?set CAMERA_IP in .env}"
       CAMERA_USER: "${CAMERA_USER:?set CAMERA_USER in .env}"

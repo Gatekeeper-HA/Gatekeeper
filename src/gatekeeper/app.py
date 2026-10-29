@@ -623,12 +623,15 @@ def main() -> None:
         zones_page = ZonesPage(
             zones, used_zones(settings), lambda: (shot := perception.latest_frame()) and shot.jpeg
         )
+        from gatekeeper.live import LivePage
+
         web.serve(
             page,
             settings.web_password.get_secret_value(),
             settings.web_port,
             visits,
             zones=zones_page,
+            live=LivePage(settings.go2rtc_api, settings.live_stream, settings.live_hd_stream),
         )
     start_thread(
         "sweep", tracker.sweep_forever, settings.sweep_interval_seconds, on_sweep=health.sweep_done

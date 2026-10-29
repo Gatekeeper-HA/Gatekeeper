@@ -129,6 +129,10 @@ class Settings(BaseSettings):
     camera_name: str = "front_door"
     go2rtc_api: str = "http://go2rtc:1984"
     go2rtc_talk_stream: str = "front_door_talk"
+    # The Live page's streams in go2rtc (live.py): the video copied, the audio as Opus.
+    # Default <camera_name>_live (low resolution) and <camera_name>_live_hd.
+    live_stream: str = ""
+    live_hd_stream: str = ""
     # Defaults to rtsp://go2rtc:8554/<camera_name> when unset.
     audio_rtsp_url: str = ""
 
@@ -392,6 +396,10 @@ class Settings(BaseSettings):
             self.face_rtsp_url = self.audio_rtsp_url
         if not self.own_perception_url:
             self.own_perception_url = f"{self.audio_rtsp_url}_sub"
+        if not self.live_stream:
+            self.live_stream = f"{self.camera_name}_live"
+        if not self.live_hd_stream:
+            self.live_hd_stream = f"{self.camera_name}_live_hd"
         if not self.ntfy_public_url:
             self.ntfy_public_url = self.ntfy_url
         if not self.ntfy_reply_topic:

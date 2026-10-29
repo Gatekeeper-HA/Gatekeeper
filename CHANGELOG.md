@@ -17,6 +17,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   not drawn and for older visits' pictures. Replayed on two days of the rig's porch
   visits, 45 of 50 were greeted (or not) as with Frigate. The rest were the household:
   recognized by face (not replayed), or going out and back in.
+- **Live page** (`http://<SERVER_IP>:8098/live/`). The door now, with sound, in the browser
+  over WebRTC: the low-resolution stream by default, HD on a tap. The browser's offer goes
+  through Gatekeeper's password-protected page to go2rtc, whose API stays private. Only
+  go2rtc's WebRTC port (8555) is published, to carry the media. go2rtc's new
+  `front_door_live` streams turn the camera's AAC into Opus while someone watches.
 - **Recordings** (`RECORDING=1`, off by default; needs `OWN_PERCEPTION`). Gatekeeper keeps
   its own clips of the door: from 3 s before its own perception sees someone until 2 s
   after they've gone. The high-resolution stream goes in as it came (not re-encoded) with

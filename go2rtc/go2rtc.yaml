@@ -9,13 +9,21 @@ rtsp:
 
 webrtc:
   listen: ":8555"
-  # Only Gatekeeper connects, from inside Docker: no STUN lookups of the
-  # home's public IP (go2rtc's default asks Google's STUN servers).
+  # Gatekeeper connects from inside Docker; the Live page's browser on the home
+  # network reaches the published port at the server's address. No STUN lookups
+  # of the home's public IP (go2rtc's default asks Google's STUN servers).
+  candidates:
+    - ${SERVER_IP}:8555
   ice_servers: []
 
 streams:
   front_door: rtsp://${CAMERA_USER}:${CAMERA_PASS}@${CAMERA_IP}:554/h264Preview_01_main#backchannel=0
   front_door_sub: rtsp://${CAMERA_USER}:${CAMERA_PASS}@${CAMERA_IP}:554/h264Preview_01_sub#backchannel=0
+
+  # Gatekeeper's Live page: the camera's AAC audio as Opus (WebRTC can't carry AAC),
+  # the video as it is. Started only while someone watches.
+  front_door_live: ffmpeg:front_door_sub#video=copy#audio=opus
+  front_door_live_hd: ffmpeg:front_door#video=copy#audio=opus
 
   # Talkback stream — backchannel=1 enables the RTSP backchannel to the camera speaker
   front_door_talk: rtsp://${CAMERA_USER}:${CAMERA_PASS}@${CAMERA_IP}:554/h264Preview_01_main#backchannel=1
