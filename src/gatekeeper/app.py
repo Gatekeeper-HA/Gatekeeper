@@ -201,9 +201,10 @@ def start_faces(settings: Settings, tracker, tap):
     return watcher
 
 
-def start_delivery_guess(settings: Settings, perception: FrigatePerception):
+def start_delivery_guess(settings: Settings, perception):
     """Gatekeeper's guess at each greeted visitor, in shadow (visitor_type.py): from the
-    person's path and full-resolution frames of the recording (Frigate's, for now), YOLOX
+    person's path and full-resolution frames of the recording (``perception``'s:
+    FrigatePerception's, or with PERCEPTION=own, Gatekeeper's own recordings), YOLOX
     to find them, and a package left in the visit (the visit log). YOLOX and SigLIP load
     when the first guess needs them."""
     from gatekeeper import own_perception as own
@@ -317,12 +318,12 @@ def used_zones(settings: Settings) -> dict[str, str]:
     return purposes
 
 
-def start_own_perception(settings: Settings, zones: Zones, recorder=None):
-    """Our own perception in shadow mode (own_perception.py): it logs each person track,
-    with the zones it walked through, next to Frigate's events, and tells ``recorder``
-    (recording.py) who's there. The zones are those Gatekeeper uses (zones.py: drawn on
-    the Zones page, else Frigate's). The model downloads on first use. Returns the
-    OwnPerception."""
+def start_own_perception(settings: Settings, zones: Zones, listeners=()):
+    """Our own perception (own_perception.py): it logs each person track, with the zones
+    it walked through, and tells each of ``listeners`` (the recorder, and with
+    PERCEPTION=own the visits) about its person events and tracks that ended. The zones
+    are those Gatekeeper uses (zones.py: drawn on the Zones page, else Frigate's). The
+    model downloads on first use. Returns the OwnPerception."""
     from gatekeeper import own_perception as own
 
     shapes = {name: zones.zone(name) for name in used_zones(settings)}
@@ -330,17 +331,21 @@ def start_own_perception(settings: Settings, zones: Zones, recorder=None):
         settings.camera_name, lambda: {name: zone.polygon for name, zone in shapes.items()}
     )
 
+    def on_event(event) -> None:
+        for listener in listeners:
+            listener.on_event(event)
+
     def on_track(track) -> None:
         log.info(own.summary(track))
-        if recorder is not None:
-            recorder.on_track(track)
+        for listener in listeners:
+            listener.on_track(track)
 
     service = own.OwnPerception(
         settings.own_perception_url,
         None,
         tracker,
         fps=settings.own_perception_fps,
-        on_event=recorder.on_event if recorder is not None else lambda event: None,
+        on_event=on_event,
         on_track=on_track,
     )
 
@@ -360,7 +365,8 @@ def start_own_perception(settings: Settings, zones: Zones, recorder=None):
                 time.sleep(delay)
                 delay = min(delay * 2, 600.0)
         log.info(
-            "own perception on (shadow): %s, zones %s, detector on %s",
+            "own perception on (%s): %s, zones %s, detector on %s",
+            "visits" if settings.perception == "own" else "shadow",
             settings.own_perception_url.split("@")[-1],
             ", ".join(shapes) or "none",
             service.detector.device,
@@ -447,17 +453,31 @@ def main() -> None:
         )
         commands[QUICK_REPLY_TOPIC.format(camera=settings.camera_name)] = quick.from_mqtt
 
-    # What sees the door: Frigate, today (perception.py). Its person events go to the
-    # tracker (defined below; no message arrives before connect() at the end).
-    perception = FrigatePerception(
-        settings.frigate_api,
-        settings.camera_name,
-        topic=settings.mqtt_topic,
-        subscribe=commands.__setitem__,
-    )
-    perception.start(lambda event: tracker.handle_event(event))
+    # What sees the door (perception.py): Frigate, or our own perception (PERCEPTION=own,
+    # with Frigate, if there is one, only standing in). Its person events go to the
+    # tracker (defined below; none arrive before it exists: Frigate's after connect() at
+    # the end, own perception's once it has started, below).
+    own_visits = settings.perception == "own"
+    frigate = None
+    if not own_visits or settings.frigate_api:
+        frigate = FrigatePerception(
+            settings.frigate_api,
+            settings.camera_name,
+            topic=settings.mqtt_topic,
+            subscribe=commands.__setitem__,
+        )
     # The zones: drawn on the Zones page, else Frigate's.
-    zones = Zones(ZoneStore(settings.zones_file, settings.camera_name), perception.zone)
+    zones = Zones(
+        ZoneStore(settings.zones_file, settings.camera_name), frigate.zone if frigate else None
+    )
+    if own_visits:
+        from gatekeeper.own_service import OwnService
+
+        perception = OwnService(zones, settings.clip_dir, fallback=frigate)
+        log.info("own perception starts the visits%s", " (Frigate stands in)" if frigate else "")
+    else:
+        perception = frigate
+    perception.start(lambda event: tracker.handle_event(event))
     # The callbacks reference `publisher`, defined below.
     client = build_mqtt_client(
         settings,
@@ -613,8 +633,9 @@ def main() -> None:
     )
     if settings.package_zone:
         start_packages(settings, perception, tracker, notifier, interaction, publisher, zones)
+    own_on = own_visits or settings.own_perception == "shadow"
     recorder = None
-    if settings.recording and settings.own_perception == "off":
+    if settings.recording and not own_on:
         log.warning("RECORDING needs OWN_PERCEPTION (it starts the clips); not recording")
     elif settings.recording:
         from gatekeeper.recording import Recorder
@@ -622,8 +643,12 @@ def main() -> None:
         recorder = Recorder(video, tap, settings.clip_dir, settings.camera_name)
         start_thread("recording", recorder.run_forever)
         log.info("recording clips to %s", settings.clip_dir)
-    if settings.own_perception == "shadow":
-        on_stop.append(start_own_perception(settings, zones, recorder).stop)
+    if own_on:
+        listeners = [x for x in (recorder, perception if own_visits else None) if x is not None]
+        own = start_own_perception(settings, zones, listeners)
+        if own_visits:
+            perception.attach(own)
+        on_stop.append(own.stop)
     if recorder is not None:
         on_stop.append(recorder.stop)  # after own perception: its last tracks go in
     if settings.knock_listener == "shadow":

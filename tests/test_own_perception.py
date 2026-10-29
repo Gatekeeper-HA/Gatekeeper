@@ -395,7 +395,7 @@ def test_looking_takes_the_newest_frame_scaled_for_the_detector():
         "rtsp://x", detector, Tracker("x"), fps=4, clock=lambda: clock[0], sleep=slept.append
     )
     looked = []
-    service.look = lambda bgr, at: (looked.append((bgr.shape, at)), service.stop())
+    service.look = lambda bgr, at, frame=None: (looked.append((bgr.shape, at)), service.stop())
     newest = VideoFrame(80)
     service._frame = (99.5, newest)
     worker = threading.Thread(target=service.look_forever)

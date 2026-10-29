@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -57,6 +58,7 @@ MOTION_LEVEL = 25  # grey levels a pixel must change by...
 MOTION_SHARE = 0.002  # ...on this share of the frame: something moved
 MOTION_LEARN = 0.05  # how fast the background follows the scene (lighting, shadows)
 MAX_BACKOFF_SECONDS = 30.0
+MAX_PICTURES = 200  # the best picture of the last this many people, for snapshots
 STATS_SECONDS = 3600.0  # how often it logs how much it looked (the daily report reads it)
 
 
@@ -241,6 +243,7 @@ class Track:
     best: float = 0.0  # best detection score
     best_at: float = 0.0  # when it was (a recording's picture of them is from then)
     path: list[Point] = field(default_factory=list)
+    times: list[float] = field(default_factory=list)  # when they were at each point
     entered: list[str] = field(default_factory=list)  # zones, in the order entered
     current: tuple[str, ...] = ()
     inside: dict[str, float] = field(default_factory=dict)  # in each zone since (in a row)
@@ -296,7 +299,14 @@ class Tracker:
             self._n += 1
             d = detections[j]
             track = Track(
-                f"{now:.6f}-own{self._n}", d.box, now, now, best=d.score, best_at=now, path=[d.foot]
+                f"{now:.6f}-own{self._n}",
+                d.box,
+                now,
+                now,
+                best=d.score,
+                best_at=now,
+                path=[d.foot],
+                times=[now],
             )
             self._zone(track, now)
             self.tracks.append(track)
@@ -349,6 +359,7 @@ class Tracker:
         moved = abs(d.foot[0] - track.path[-1][0]) + abs(d.foot[1] - track.path[-1][1])
         if moved >= self.min_move:
             track.path.append(d.foot)
+            track.times.append(now)
         zones_before = (tuple(track.entered), track.current)
         self._zone(track, now)
         if not track.confirmed:
@@ -421,6 +432,9 @@ class OwnPerception:
         self._motion = Motion()
         self._cond = threading.Condition()
         self._frame: tuple[float, Any] | None = None  # the newest (time, av.VideoFrame)
+        # Each person's best picture so far (a JPEG of the frame where the detector was
+        # surest of them), by track id: their snapshot.
+        self.pictures: OrderedDict[str, bytes] = OrderedDict()
         self._looking = threading.Lock()  # the tracker: one frame (or the stop) at a time
         self._stopping = False
         self.frames = self.detected = 0  # frames looked at; of those, through the detector
@@ -496,16 +510,16 @@ class OwnPerception:
                 bgr = frame.to_ndarray(
                     width=width, height=height, format="bgr24", interpolation="BILINEAR"
                 )
-                self.look(bgr, at)
+                self.look(bgr, at, frame)
             except Exception:
                 log.exception("own perception: couldn't look at a frame")
             wait = picked + self.every - self._clock()
             if wait > 0:
                 self._sleep(wait)
 
-    def look(self, bgr: np.ndarray, now: float) -> list[PersonEvent]:
-        """One frame: the motion check; the detector if something moved or someone is
-        being tracked."""
+    def look(self, bgr: np.ndarray, now: float, frame=None) -> list[PersonEvent]:
+        """One frame (``bgr``, the detector's size; ``frame``, the stream's): the motion
+        check; the detector if something moved or someone is being tracked."""
         with self._looking:
             self.frames += 1
             moved = self._motion.update(bgr)
@@ -515,7 +529,32 @@ class OwnPerception:
             started = time.perf_counter()
             found = self.detector.detect(bgr)
             self._detect_seconds.append(time.perf_counter() - started)
-            return self._handle(self.tracker.update(found, now))
+            events = self.tracker.update(found, now)
+            self._keep_pictures(now, bgr, frame)
+            return self._handle(events)
+
+    def _keep_pictures(self, now: float, bgr: np.ndarray, frame) -> None:
+        """The frame as the best picture of those the detector is surer of than before."""
+        better = [t for t in self.tracker.tracks if t.best_at == now and t.last == now]
+        if not better:
+            return
+        from gatekeeper.face_admin import jpeg_bytes
+
+        try:
+            jpeg = jpeg_bytes(frame.to_ndarray(format="bgr24") if frame is not None else bgr)
+        except Exception as e:
+            log.debug("own perception: no picture: %s", e)
+            return
+        for track in better:
+            self.pictures[track.id] = jpeg
+            self.pictures.move_to_end(track.id)
+        while len(self.pictures) > MAX_PICTURES:
+            self.pictures.popitem(last=False)
+
+    def newest(self) -> tuple[float, Any] | None:
+        """The newest frame read: (time, av.VideoFrame), or None yet."""
+        with self._cond:
+            return self._frame
 
     def log_stats(self, now: float) -> None:
         """Every ``STATS_SECONDS``: how many frames it looked at, how many went through the
