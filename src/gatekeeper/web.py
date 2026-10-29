@@ -445,6 +445,41 @@ def handler(
                 return
             self._send(200, answer.encode(), "application/sdp")
 
+        def _send_file(self, path: Path, kind: str) -> None:
+            """A file, or the byte range asked for (Safari plays video only so)."""
+            size = path.stat().st_size
+            first, last, status = 0, size - 1, 200
+            if m := re.fullmatch(r"bytes=(\d*)-(\d*)", self.headers.get("Range", "").strip()):
+                if m[1]:
+                    first, last = int(m[1]), min(int(m[2]) if m[2] else size - 1, size - 1)
+                elif m[2]:
+                    first = max(0, size - int(m[2]))
+                if first > last:
+                    self.send_response(416)
+                    self.send_header("Content-Range", f"bytes */{size}")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                status = 206
+            self.send_response(status)
+            self.send_header("Content-Type", kind)
+            self.send_header("Content-Length", str(last - first + 1))
+            self.send_header("Accept-Ranges", "bytes")
+            if status == 206:
+                self.send_header("Content-Range", f"bytes {first}-{last}/{size}")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.end_headers()
+            with path.open("rb") as f:
+                f.seek(first)
+                left = last - first + 1
+                while left > 0:
+                    chunk = f.read(min(left, 1 << 16))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    left -= len(chunk)
+
         def _page(self, status: int = 200, which=None, **kw) -> None:
             body = (which or page).render(**kw).encode()
             self._send(status, body, "text/html; charset=utf-8")
@@ -458,6 +493,13 @@ def handler(
                 jpeg = page.face_jpeg(urllib.parse.unquote(m[1]), int(m[2]))
             elif visits and (m := re.fullmatch(r".*/visit/([^/]+)\.jpg", path)):
                 jpeg = visits.image(urllib.parse.unquote(m[1]))
+            elif visits and (m := re.fullmatch(r".*/clip/([^/]+)/([^/]+)", path)):
+                clip = visits.clip_file(m[1], m[2])
+                if clip is None:
+                    self.send_error(404)
+                else:
+                    self._send_file(clip, "video/mp4")
+                return
             elif zones and path.endswith("/zones/frame.jpg"):
                 jpeg = zones.frame_jpeg()
             elif live and path.endswith("/live/"):

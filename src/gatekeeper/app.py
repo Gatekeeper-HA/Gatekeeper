@@ -27,6 +27,7 @@ from gatekeeper.packages import Baselines, PackageModel, PackageWatcher
 from gatekeeper.perception import Perception
 from gatekeeper.publish import QUICK_REPLY_TOPIC, Publisher
 from gatekeeper.quick_reply import NtfyReplies, QuickReplies
+from gatekeeper.recording import Clips
 from gatekeeper.retention import Retention
 from gatekeeper.sessions import SessionTracker
 from gatekeeper.zones import Zones, ZonesPage, ZoneStore
@@ -617,6 +618,7 @@ def main() -> None:
             snapshot_dir=settings.snapshot_dir,
             guesses=guesser.guesses if guesser else None,
             knocks=knock_log(settings),
+            clips=Clips(settings.clip_dir) if settings.recording else None,
         )
         zones_page = ZonesPage(
             zones, used_zones(settings), lambda: (shot := perception.latest_frame()) and shot.jpeg

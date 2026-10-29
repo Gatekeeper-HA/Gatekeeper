@@ -6,6 +6,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Clips on the Visits page.** With `RECORDING` on, each visit links to Gatekeeper's own
+  clips of it (found by time, so visits Frigate started have them too); a tap plays it in
+  the phone's or browser's player. Clips are served in byte ranges, as Safari needs, and
+  only files that are clips can be fetched.
 - **Own perception starts the visits** (`PERCEPTION=own`, `frigate` by default). Frigate
   isn't needed. Person events, zones, the latest frame and snapshots come from
   Gatekeeper's own perception. The Visits page's pictures and the delivery guess's frames
@@ -204,6 +208,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **Daily report: the knock listener shows it's listening.** It logs, each hour, how many
+  sounds went to the classifier and the top score, and the *Knocks heard* line adds them
+  up (or says no checks were logged). Before, 0 knocks read the same on a quiet day as
+  with a listener that wasn't checking anything.
+- **Daily report: the knock classifier's start-up warning is known noise.** transformers
+  warns that some of AST's mel filters are all zero, once per start; that's how the model
+  was trained, so it's counted with the harmless lines instead of listed every day.
 - **Own perception: one track per person.** The detector also finds part of someone
   (the upper body of someone bending over, at the edge of the picture, or half behind a
   pillar) as well as all of them, and the tracker made that a second person. A box
@@ -211,6 +222,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   lower and bigger, stays the same track. Replayed on 65 porch visits from the rig: 82
   tracks instead of 104, and 2 visits (not 14) where it saw more people at once than
   Frigate. No porch arrival was lost, and it never saw fewer people than Frigate.
+- **The daily report with `PERCEPTION=own`.** Own perception's porch tracks are the arrivals
+  that must be greeted, counted from when it began starting the visits. Frigate's events
+  are only compared with them, and a Frigate that doesn't answer is no longer a problem
+  (a hub has none). Own perception's line says it "starts the visits".
 - **A clean stop.** Gatekeeper now handles SIGTERM. As the container's PID 1, Python
   ignored it, so every `docker stop` (each deploy, each add-on restart) waited 10 s and
   then killed Gatekeeper. It now logs `Gatekeeper stopping` and exits in about a second,

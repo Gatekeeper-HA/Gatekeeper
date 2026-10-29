@@ -188,6 +188,7 @@ class VisitsPage:
         snapshot_dir: Path,
         guesses=None,
         knocks=None,
+        clips=None,
         clock: Callable[[], float] = time.time,
     ) -> None:
         self.event_log = event_log
@@ -196,6 +197,7 @@ class VisitsPage:
         self.snapshot_dir = snapshot_dir
         self.guesses = guesses  # Gatekeeper's guesses (visitor_type.Guesses), if it makes them
         self.knocks = knocks  # the knocks heard (knock.Knocks), if it listens
+        self.clips = clips  # Gatekeeper's own recordings (recording.Clips), if it records
         self._clock = clock
         self.token = ""  # set by web.serve (shared with the faces page)
 
@@ -228,6 +230,19 @@ class VisitsPage:
         if not changed:
             return "Nothing changed."
         return f"Saved {len(changed)} label(s)."
+
+    def clips_of(self, record: dict) -> list[tuple[str, float]]:
+        """A visit's clips: (their path on the page, seconds), oldest first."""
+        if self.clips is None or str(record.get("event_id", "")).startswith("knock-"):
+            return []
+        start, end = started(record), float(record.get("ts") or started(record))
+        return [
+            (f"clip/{folder.name}/{clip['file']}", clip["end"] - clip["start"])
+            for folder, clip in self.clips.overlapping(start - 5, end + 5)
+        ]
+
+    def clip_file(self, day: str, name: str) -> Path | None:
+        return self.clips.file(day, name) if self.clips is not None else None
 
     def image(self, event_id: str) -> bytes | None:
         """The picture for a visit: the photo saved with a package record, else the
@@ -302,6 +317,12 @@ class VisitsPage:
                 out.append(f"<br><span class=note>{e(guess_text(g))}</span>")
             if r.get("transcript"):
                 out.append(f"<br><span class=note>Heard: &ldquo;{e(r['transcript'])}&rdquo;</span>")
+            clips = self.clips_of(r)
+            if clips:
+                links = ", ".join(
+                    f'<a href="{e(href)}">{_length(seconds)}</a>' for href, seconds in clips
+                )
+                out.append(f"<br>Clip{'s' if len(clips) > 1 else ''}: {links}")
             if labelable(r):
                 options = ['<option value="">What was it?</option>'] + [
                     f'<option value="{code}"{" selected" if r["label"] == code else ""}>'
@@ -333,6 +354,11 @@ def guess_text(guess: dict) -> str:
     ]
     what = "a delivery" if guess.get("guess") == "delivery" else "not a delivery"
     return f"Gatekeeper's guess: {what} ({', '.join(why)})"
+
+
+def _length(seconds: float) -> str:
+    seconds = max(0, round(seconds))
+    return f"{seconds // 60}:{seconds % 60:02d}"
 
 
 def _day(ts: float) -> str:
