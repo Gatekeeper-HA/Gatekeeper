@@ -38,6 +38,7 @@ BACKGROUND_SECONDS = 30.0
 WINDOW = 2.0  # seconds the classifier looks at, from just before the first sharp sound
 LEAD = 0.3
 SAME_KNOCK_SECONDS = 15.0  # knocks this close are one knock event
+STATS_SECONDS = 3600.0  # how often it logs how much it checked (the daily report reads it)
 
 
 def sharpness(samples: np.ndarray) -> np.ndarray:
@@ -108,6 +109,8 @@ class KnockListener:
         self._busy_to = 0.0  # classified up to here: one window at a time
         self._last_knock = -1e9
         self.checks = self.knocks = 0
+        self._stats_from: float | None = None  # this hour's checks and top score, from here
+        self._stats_checks, self._stats_top = 0, 0.0
         self._stopping = False
 
     def run_forever(self) -> None:
@@ -142,6 +145,22 @@ class KnockListener:
             start, self._pending = self._pending, None
             self._busy_to = start + WINDOW
             self._classify(start, now)
+        self.log_stats(now)
+
+    def log_stats(self, now: float) -> None:
+        """Every ``STATS_SECONDS``: how many sounds went to the classifier, and the top
+        score, so a quiet day reads apart from a listener that isn't checking."""
+        if self._stats_from is None:
+            self._stats_from = now
+        if now - self._stats_from < STATS_SECONDS:
+            return
+        log.info(
+            "knock listener stats: %d check(s) in %.0f s, top score %.2f",
+            self._stats_checks,
+            now - self._stats_from,
+            self._stats_top,
+        )
+        self._stats_from, self._stats_checks, self._stats_top = now, 0, 0.0
 
     def _classify(self, start: float, now: float) -> None:
         samples = self.tap.slice(start, start + WINDOW)
@@ -151,6 +170,8 @@ class KnockListener:
             self._classifier = self._make_classifier()
         score = self._classifier.knock(samples)
         self.checks += 1
+        self._stats_checks += 1
+        self._stats_top = max(self._stats_top, score)
         if score < self.threshold:
             return
         at = self._wall() - (now - start)

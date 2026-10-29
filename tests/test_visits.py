@@ -293,3 +293,63 @@ def test_a_knock_is_a_row_of_its_own_with_no_picture_or_label(log, tmp_path):
     assert describe(knock) == "A knock at the door (0.92), nobody on camera"
     text = page.render(days=3)
     assert "A knock at the door (0.92)" in text and "visit/knock-" not in text
+
+
+def clip_index(clip_dir, start, end, file=None):
+    """A clip of Gatekeeper's own recordings (recording.py): its file and index."""
+    folder = clip_dir / datetime.datetime.fromtimestamp(start).strftime("%Y-%m-%d")
+    folder.mkdir(parents=True, exist_ok=True)
+    file = file or f"{start:.3f}.mp4"
+    (folder / file).write_bytes(bytes(range(256)) * 4)  # 1024 bytes
+    index = {"start": start, "end": end, "file": file, "people": []}
+    (folder / file.replace(".mp4", ".json")).write_text(json.dumps(index))
+    return folder.name, file
+
+
+def test_each_visit_links_to_its_clips(log, tmp_path):
+    from gatekeeper.recording import Clips
+
+    day, file = clip_index(tmp_path / "clips", 1799999597.0, 1799999635.5)
+    clip_index(tmp_path / "clips", 1799999900.0, 1799999920.0)  # no visit then
+    page = page_for(log, tmp_path)
+    page.clips = Clips(tmp_path / "clips")
+    (visit,) = [r for r in page.visits() if r["event_id"] == "1799999600.000000-aaa111"]
+    assert page.clips_of(visit) == [(f"clip/{day}/{file}", 38.5)]
+    body = page.render()
+    assert f'Clip: <a href="clip/{day}/{file}">0:38</a>' in body
+    assert body.count("Clip:") == 1  # the other visits have none
+    assert page.clip_file(day, file).read_bytes()[:3] == b"\x00\x01\x02"
+    for bad in [(day, "../visit-labels.json"), ("..", file), (day, "1799999900.000.json")]:
+        assert page.clip_file(*bad) is None
+
+
+def test_clips_are_served_whole_or_in_part(log, tmp_path):
+    from gatekeeper.recording import Clips
+
+    day, file = clip_index(tmp_path / "clips", 1799999597.0, 1799999635.5)
+    faces = web.FacesPage(tmp_path / "faces", enabled=True, candidate_days=14)
+    visits = page_for(log, tmp_path)
+    visits.clips = Clips(tmp_path / "clips")
+    c = Client(faces, visits)
+    try:
+        status, body = c.get(f"clip/{day}/{file}")
+        assert status == 200 and len(body) == 1024
+
+        def ranged(spec):
+            req = urllib.request.Request(
+                c.base + f"clip/{day}/{file}", headers={"Authorization": c.auth, "Range": spec}
+            )
+            try:
+                with urllib.request.urlopen(req) as r:
+                    return r.status, r.headers.get("Content-Range"), r.read()
+            except urllib.error.HTTPError as e:
+                return e.code, e.headers.get("Content-Range"), b""
+
+        assert ranged("bytes=0-9") == (206, "bytes 0-9/1024", bytes(range(10)))
+        assert ranged("bytes=1020-") == (206, "bytes 1020-1023/1024", bytes(range(252, 256)))
+        assert ranged("bytes=-2") == (206, "bytes 1022-1023/1024", bytes([254, 255]))
+        assert ranged("bytes=2000-") == (416, "bytes */1024", b"")
+        assert c.get(f"clip/{day}/1.000.mp4")[0] == 404
+        assert c.get(f"clip/{day}/..%2Fvisit-labels.json")[0] == 404
+    finally:
+        c.server.shutdown()

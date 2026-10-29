@@ -342,7 +342,7 @@ def test_collect_reads_the_logs_and_asks_frigate(settings):
     r = build(report.collect(settings, HOST, "", now, fetch=fetch))
 
     assert r["counts"]["visits"] == 1
-    assert r["arrivals"] == {"total": 1, "missed": [], "why": []}
+    assert r["arrivals"] == {"total": 1, "by": "Frigate", "since": None, "missed": [], "why": []}
     assert failing(r) == {}
     assert "labels=person" in asked[0] and asked[1].endswith("/api/stats")
 
@@ -647,6 +647,19 @@ def test_ffmpeg_fixing_timestamps_after_a_dropout_is_noise():
 
     assert logs["ignored"] == 2
     assert logs["sources"]["frigate"]["errors"] == 1  # the dropout itself still shows
+
+
+def test_the_knock_classifiers_mel_filter_warning_is_noise():
+    line = (
+        "/usr/local/lib/python3.11/site-packages/transformers/audio_utils.py:576: "
+        "UserWarning: At least one mel filter has all zero values. The value for "
+        "`num_mel_filters` (128) may be set too high. Or, the value for "
+        "`num_frequency_bins` (257) may be set too low."
+    )
+    logs = summarize_logs(f"### gatekeeper\n{line}\n")
+
+    assert logs["ignored"] == 1
+    assert logs["sources"]["gatekeeper"]["warnings"] == 0
 
 
 def test_the_household_going_in_by_the_door_is_counted_apart():
@@ -987,11 +1000,11 @@ def test_own_perception_is_compared_with_frigates_arrivals():
     assert own["device"] == "cuda"
     assert "own_perception" not in failing(r)
     assert (
-        f"Own perception (shadow, since {report.local(NOW - 8000)}): saw 1 of 3 porch arrivals "
-        f"in the zone, 1 elsewhere, missed {report.local(NOW - 3000)}; 3 track(s), 1 on the "
-        f"porch Frigate didn't have ({report.local(NOW - 3500)}); detector on 1500 of 18000 "
-        "frames: on cpu 3.0 fps, median 190 ms (1 h); on cuda 1.0 fps, median 180 ms (2 h)"
-        in render_text(r)
+        f"Own perception (shadow, since {report.local(NOW - 8000)}): saw 1 of 3 of Frigate's "
+        f"porch arrivals in the zone, 1 elsewhere, missed {report.local(NOW - 3000)}; "
+        f"3 track(s), 1 on the porch Frigate didn't have ({report.local(NOW - 3500)}); "
+        "detector on 1500 of 18000 frames: on cpu 3.0 fps, median 190 ms (1 h); "
+        "on cuda 1.0 fps, median 180 ms (2 h)" in render_text(r)
     )
 
 
@@ -1202,8 +1215,27 @@ def test_knocks_are_counted():
         f"Knocks heard (shadow): 2 (1 with nobody on camera, 1 during a visit): "
         f"{report.local(NOW - 3600)}, {report.local(NOW - 1800)}" in render_text(r)
     )
-    assert "Knocks heard (shadow): 0" in render_text(build(inputs(knocks=[])))
+    assert "Knocks heard (shadow): 0; no checks logged" in render_text(build(inputs(knocks=[])))
     assert "Knocks heard" not in render_text(build(inputs()))  # the listener is off
+
+
+def test_the_knock_listeners_checks_show_it_listening():
+    log = "### gatekeeper\n" + "".join(
+        f"2026-10-28 {h}:00:00,000 INFO     gatekeeper.knock [-] knock listener stats: "
+        f"{n} check(s) in 3600 s, top score {top}\n"
+        for h, n, top in (("10", 12, "0.04"), ("11", 0, "0.00"), ("12", 25, "0.31"))
+    )
+    r = build(inputs(knocks=[], log_text=log))
+    assert r["knocks"] == {
+        "heard": 0,
+        "nobody_on_camera": 0,
+        "during_visit": 0,
+        "at": [],
+        "stats_hours": 3,
+        "checks": 37,
+        "top_score": 0.31,
+    }
+    assert "Knocks heard (shadow): 0; 37 sound(s) checked, top score 0.31" in render_text(r)
 
 
 def test_the_owners_labels_are_compared_with_what_gatekeeper_did():
@@ -1279,3 +1311,47 @@ def test_gatekeepers_own_clips_are_reported():
     assert failing(r)["recording"] == "1 recording(s) failed"
     assert "Recording: 2 clip(s), 1.5 min, 46 MB, 3 person(s) pictured; 1 failed" in render_text(r)
     assert build(inputs())["recording"] is None
+
+
+def test_with_own_perception_starting_the_visits_its_tracks_are_the_arrivals():
+    visit_start = NOW - 5000
+    greeted = visit(visit_start, visit_start + 30)
+    log = own_log(
+        (NOW - 9000, "app", "own perception on (visits): go2rtc:8554/front_door_sub, zones porch"),
+        own_track(visit_start - 3, visit_start + 20, "porch,door"),  # greeted
+        own_track(NOW - 3000, NOW - 2990, "porch"),  # not greeted
+        own_track(NOW - 2000, NOW - 1990, "-"),  # on the walkway: not an arrival
+    )
+    r = build(
+        inputs(
+            arrivals=None,  # no Frigate (a hub): not a problem now
+            log_text=log,
+            trigger_zones=("porch",),
+            perception="own",
+            visits=[greeted],
+            window_visits=[greeted],
+        )
+    )
+    assert r["arrivals"]["total"] == 2 and r["arrivals"]["by"] == "own perception"
+    assert [m["start"] for m in r["arrivals"]["why"]] == [report.local(NOW - 3000)]
+    assert failing(r)["arrivals_greeted"] == "1 porch arrival(s) not greeted"
+    assert "frigate_api" not in failing(r)
+    text = render_text(r)
+    assert "Porch arrivals (own perception): 2, not greeted 1" in text
+    assert f"Own perception (starts the visits, since {report.local(NOW - 9000)})" in text
+
+
+def test_own_perceptions_arrivals_count_from_the_switch():
+    # Frigate started the visits until a restart in the evening; own perception's tracks
+    # before then were shadow tracks, not arrivals it had to greet.
+    log = own_log(
+        (NOW - 9000, "app", "own perception on (shadow): go2rtc:8554/front_door_sub, zones porch"),
+        own_track(NOW - 8000, NOW - 7990, "porch"),  # Frigate's time (and it had nobody)
+        (NOW - 4000, "app", "own perception on (visits): go2rtc:8554/front_door_sub, zones porch"),
+        own_track(NOW - 3000, NOW - 2990, "porch"),
+    )
+    r = build(
+        inputs(arrivals=[], log_text=log, trigger_zones=("porch",), perception="own", visits=[])
+    )
+    assert r["arrivals"]["total"] == 1 and r["arrivals"]["since"] == report.local(NOW - 4000)
+    assert f"Porch arrivals (own perception) since {report.local(NOW - 4000)}: 1" in render_text(r)

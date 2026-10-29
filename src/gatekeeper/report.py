@@ -67,6 +67,9 @@ NOISE = [
         # reolink-aio when the doorbell restarts (weekly maintenance, updates); whether the
         # button is heard again is the doorbell_button check and the Doorbell line.
         r"lost event subscription after [\d.]+ s and failed to reestablish",
+        # transformers building AST's features for the knock classifier: its lowest mel
+        # filters are narrower than one FFT bin, as the model was trained (knock.py).
+        r"At least one mel filter has all zero values",
     )
 ]
 
@@ -135,7 +138,7 @@ MQTT_CONNECTED = re.compile(r"^connected to MQTT ")
 MQTT_DISCONNECTED = re.compile(r"^disconnected from MQTT")
 # own_perception.py's lines (shadow mode): each person track that ended, and every hour
 # how much it looked.
-OWN_ON = re.compile(r"^own perception on \((shadow|visits)\)")
+OWN_ON = re.compile(r"^own perception on \((?P<mode>shadow|visits)\)")
 OWN_READING = re.compile(r"^own perception reading ")
 # recording.py's lines: recording on, each clip written, and each that failed.
 RECORDING_ON = re.compile(r"^recording clips to ")
@@ -143,6 +146,10 @@ RECORDED = re.compile(
     r"^recorded \S+: (?P<seconds>\d+) s, (?P<people>\d+) person\(s\), (?P<mb>[\d.]+) MB"
 )
 RECORDING_FAILED = re.compile(r"^recording failed")
+# knock.py's hourly line: how many sounds the classifier checked, and the top score.
+KNOCK_STATS = re.compile(
+    r"^knock listener stats: (?P<checks>\d+) check\(s\) in \d+ s, top score (?P<top>[\d.]+)"
+)
 OWN_TRACK = re.compile(
     r"own perception: person track (?P<id>\S+) start=(?P<start>[\d.]+) end=(?P<end>[\d.]+) "
     r"zones=(?P<zones>\S+)"
@@ -383,6 +390,20 @@ def doorbell_info(lines: list[str]) -> dict | None:
     }
 
 
+def knock_stats(lines: list[str]) -> dict:
+    """The knock listener's hourly stats in the window: the sounds it checked, the top
+    score, and how many hours it logged (0: no stats line, so nothing shows it listening)."""
+    hours = checks = 0
+    top = 0.0
+    for line in lines:
+        m = GATEKEEPER_LINE.match(line)
+        if k := KNOCK_STATS.match(m["message"] if m else line):
+            hours += 1
+            checks += int(k["checks"])
+            top = max(top, float(k["top"]))
+    return {"stats_hours": hours, "checks": checks, "top_score": top if hours else None}
+
+
 def recording_info(lines: list[str]) -> dict | None:
     """Gatekeeper's own clips (recording.py) in the window: how many, how long, how big,
     and those that failed. None when it logged nothing (off)."""
@@ -418,12 +439,14 @@ def own_perception_info(
     porch arrivals since it started, those it saw in the same zones, saw elsewhere, or
     missed; its porch tracks Frigate had no arrival for; and how much it looked. None
     when it logged nothing (off)."""
-    started, tracks, stats = None, [], []
+    started, tracks, stats, mode = None, [], [], "shadow"
     for line in lines:
         m = GATEKEEPER_LINE.match(line)
         message = m["message"] if m else line
-        if OWN_ON.match(message) and started is None and m:
-            started = log_time(m["time"])
+        if on := OWN_ON.match(message):
+            mode = on["mode"]  # the last: it starts the visits since a restart, say
+            if started is None and m:
+                started = log_time(m["time"])
         elif t := OWN_TRACK.search(message):
             zones_seen = set() if t["zones"] == "-" else set(t["zones"].split(","))
             tracks.append((float(t["start"]), float(t["end"]), zones_seen))
@@ -478,6 +501,7 @@ def own_perception_info(
     for st in stats:
         devices.setdefault(st.get("device") or "cpu", []).append(st)
     return {
+        "mode": mode,
         "since": local(since),
         "arrivals": len(compared),
         "seen": len(seen),
@@ -491,6 +515,33 @@ def own_perception_info(
         "devices": [device_stats(name, hours) for name, hours in devices.items()],
         "device": (stats[-1].get("device") or "cpu") if stats else None,
     }
+
+
+def own_arrivals(lines: list[str], zones: list[str], since: float) -> tuple[list[dict], float]:
+    """Own perception's tracks in the trigger zones (``zones``; any, if none) since it
+    started the visits (``since``, the window's start, or the switch from Frigate if that
+    came later), as arrivals like Frigate's events; and that time."""
+    shadow, switched = False, None
+    for line in lines:
+        m = GATEKEEPER_LINE.match(line)
+        if m and (on := OWN_ON.match(m["message"])):
+            if on["mode"] == "shadow":  # Frigate started the visits until a restart
+                shadow, switched = True, None
+            elif switched is None:
+                switched = log_time(m["time"])
+    if shadow and switched is not None:
+        since = max(since, switched)
+    out = []
+    for line in lines:
+        m = GATEKEEPER_LINE.match(line)
+        if not (t := OWN_TRACK.search(m["message"] if m else line)):
+            continue
+        seen = set() if t["zones"] == "-" else set(t["zones"].split(","))
+        if float(t["start"]) >= since and (seen & set(zones) if zones else True):
+            out.append(
+                {"id": t["id"], "start_time": float(t["start"]), "end_time": float(t["end"])}
+            )
+    return out, since
 
 
 def device_stats(device: str, hours: list[dict]) -> dict:
@@ -895,6 +946,7 @@ class Inputs:
     # Visits the owner labelled in the window (Visits page): each record with its "label".
     labelled: list[dict] = field(default_factory=list)
     own_perception: str = "off"  # the OWN_PERCEPTION setting
+    perception: str = "frigate"  # the PERCEPTION setting: what starts the visits
     version: str = "?"
     hours: int = HOURS
 
@@ -920,14 +972,22 @@ def build(i: Inputs) -> dict:
     unnotified = [v for v in tracked if v["event_id"] not in ok]
     slowest = max((n["seconds"] for n in ok.values()), default=0.0)
 
-    # Every porch arrival greeted? A Frigate event is covered if it started during a visit
-    # or its cooldown (merged into it).
-    windows = [(visit_start(v) - 5, v["ts"] + i.cooldown) for v in i.window_visits]
-    arrivals = i.arrivals or []
-    missed = [e for e in arrivals if not any(a <= e["start_time"] <= b for a, b in windows)]
-
     logs = summarize_logs(i.log_text)
     sources = split_sources(i.log_text)
+    # Every porch arrival greeted? The arrivals are what starts the visits: Frigate's
+    # events, or own perception's tracks (PERCEPTION=own; Frigate's are then only
+    # compared with them). One is covered if it started during a visit or its cooldown
+    # (merged into it).
+    own_visits = i.perception == "own"
+    arrivals_since = since
+    if own_visits:
+        arrivals, arrivals_since = own_arrivals(
+            sources.get("gatekeeper", []), list(i.trigger_zones), since
+        )
+    else:
+        arrivals = i.arrivals or []
+    windows = [(visit_start(v) - 5, v["ts"] + i.cooldown) for v in i.window_visits]
+    missed = [e for e in arrivals if not any(a <= e["start_time"] <= b for a, b in windows)]
     whisper = whisper_info(sources.get("whisper", []) + sources.get("gatekeeper", []))
     frigate = frigate_info(i.stats, i.camera)
     deploys = host.get("deploys", [])
@@ -949,7 +1009,7 @@ def build(i: Inputs) -> dict:
     def check(name: str, passed: bool, problem: str) -> None:
         checks.append({"name": name, "ok": bool(passed), "problem": None if passed else problem})
 
-    if i.arrivals is None:
+    if i.arrivals is None and not own_visits:  # with PERCEPTION=own, Frigate is optional
         check("frigate_api", False, "Frigate's API didn't answer")
     else:
         check("arrivals_greeted", not missed, f"{len(missed)} porch arrival(s) not greeted")
@@ -1033,8 +1093,9 @@ def build(i: Inputs) -> dict:
     if quick["count"]:
         failed = quick["results"].get("failed", 0)
         check("quick_replies", not failed, f"{failed} quick reply(ies) couldn't be said")
+    # Own perception against Frigate's arrivals (when there's a Frigate to compare with).
     own = own_perception_info(
-        arrivals, sources.get("gatekeeper", []), list(i.trigger_zones), i.now, since
+        i.arrivals or [], sources.get("gatekeeper", []), list(i.trigger_zones), i.now, since
     )
     doorbell = doorbell_info(sources.get("gatekeeper", []))
     if doorbell:
@@ -1088,7 +1149,9 @@ def build(i: Inputs) -> dict:
             "outcomes": dict(outcomes),
         },
         "arrivals": {
-            "total": len(arrivals) if i.arrivals is not None else None,
+            "total": len(arrivals) if i.arrivals is not None or own_visits else None,
+            "by": "own perception" if own_visits else "Frigate",
+            "since": local(arrivals_since) if arrivals_since > since else None,
             "missed": [local(e["start_time"]) for e in missed],
             "why": missed_why(missed, sources.get("gatekeeper", []), created.get("gatekeeper")),
         },
@@ -1123,6 +1186,7 @@ def build(i: Inputs) -> dict:
             "nobody_on_camera": sum(1 for k in i.knocks if not k.get("on_camera")),
             "during_visit": sum(1 for k in i.knocks if k.get("in_visit")),
             "at": [local(k["at"]) for k in i.knocks],
+            **knock_stats(sources.get("gatekeeper", [])),
         },
         "line_texts": i.line_texts,
         "doorbell": doorbell,
@@ -1167,7 +1231,10 @@ def summary_lines(report: dict) -> list[str]:
         f"Last {report['hours']} h, to {report['window'][1]}",
         f"Visits: {counts['visits']} (person {triggers.get('person', 0)}, "
         f"button {triggers.get('button', 0)}): {labels}",
-        f"Porch arrivals: {report['arrivals']['total']}, "
+        "Porch arrivals"
+        + (" (own perception)" if report["arrivals"].get("by") == "own perception" else "")
+        + (f" since {report['arrivals']['since']}" if report["arrivals"].get("since") else "")
+        + f": {report['arrivals']['total']}, "
         f"not greeted {len(report['arrivals']['missed'])}"
         + (f"; {', '.join(household)} (not greeted, on purpose)" if household else ""),
         f"Notified: {n['notified']}/{n['tracked']}, slowest {n['slowest_seconds']:.2f} s",
@@ -1244,6 +1311,11 @@ def summary_lines(report: dict) -> list[str]:
                 f"a visit): {', '.join(kn['at'][:10])}"
                 if kn["heard"]
                 else ""
+            )
+            + (
+                f"; {kn['checks']} sound(s) checked, top score {kn['top_score']:.2f}"
+                if kn["stats_hours"]
+                else "; no checks logged"
             )
         )
     if dg := report.get("delivery_guess"):
@@ -1367,9 +1439,11 @@ def summary_lines(report: dict) -> list[str]:
             + (f"; button listener restarted: {'; '.join(stops)}" if stops else "")
         )
     if own := report.get("own_perception"):
+        starts = own.get("mode") == "visits"
         lines.append(
-            f"Own perception (shadow, since {own['since']}): saw {own['seen']} of "
-            f"{own['arrivals']} porch arrivals in the zone"
+            f"Own perception ({'starts the visits' if starts else 'shadow'}, since "
+            f"{own['since']}): saw {own['seen']} of {own['arrivals']} of Frigate's porch "
+            "arrivals in the zone"
             + (f", {len(own['seen_elsewhere'])} elsewhere" if own["seen_elsewhere"] else "")
             + (f", missed {', '.join(own['missed'])}" if own["missed"] else "")
             + (
@@ -1547,6 +1621,7 @@ def collect(
         knocks=knocks_heard(settings, since),
         line_texts={**settings.greeting_texts(), **settings.no_answer_texts()},
         own_perception=settings.own_perception,
+        perception=settings.perception,
         version=__version__,
         hours=hours,
     )

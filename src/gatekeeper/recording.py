@@ -22,6 +22,7 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -39,6 +40,8 @@ AUDIO_RATE = 16000  # the audio tap's
 AUDIO_CHUNK_SECONDS = 0.5  # audio is written this often...
 AUDIO_LAG_SECONDS = 0.5  # ...this far behind the video, so it has arrived
 FRAGMENTED = {"movflags": "frag_keyframe+empty_moov+default_base_moof"}
+DAY_FOLDER = re.compile(r"^\d{4}-\d\d-\d\d$")
+CLIP_FILE = re.compile(r"^\d+\.\d{3}\.mp4$")
 
 
 def track_start(event: PersonEvent) -> float:
@@ -258,6 +261,62 @@ class Recorder:
             len(people),
             path.stat().st_size / 1e6,
         )
+
+
+class Clips:
+    """The clips kept in ``clip_dir``, found by time through their index files (read
+    again only when a day's folder changes)."""
+
+    def __init__(self, clip_dir: Path) -> None:
+        self.clip_dir = clip_dir
+        self._lock = threading.Lock()
+        self._indexes: dict[Path, tuple[float, list[dict]]] = {}
+
+    def around(self, at: float) -> list[tuple[Path, dict]]:
+        """(folder, index) of the clips of the day of ``at`` and the day before (a clip
+        started before midnight)."""
+        out = []
+        for days in (1, 0):
+            day = datetime.datetime.fromtimestamp(at) - datetime.timedelta(days=days)
+            folder = self.clip_dir / day.strftime("%Y-%m-%d")
+            out += [(folder, clip) for clip in self._index(folder)]
+        return out
+
+    def overlapping(self, start: float, end: float) -> list[tuple[Path, dict]]:
+        """The clips that ran during [start, end], oldest first."""
+        clips = {
+            (folder, clip["file"]): (folder, clip)
+            for at in (start, end)
+            for folder, clip in self.around(at)
+            if clip.get("start", 0) <= end and clip.get("end", 0) >= start
+        }
+        return sorted(clips.values(), key=lambda fc: fc[1]["start"])
+
+    def file(self, day: str, name: str) -> Path | None:
+        """A clip's file by its day folder and name, if it's one of ours."""
+        if not DAY_FOLDER.match(day) or not CLIP_FILE.match(name):
+            return None
+        path = self.clip_dir / day / name
+        return path if path.is_file() else None
+
+    def _index(self, folder: Path) -> list[dict]:
+        try:
+            changed = folder.stat().st_mtime
+        except OSError:
+            return []
+        with self._lock:
+            cached = self._indexes.get(folder)
+        if cached and cached[0] == changed:
+            return cached[1]
+        clips = []
+        for path in sorted(folder.glob("*.json")):
+            try:
+                clips.append(json.loads(path.read_text(encoding="utf-8")))
+            except (OSError, ValueError):
+                continue
+        with self._lock:
+            self._indexes[folder] = (changed, clips)
+        return clips
 
 
 def snapshot(clip: Path, at: float, picture: Path) -> bool:
