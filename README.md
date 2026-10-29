@@ -116,6 +116,8 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `REOLINK_HOST`, `REOLINK_USERNAME`, `REOLINK_PASSWORD` | *(none)* | Reolink doorbell for button presses (login over HTTPS, push events on port 9000). Empty host disables. The compose stack uses the camera's `.env` values |
 | `CAMERA_NAME` | `front_door` | Must match the camera name in your Frigate config |
 | `GO2RTC_API` | `http://go2rtc:1984` | go2rtc API endpoint |
+| `WEB_TLS` | `false` | The web page over HTTPS with its own self-signed certificate, for [talking back](#live) from the Live page. The compose stack reads it from `.env` |
+| `WEB_TLS_NAMES` | | The addresses the page is reached at, comma-separated, named in the certificate. The compose stack sets `SERVER_IP` |
 | `LIVE_STREAM`, `LIVE_HD_STREAM` | `<CAMERA_NAME>_live`, `<CAMERA_NAME>_live_hd` | go2rtc's streams for the [Live page](#live): the video as it is, the audio as Opus |
 | `GO2RTC_TALK_STREAM` | `front_door_talk` | go2rtc stream name for talkback |
 | `AUDIO_RTSP_URL` | `rtsp://go2rtc:8554/<CAMERA_NAME>` | RTSP stream for capturing visitor audio |
@@ -505,7 +507,17 @@ is published on `SERVER_IP` to carry the video and sound, and only for sessions 
 that way. The camera's audio is AAC, which WebRTC can't carry, so go2rtc's
 `<camera>_live` streams (`go2rtc/go2rtc.yaml`) make it Opus while someone watches.
 
-Talking back isn't on the page yet: browsers only give the microphone to an HTTPS page.
+**Talking back.** Tap *Talk* and your phone's microphone goes to the doorbell's speaker
+(go2rtc's talk stream, the one Gatekeeper speaks through). The moment you start,
+Gatekeeper steps out: the conversation it's having at the door ends at once, and it greets
+nobody while you talk (a visitor arriving is still notified). The page renews that every
+10 s while you talk; if it closes, Gatekeeper is back 30 s later.
+
+Browsers give the microphone only to an HTTPS page, so talking back needs `WEB_TLS=1`.
+The page is then at `https://<SERVER_IP>:8098/` (an old `http://` link is sent there). It
+uses a self-signed certificate that Gatekeeper makes once, naming `SERVER_IP`, and keeps in
+`LOG_DIR/web-tls/`. Each browser warns about it once; accept it, or install
+`web-cert.pem` as trusted on your phone to stop the warning.
 
 ## Zones
 

@@ -18,6 +18,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   through Gatekeeper's password-protected page to go2rtc, whose API stays private. Only
   go2rtc's WebRTC port (8555) is published, to carry the media. go2rtc's new
   `front_door_live` streams turn the camera's AAC into Opus while someone watches.
+- **Talking back from the Live page.** *Talk* sends your phone's microphone to the doorbell's
+  speaker. Gatekeeper steps out at once: its conversation at the door ends, and it greets
+  nobody while you talk (arrivals are still notified). It needs the page over HTTPS:
+  `WEB_TLS=1` serves it with a self-signed certificate made once (`LOG_DIR/web-tls/`),
+  and old `http://` links are redirected.
 - **Recordings** (`RECORDING=1`, off by default; needs `OWN_PERCEPTION`). Gatekeeper keeps
   its own clips of the door: from 3 s before its own perception sees someone until 2 s
   after they've gone. The high-resolution stream goes in as it came (not re-encoded) with
