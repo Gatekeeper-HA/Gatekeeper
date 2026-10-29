@@ -1202,8 +1202,27 @@ def test_knocks_are_counted():
         f"Knocks heard (shadow): 2 (1 with nobody on camera, 1 during a visit): "
         f"{report.local(NOW - 3600)}, {report.local(NOW - 1800)}" in render_text(r)
     )
-    assert "Knocks heard (shadow): 0" in render_text(build(inputs(knocks=[])))
+    assert "Knocks heard (shadow): 0; no checks logged" in render_text(build(inputs(knocks=[])))
     assert "Knocks heard" not in render_text(build(inputs()))  # the listener is off
+
+
+def test_the_knock_listeners_checks_show_it_listening():
+    log = "### gatekeeper\n" + "".join(
+        f"2026-10-28 {h}:00:00,000 INFO     gatekeeper.knock [-] knock listener stats: "
+        f"{n} check(s) in 3600 s, top score {top}\n"
+        for h, n, top in (("10", 12, "0.04"), ("11", 0, "0.00"), ("12", 25, "0.31"))
+    )
+    r = build(inputs(knocks=[], log_text=log))
+    assert r["knocks"] == {
+        "heard": 0,
+        "nobody_on_camera": 0,
+        "during_visit": 0,
+        "at": [],
+        "stats_hours": 3,
+        "checks": 37,
+        "top_score": 0.31,
+    }
+    assert "Knocks heard (shadow): 0; 37 sound(s) checked, top score 0.31" in render_text(r)
 
 
 def test_the_owners_labels_are_compared_with_what_gatekeeper_did():

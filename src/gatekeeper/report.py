@@ -143,6 +143,10 @@ RECORDED = re.compile(
     r"^recorded \S+: (?P<seconds>\d+) s, (?P<people>\d+) person\(s\), (?P<mb>[\d.]+) MB"
 )
 RECORDING_FAILED = re.compile(r"^recording failed")
+# knock.py's hourly line: how many sounds the classifier checked, and the top score.
+KNOCK_STATS = re.compile(
+    r"^knock listener stats: (?P<checks>\d+) check\(s\) in \d+ s, top score (?P<top>[\d.]+)"
+)
 OWN_TRACK = re.compile(
     r"own perception: person track (?P<id>\S+) start=(?P<start>[\d.]+) end=(?P<end>[\d.]+) "
     r"zones=(?P<zones>\S+)"
@@ -381,6 +385,20 @@ def doorbell_info(lines: list[str]) -> dict | None:
             for x in stops
         ],
     }
+
+
+def knock_stats(lines: list[str]) -> dict:
+    """The knock listener's hourly stats in the window: the sounds it checked, the top
+    score, and how many hours it logged (0: no stats line, so nothing shows it listening)."""
+    hours = checks = 0
+    top = 0.0
+    for line in lines:
+        m = GATEKEEPER_LINE.match(line)
+        if k := KNOCK_STATS.match(m["message"] if m else line):
+            hours += 1
+            checks += int(k["checks"])
+            top = max(top, float(k["top"]))
+    return {"stats_hours": hours, "checks": checks, "top_score": top if hours else None}
 
 
 def recording_info(lines: list[str]) -> dict | None:
@@ -1123,6 +1141,7 @@ def build(i: Inputs) -> dict:
             "nobody_on_camera": sum(1 for k in i.knocks if not k.get("on_camera")),
             "during_visit": sum(1 for k in i.knocks if k.get("in_visit")),
             "at": [local(k["at"]) for k in i.knocks],
+            **knock_stats(sources.get("gatekeeper", [])),
         },
         "line_texts": i.line_texts,
         "doorbell": doorbell,
@@ -1244,6 +1263,11 @@ def summary_lines(report: dict) -> list[str]:
                 f"a visit): {', '.join(kn['at'][:10])}"
                 if kn["heard"]
                 else ""
+            )
+            + (
+                f"; {kn['checks']} sound(s) checked, top score {kn['top_score']:.2f}"
+                if kn["stats_hours"]
+                else "; no checks logged"
             )
         )
     if dg := report.get("delivery_guess"):

@@ -194,6 +194,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **Daily report: the knock listener shows it's listening.** It logs, each hour, how many
+  sounds went to the classifier and the top score, and the *Knocks heard* line adds them
+  up (or says no checks were logged). Before, 0 knocks read the same on a quiet day as
+  with a listener that wasn't checking anything.
 - **Own perception: one track per person.** The detector also finds part of someone
   (the upper body of someone bending over, at the edge of the picture, or half behind a
   pillar) as well as all of them, and the tracker made that a second person. A box

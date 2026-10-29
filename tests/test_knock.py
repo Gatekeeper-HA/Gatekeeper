@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 
 from gatekeeper.knock import KnockListener, Knocks, sharpness
@@ -89,3 +91,13 @@ def test_the_knocks_are_kept(tmp_path):
     knocks.add({"at": 200.0, "score": 0.7, "on_camera": True, "in_visit": True})
     assert [k["at"] for k in knocks.since(150)] == [200.0]
     assert Knocks(tmp_path / "none.jsonl").since(0) == []
+
+
+def test_the_checks_and_top_score_are_logged_each_hour(caplog):
+    taps = [20.0, 20.3]
+    audio = recording(3700, taps=taps, loud=[40.0])
+    with caplog.at_level(logging.INFO, logger="gatekeeper.knock"):
+        _, listener, _ = listen(audio, taps, 3700)
+    stats = [r.getMessage() for r in caplog.records if "knock listener stats" in r.getMessage()]
+    assert stats == [f"knock listener stats: {listener.checks} check(s) in 3600 s, top score 0.90"]
+    assert listener.checks >= 2
