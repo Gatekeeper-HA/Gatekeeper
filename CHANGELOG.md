@@ -194,6 +194,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **Daily report: the knock listener shows it's listening.** It logs, each hour, how many
+  sounds went to the classifier and the top score, and the *Knocks heard* line adds them
+  up (or says no checks were logged). Before, 0 knocks read the same on a quiet day as
+  with a listener that wasn't checking anything.
 - **Daily report: the knock classifier's start-up warning is known noise.** transformers
   warns that some of AST's mel filters are all zero, once per start; that's how the model
   was trained, so it's counted with the harmless lines instead of listed every day.

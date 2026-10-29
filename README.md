@@ -632,6 +632,9 @@ downloaded once), which tells a knock from a door closing, footsteps, voices or 
 car. On the rig's test, 4 of 4 sets of knocks were heard (scores 0.59–0.92), and nothing
 else in the 15 minutes around them scored over 0.05. The classifier needs an NVIDIA GPU
 ([GPU](#gpu-nvidia)): about 0.1 s a check there, against about 12 s on a CPU core.
+Each hour Gatekeeper logs how many sounds it checked and the top score; the daily report
+adds them up (*Knocks heard (shadow): 0; 37 sound(s) checked, top score 0.04*), so a quiet
+day reads apart from a listener that isn't hearing anything.
 
 ## Delivery guess (shadow)
 
