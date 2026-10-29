@@ -486,6 +486,9 @@ at the bottom: one save for the whole page. The labels are kept in
 Gatekeeper made of the visit, so its mistakes show. They're also the examples for
 teaching it to tell visitors apart by sight.
 
+With [recordings](#recordings) on, each visit links to its clips: tap one to watch it,
+with sound, in the phone's or browser's own player.
+
 The page has no scripts and works on a phone, like the faces page (`faces/`, linked
 from it). Pictures come from the camera's snapshots of each visit while it keeps them; a
 visit that started with a doorbell press, before anyone was seen, shows the frame sent

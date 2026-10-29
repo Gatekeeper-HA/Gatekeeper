@@ -6,6 +6,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Clips on the Visits page.** With `RECORDING` on, each visit links to Gatekeeper's own
+  clips of it (found by time, so visits Frigate started have them too); a tap plays it in
+  the phone's or browser's player. Clips are served in byte ranges, as Safari needs, and
+  only files that are clips can be fetched.
 - **Own perception starts the visits** (`PERCEPTION=own`, `frigate` by default). Frigate
   isn't needed. Person events, zones, the latest frame and snapshots come from
   Gatekeeper's own perception. The Visits page's pictures and the delivery guess's frames
