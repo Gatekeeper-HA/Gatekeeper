@@ -649,6 +649,19 @@ def test_ffmpeg_fixing_timestamps_after_a_dropout_is_noise():
     assert logs["sources"]["frigate"]["errors"] == 1  # the dropout itself still shows
 
 
+def test_the_knock_classifiers_mel_filter_warning_is_noise():
+    line = (
+        "/usr/local/lib/python3.11/site-packages/transformers/audio_utils.py:576: "
+        "UserWarning: At least one mel filter has all zero values. The value for "
+        "`num_mel_filters` (128) may be set too high. Or, the value for "
+        "`num_frequency_bins` (257) may be set too low."
+    )
+    logs = summarize_logs(f"### gatekeeper\n{line}\n")
+
+    assert logs["ignored"] == 1
+    assert logs["sources"]["gatekeeper"]["warnings"] == 0
+
+
 def test_the_household_going_in_by_the_door_is_counted_apart():
     went_in = visit(NOW - 1800, NOW - 1790, outcome="entered", classification="no_response")
     r = build(
