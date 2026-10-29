@@ -16,9 +16,7 @@ visits from before the switch, which Frigate saw.
 
 from __future__ import annotations
 
-import datetime
 import io
-import json
 import logging
 import threading
 from collections import OrderedDict
@@ -26,6 +24,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from gatekeeper.perception import PersonEvent, Shot
+from gatekeeper.recording import Clips
 
 log = logging.getLogger(__name__)
 
@@ -78,7 +77,7 @@ class OwnService:
         self._listeners: list[Callable[[PersonEvent], None]] = []
         self._tracks: OrderedDict[str, object] = OrderedDict()
         self._lock = threading.Lock()
-        self._indexes: dict[Path, tuple[float, list[dict]]] = {}
+        self._clips = Clips(clip_dir) if clip_dir is not None else None
 
     def attach(self, own) -> None:
         self.own = own
@@ -193,33 +192,7 @@ class OwnService:
         return self.own.pictures.get(event_id)
 
     def _clips_around(self, at: float) -> list[tuple[Path, dict]]:
-        """The recordings' indexes for the day of ``at`` and the day before (a clip
-        started before midnight)."""
-        if self._clip_dir is None:
-            return []
-        out = []
-        for days in (0, 1):
-            day = datetime.datetime.fromtimestamp(at) - datetime.timedelta(days=days)
-            folder = self._clip_dir / day.strftime("%Y-%m-%d")
-            out += [(folder, clip) for clip in self._index(folder)]
-        return out
-
-    def _index(self, folder: Path) -> list[dict]:
-        try:
-            changed = folder.stat().st_mtime
-        except OSError:
-            return []
-        cached = self._indexes.get(folder)
-        if cached and cached[0] == changed:
-            return cached[1]
-        clips = []
-        for path in sorted(folder.glob("*.json")):
-            try:
-                clips.append(json.loads(path.read_text(encoding="utf-8")))
-            except (OSError, ValueError):
-                continue
-        self._indexes[folder] = (changed, clips)
-        return clips
+        return self._clips.around(at) if self._clips is not None else []
 
     def _recorded_picture(self, event_id: str) -> Path | None:
         try:
