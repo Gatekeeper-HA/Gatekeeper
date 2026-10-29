@@ -194,6 +194,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **The daily report with `PERCEPTION=own`.** Own perception's porch tracks are the arrivals
+  that must be greeted, counted from when it began starting the visits. Frigate's events
+  are only compared with them, and a Frigate that doesn't answer is no longer a problem
+  (a hub has none). Own perception's line says it "starts the visits".
 - **Own perception: one track per person.** The detector also finds part of someone
   (the upper body of someone bending over, at the edge of the picture, or half behind a
   pillar) as well as all of them, and the tracker made that a second person. A box
