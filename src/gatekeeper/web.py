@@ -338,8 +338,8 @@ def nav(current: str) -> str:
     """The links between the pages: Visits is at ``./``, Faces at ``faces/``, Zones at
     ``zones/`` (relative, so they work behind a path prefix)."""
     up = "" if current == "visits" else "../"
-    links = [("visits", "Visits", up or "./"), ("faces", "Faces", f"{up}faces/")]
-    links.append(("zones", "Zones", f"{up}zones/"))
+    links = [("visits", "Visits", up or "./"), ("live", "Live", f"{up}live/")]
+    links += [("faces", "Faces", f"{up}faces/"), ("zones", "Zones", f"{up}zones/")]
     return (
         "<nav>"
         + " ".join(
@@ -364,7 +364,7 @@ class _Server(ThreadingHTTPServer):
 
 
 def handler(
-    page: FacesPage, password: str, visits=None, zones=None
+    page: FacesPage, password: str, visits=None, zones=None, live=None
 ) -> type[BaseHTTPRequestHandler]:
     """``visits``: the Visits page (visits.VisitsPage) at ``/``, with the faces at
     ``faces/``; without it the faces are at ``/``. ``zones``: the Zones page
@@ -397,6 +397,20 @@ def handler(
             self.end_headers()
             self.wfile.write(body)
 
+        def _live_offer(self, length: int) -> None:
+            """The Live page's WebRTC offer, passed to go2rtc: its answer, as SDP."""
+            sdp = self.rfile.read(length).decode("utf-8", "replace")
+            if not hmac.compare_digest(self.headers.get("X-Token", ""), page.token):
+                self._send(403, b"That page is out of date: reload it.", "text/plain")
+                return
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            try:
+                answer = live.offer(sdp, hd=query.get("hd", ["0"])[0] == "1")
+            except ValueError as e:
+                self._send(400, str(e).encode(), "text/plain; charset=utf-8")
+                return
+            self._send(200, answer.encode(), "application/sdp")
+
         def _page(self, status: int = 200, which=None, **kw) -> None:
             body = (which or page).render(**kw).encode()
             self._send(status, body, "text/html; charset=utf-8")
@@ -412,6 +426,9 @@ def handler(
                 jpeg = visits.image(urllib.parse.unquote(m[1]))
             elif zones and path.endswith("/zones/frame.jpg"):
                 jpeg = zones.frame_jpeg()
+            elif live and path.endswith("/live/"):
+                self._page(which=live)
+                return
             elif zones and path.endswith("/zones/"):
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 self._page(which=zones, message=query.get("done", [""])[0][:200])
@@ -437,6 +454,9 @@ def handler(
             length = int(self.headers.get("Content-Length") or 0)
             if length > MAX_BODY:
                 self.send_error(413)
+                return
+            if live and urllib.parse.urlsplit(self.path).path.endswith("/live/offer"):
+                self._live_offer(length)
                 return
             # Blank values too: a visit's label set back to "What was it?" clears it.
             form = urllib.parse.parse_qs(
@@ -492,13 +512,18 @@ def handler(
 
 
 def serve(
-    page: FacesPage, password: str, port: int = DEFAULT_PORT, visits=None, zones=None
+    page: FacesPage,
+    password: str,
+    port: int = DEFAULT_PORT,
+    visits=None,
+    zones=None,
+    live=None,
 ) -> ThreadingHTTPServer:
     """Serve the pages on ``port`` in a daemon thread."""
-    for other in (visits, zones):
+    for other in (visits, zones, live):
         if other is not None:
             other.token = page.token  # one token proves a form came from any page
-    server = _Server(("0.0.0.0", port), handler(page, password, visits, zones))
+    server = _Server(("0.0.0.0", port), handler(page, password, visits, zones, live))
     threading.Thread(target=server.serve_forever, name="web", daemon=True).start()
     log.info(
         "%s on :%d", "visits and faces pages" if visits else "faces page", server.server_address[1]

@@ -116,6 +116,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `REOLINK_HOST`, `REOLINK_USERNAME`, `REOLINK_PASSWORD` | *(none)* | Reolink doorbell for button presses (login over HTTPS, push events on port 9000). Empty host disables. The compose stack uses the camera's `.env` values |
 | `CAMERA_NAME` | `front_door` | Must match the camera name in your Frigate config |
 | `GO2RTC_API` | `http://go2rtc:1984` | go2rtc API endpoint |
+| `LIVE_STREAM`, `LIVE_HD_STREAM` | `<CAMERA_NAME>_live`, `<CAMERA_NAME>_live_hd` | go2rtc's streams for the [Live page](#live): the video as it is, the audio as Opus |
 | `GO2RTC_TALK_STREAM` | `front_door_talk` | go2rtc stream name for talkback |
 | `AUDIO_RTSP_URL` | `rtsp://go2rtc:8554/<CAMERA_NAME>` | RTSP stream for capturing visitor audio |
 | `DWELL_SECONDS` | `1` | Seconds a person must be visible before triggering |
@@ -491,6 +492,20 @@ from it). Pictures come from the camera's snapshots of each visit while it keeps
 visit that started with a doorbell press, before anyone was seen, shows the frame sent
 with its notification (kept `AUDIO_RETENTION_DAYS`). A press during a visit is part of
 that visit, so it has no label of its own.
+
+## Live
+
+`http://<SERVER_IP>:8098/live/` shows the door now, with sound, in the browser (WebRTC).
+*Normal* is the camera's low-resolution stream, light on a phone; *HD* is its full
+resolution. The sound starts muted, as browsers want: tap *Sound on*.
+
+go2rtc's API stays private. The browser's offer goes to Gatekeeper's page, behind its
+password, which asks go2rtc for the stream. Only go2rtc's WebRTC port, 8555 (TCP and UDP),
+is published on `SERVER_IP` to carry the video and sound, and only for sessions started
+that way. The camera's audio is AAC, which WebRTC can't carry, so go2rtc's
+`<camera>_live` streams (`go2rtc/go2rtc.yaml`) make it Opus while someone watches.
+
+Talking back isn't on the page yet: browsers only give the microphone to an HTTPS page.
 
 ## Zones
 
