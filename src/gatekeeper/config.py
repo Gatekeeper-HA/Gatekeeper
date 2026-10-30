@@ -138,6 +138,9 @@ class Settings(BaseSettings):
     # web_tls_names: the addresses it's reached at, comma-separated (the server's IP).
     web_tls: bool = False
     web_tls_names: str = ""
+    # The web page's address as the phone reaches it: tapping a notification opens its
+    # Live page. Default: http(s)://<the first of web_tls_names>:<web_port>/, when set.
+    web_public_url: str = ""
     # Defaults to rtsp://go2rtc:8554/<camera_name> when unset.
     audio_rtsp_url: str = ""
 
@@ -404,6 +407,10 @@ class Settings(BaseSettings):
             self.face_rtsp_url = self.audio_rtsp_url
         if not self.own_perception_url:
             self.own_perception_url = f"{self.audio_rtsp_url}_sub"
+        if not self.web_public_url and self.web_tls_names.strip():
+            host = self.web_tls_names.split(",")[0].strip()
+            scheme = "https" if self.web_tls else "http"
+            self.web_public_url = f"{scheme}://{host}:{self.web_port}/"
         if not self.live_stream:
             self.live_stream = f"{self.camera_name}_live"
         if not self.live_hd_stream:

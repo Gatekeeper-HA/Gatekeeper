@@ -219,12 +219,15 @@ class NtfyBackend:
         token: str = "",
         timeout: float = 5.0,
         reply_url: str = "",
+        click_url: str = "",
     ) -> None:
         self.endpoint = f"{url.rstrip('/')}/{urllib.parse.quote(topic)}"
         self.token = token
         self.timeout = timeout
         # Where quick reply buttons post (the reply topic, as the phone reaches it).
         self.reply_url = reply_url
+        # What tapping the notification opens: the web page's Live view.
+        self.click_url = click_url
 
     def request(self, n: Notification, image: bytes | None) -> urllib.request.Request:
         headers = {
@@ -234,6 +237,8 @@ class NtfyBackend:
         }
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
+        if self.click_url:
+            headers["Click"] = self.click_url
         if n.actions and self.reply_url:
             headers["Actions"] = "; ".join(
                 f'http, "{label}", {self.reply_url}, method=POST, body={body}, clear=true'

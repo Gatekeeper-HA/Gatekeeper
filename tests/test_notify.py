@@ -268,3 +268,22 @@ def test_compose_someone_recognized_is_quiet_and_named():
     assert n.priority == 2
     n = compose(visit(outcome="household", details={"name": "Alex", "greeted": True}))
     assert n.message == "Recognized by face, after the greeting started."
+
+
+def test_tapping_the_notification_opens_the_live_page():
+    backend = NtfyBackend("http://ntfy", "doorbell", click_url="https://192.0.2.10:8098/live/")
+    req = backend.request(Notification("Someone at the front door", "No answer."), None)
+    assert req.get_header("Click") == "https://192.0.2.10:8098/live/"
+    plain = NtfyBackend("http://ntfy", "doorbell").request(Notification("t", "m"), None)
+    assert plain.get_header("Click") is None
+
+
+def test_the_web_page_address_for_notifications():
+    from gatekeeper.config import Settings
+
+    tls = Settings(web_tls=True, web_tls_names="192.0.2.10, gatekeeper.lan")
+    assert tls.web_public_url == "https://192.0.2.10:8098/"
+    assert Settings(web_tls_names="192.0.2.10").web_public_url == "http://192.0.2.10:8098/"
+    assert Settings().web_public_url == ""
+    custom = Settings(web_public_url="https://door.example/")
+    assert custom.web_public_url == "https://door.example/"

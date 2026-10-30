@@ -6,6 +6,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Tapping a notification opens the Live page**, to see who it is and talk to them at once.
+  Its address (`WEB_PUBLIC_URL`) defaults to the web page at the server's address, https
+  with `WEB_TLS`.
 - **Clips on the Visits page.** With `RECORDING` on, each visit links to Gatekeeper's own
   clips of it (found by time, so visits Frigate started have them too); a tap plays it in
   the phone's or browser's player. Clips are served in byte ranges, as Safari needs, and
