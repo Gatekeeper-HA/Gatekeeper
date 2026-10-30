@@ -213,6 +213,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   out of. Now a login page asks for it and keeps you logged in on that browser for 30
   days (a cookie; only its hash is kept, so a restart doesn't log you out), with *Log out*
   in the menu. Scripts can still send the password with each request.
+- **Daily report: own perception's misses fail a check when it starts the visits.** With
+  `PERCEPTION=own`, Frigate's porch arrivals own perception missed are arrivals nobody
+  greeted, and the `own_perception` check now fails on them (*missed N of Frigate's porch
+  arrivals: not greeted*). Before, `arrivals_greeted` only counted own perception's own
+  tracks, so a day it stopped seeing anyone read all clear. In shadow mode misses stay data.
 - **Daily report: the knock listener shows it's listening.** It logs, each hour, how many
   sounds went to the classifier and the top score, and the *Knocks heard* line adds them
   up (or says no checks were logged). Before, 0 knocks read the same on a quiet day as

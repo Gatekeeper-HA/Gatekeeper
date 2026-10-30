@@ -433,12 +433,18 @@ def recording_info(lines: list[str]) -> dict | None:
 
 
 def own_perception_info(
-    arrivals: list[dict], lines: list[str], zones: list[str], now: float, window_start: float = 0.0
+    arrivals: list[dict],
+    lines: list[str],
+    zones: list[str],
+    now: float,
+    window_start: float = 0.0,
+    visits_since: float | None = None,
 ) -> dict | None:
     """Our own perception in shadow mode next to Frigate (own_perception.py): of Frigate's
     porch arrivals since it started, those it saw in the same zones, saw elsewhere, or
-    missed; its porch tracks Frigate had no arrival for; and how much it looked. None
-    when it logged nothing (off)."""
+    missed; its porch tracks Frigate had no arrival for; and how much it looked. With
+    ``visits_since`` (it starts the visits since then), ``missed_visits`` counts the
+    misses since then: arrivals nobody greeted. None when it logged nothing (off)."""
     started, tracks, stats, mode = None, [], [], "shadow"
     for line in lines:
         m = GATEKEEPER_LINE.match(line)
@@ -507,6 +513,9 @@ def own_perception_info(
         "seen": len(seen),
         "seen_elsewhere": [local(e["start_time"]) for e in elsewhere],
         "missed": [local(e["start_time"]) for e in missed],
+        "missed_visits": None
+        if visits_since is None
+        else sum(e["start_time"] >= visits_since - OWN_SLACK_SECONDS for e in missed),
         "restarting": [local(e["start_time"]) for e in restarting],
         "tracks": len(tracks),
         "extra": [local(t[0]) for t in extra],
@@ -1095,7 +1104,12 @@ def build(i: Inputs) -> dict:
         check("quick_replies", not failed, f"{failed} quick reply(ies) couldn't be said")
     # Own perception against Frigate's arrivals (when there's a Frigate to compare with).
     own = own_perception_info(
-        i.arrivals or [], sources.get("gatekeeper", []), list(i.trigger_zones), i.now, since
+        i.arrivals or [],
+        sources.get("gatekeeper", []),
+        list(i.trigger_zones),
+        i.now,
+        since,
+        visits_since=arrivals_since if own_visits else None,
     )
     doorbell = doorbell_info(sources.get("gatekeeper", []))
     if doorbell:
@@ -1105,7 +1119,16 @@ def build(i: Inputs) -> dict:
             doorbell["listening"],
             f"the doorbell button isn't heard: its listener stopped at {stopped}",
         )
-    if i.own_perception != "off":
+    if own and own["missed_visits"]:
+        # Starting the visits, its misses are porch arrivals nobody greeted, which the
+        # arrivals_greeted check can't see (it counts own perception's own tracks).
+        check(
+            "own_perception",
+            False,
+            f"own perception starts the visits but missed {own['missed_visits']} of Frigate's "
+            "porch arrivals: not greeted",
+        )
+    elif i.own_perception != "off":
         check("own_perception", own is not None, "own perception is on but logged nothing")
     recording = recording_info(sources.get("gatekeeper", []))
     if recording:
