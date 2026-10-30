@@ -154,3 +154,20 @@ def test_a_probe_that_hung_up_early_is_not_an_error(health, capsys, caplog):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_the_watchdog_says_where_every_thread_is_before_it_exits(health, clock, caplog):
+    import threading
+
+    exits, stop = [], threading.Event()
+    health.mqtt_connected = True  # the sweep never ran: an internal hang
+
+    def exit_fn(code):
+        exits.append(code)
+        stop.set()
+
+    health.watchdog(0, interval=0, exit_fn=exit_fn)
+    assert exits == [1]
+    message = caplog.records[-1].getMessage()
+    assert "exiting; the threads:" in message and "-- MainThread" in message
+    assert "test_the_watchdog_says_where_every_thread_is_before_it_exits" in message

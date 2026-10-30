@@ -482,8 +482,42 @@ def test_app_starts_it_with_the_zones_gatekeeper_uses(monkeypatch, tmp_path):
     assert Perception.asked == ["porch", "door"]
     assert service.tracker._zones() == {"porch": PORCH, "door": None}
     assert service.detector.args == (tmp_path / "yolox_tiny.onnx", 0.3, 2, "auto")
-    assert started == ["own-perception-start", "own-perception-read", "own-perception"]
+    assert started == [
+        "own-perception-start",
+        "own-perception-read",
+        "own-perception",
+        "own-perception-watch",
+    ]
     beats = []
     beating = app.start_own_perception(settings, Perception(), on_look=lambda: beats.append(1))
     beating._on_look()
     assert beats == [1]
+
+
+def test_a_stalled_look_loop_says_where_it_is_stuck(caplog):
+    # Once the loop has run, not passing for STALL_SECONDS is logged with where its
+    # thread waits (here: on a lock nobody releases), once; and when it's back.
+    service = OwnPerception("rtsp://x", Detector(), Tracker("x"))
+    service.check_stall(100.0)  # never passed (the model loading): nothing to say
+    stuck = threading.Event()
+
+    def blocked_somewhere():
+        service._look_thread = threading.get_ident()
+        service._passed = 0.0
+        stuck.wait(10)
+
+    worker = threading.Thread(target=blocked_somewhere)
+    worker.start()
+    while service._passed is None:
+        pass
+    service.check_stall(own.STALL_SECONDS + 1)
+    service.check_stall(own.STALL_SECONDS + 20)  # still stuck: said once
+    stuck.set()
+    worker.join()
+    critical = [r for r in caplog.records if r.levelname == "CRITICAL"]
+    assert len(critical) == 1
+    assert "hasn't passed for 61 s" in critical[0].getMessage()
+    assert "blocked_somewhere" in critical[0].getMessage()
+    service._passed = 200.0
+    service.check_stall(201.0)
+    assert caplog.records[-1].getMessage() == "own perception looking again"

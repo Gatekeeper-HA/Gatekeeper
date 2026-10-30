@@ -18,6 +18,7 @@ import os
 import sys
 import threading
 import time
+import traceback
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -26,6 +27,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 log = logging.getLogger(__name__)
 
 DEFAULT_PORT = 8099
+
+
+def thread_stacks() -> str:
+    """Where every thread is now (what a hang is waiting on), for the log."""
+    names = {t.ident: t.name for t in threading.enumerate()}
+    return "\n".join(
+        f"-- {names.get(ident, ident)}\n" + "".join(traceback.format_stack(frame)).rstrip()
+        for ident, frame in sys._current_frames().items()
+    )
 
 
 class Health:
@@ -121,8 +131,8 @@ class Health:
                 now = self._clock()
                 hung_since = hung_since if hung_since is not None else now
                 if now - hung_since >= hang_exit_seconds:
-                    log.critical("internal hang for %.0f s: %s; exiting", now - hung_since,
-                                 self.check()[1]["problems"])
+                    log.critical("internal hang for %.0f s: %s; exiting; the threads:\n%s",
+                                 now - hung_since, self.check()[1]["problems"], thread_stacks())
                     exit_fn(1)
                     return
             else:

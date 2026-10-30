@@ -17,8 +17,10 @@ arrivals. Frigate still drives the visits.
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 import time
+import traceback
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -59,6 +61,7 @@ MOTION_SHARE = 0.002  # ...on this share of the frame: something moved
 MOTION_LEARN = 0.05  # how fast the background follows the scene (lighting, shadows)
 MAX_BACKOFF_SECONDS = 30.0
 MAX_PICTURES = 200  # the best picture of the last this many people, for snapshots
+STALL_SECONDS = 60.0  # the look loop not passing this long: logged, with where it's stuck
 STATS_SECONDS = 3600.0  # how often it logs how much it looked (the daily report reads it)
 
 
@@ -428,6 +431,9 @@ class OwnPerception:
         self._on_event = on_event
         self._on_track = on_track
         self._on_look = on_look  # a heartbeat, each pass of look_forever (health.py)
+        self._passed: float | None = None  # time.monotonic() of the look loop's last pass
+        self._look_thread: int | None = None
+        self._stall_logged = False
         self._opener = opener
         self._clock = clock
         self._sleep = sleep
@@ -446,6 +452,32 @@ class OwnPerception:
     def start(self, start_thread: Callable[..., None]) -> None:
         start_thread("own-perception-read", self.read_forever)
         start_thread("own-perception", self.look_forever)
+        start_thread("own-perception-watch", self.watch_forever)
+
+    def watch_forever(self, every: float = 10.0) -> None:
+        while not self._stopping:
+            time.sleep(every)
+            self.check_stall(time.monotonic())
+
+    def check_stall(self, now: float) -> None:
+        """The look loop not passing for ``STALL_SECONDS``: say so, once, with where its
+        thread is stuck (in shadow too, where nothing else would notice); and when it's
+        looking again."""
+        if self._passed is None:
+            return  # not started yet (the model loading)
+        stalled = now - self._passed
+        if stalled >= STALL_SECONDS and not self._stall_logged:
+            self._stall_logged = True
+            frame = sys._current_frames().get(self._look_thread or -1)
+            where = "".join(traceback.format_stack(frame)).rstrip() if frame else "(gone)"
+            log.critical(
+                "own perception stalled: its look loop hasn't passed for %.0f s; it's at:\n%s",
+                stalled,
+                where,
+            )
+        elif stalled < STALL_SECONDS and self._stall_logged:
+            self._stall_logged = False
+            log.warning("own perception looking again")
 
     def stop(self) -> None:
         """Stop, and report the tracks still open: someone at the door while Gatekeeper
@@ -494,12 +526,14 @@ class OwnPerception:
     # -- looking ---------------------------------------------------------------
 
     def look_forever(self) -> None:
+        self._look_thread = threading.get_ident()
         last = 0.0
         while not self._stopping:
             with self._cond:
                 if self._frame is None or self._frame[0] <= last:
                     self._cond.wait(1.0)
                 fresh = self._frame if self._frame and self._frame[0] > last else None
+            self._passed = time.monotonic()
             self._on_look()
             self.log_stats(self._clock())
             if fresh is None:
