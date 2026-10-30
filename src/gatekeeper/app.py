@@ -625,14 +625,30 @@ def main() -> None:
             zones, used_zones(settings), lambda: (shot := perception.latest_frame()) and shot.jpeg
         )
         from gatekeeper.live import LivePage
+        from gatekeeper.logins import Logins
 
+        tls = None
+        if settings.web_tls:
+            from gatekeeper.tls import certificate, server_context
+
+            names = [n.strip() for n in settings.web_tls_names.split(",") if n.strip()]
+            tls = server_context(*certificate(settings.log_dir / "web-tls", names))
+        live = LivePage(
+            settings.go2rtc_api,
+            settings.live_stream,
+            settings.live_hd_stream,
+            talk_stream=settings.go2rtc_talk_stream,
+            owner=interaction,
+        )
         web.serve(
             page,
             settings.web_password.get_secret_value(),
             settings.web_port,
             visits,
             zones=zones_page,
-            live=LivePage(settings.go2rtc_api, settings.live_stream, settings.live_hd_stream),
+            live=live,
+            tls=tls,
+            logged_in=Logins(settings.log_dir / "web-logins.json"),
         )
     start_thread(
         "sweep", tracker.sweep_forever, settings.sweep_interval_seconds, on_sweep=health.sweep_done
