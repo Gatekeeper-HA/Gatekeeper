@@ -117,6 +117,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `CAMERA_NAME` | `front_door` | Must match the camera name in your Frigate config |
 | `GO2RTC_API` | `http://go2rtc:1984` | go2rtc API endpoint |
 | `WEB_TLS` | `false` | The web page over HTTPS with its own self-signed certificate, for [talking back](#live) from the Live page. The compose stack reads it from `.env` |
+| `WEB_PUBLIC_URL` | `http(s)://<WEB_TLS_NAMES' first>:<WEB_PORT>/` | The web page's address as your phone reaches it: tapping a notification opens its [Live page](#live). The compose stack's `WEB_TLS_NAMES` (`SERVER_IP`) makes the default |
 | `WEB_TLS_NAMES` | | The addresses the page is reached at, comma-separated, named in the certificate. The compose stack sets `SERVER_IP` |
 | `LIVE_STREAM`, `LIVE_HD_STREAM` | `<CAMERA_NAME>_live`, `<CAMERA_NAME>_live_hd` | go2rtc's streams for the [Live page](#live): the video as it is, the audio as Opus |
 | `GO2RTC_TALK_STREAM` | `front_door_talk` | go2rtc stream name for talkback |
@@ -518,6 +519,9 @@ password, which asks go2rtc for the stream. Only go2rtc's WebRTC port, 8555 (TCP
 is published on `SERVER_IP` to carry the video and sound, and only for sessions started
 that way. The camera's audio is AAC, which WebRTC can't carry, so go2rtc's
 `<camera>_live` streams (`go2rtc/go2rtc.yaml`) make it Opus while someone watches.
+
+**From a notification.** Tapping a Gatekeeper notification opens the Live page, so you see
+who it is and can talk to them at once (on your home network; the login is remembered).
 
 **Talking back.** Tap *Talk* and your phone's microphone goes to the doorbell's speaker
 (go2rtc's talk stream, the one Gatekeeper speaks through). The moment you start,
