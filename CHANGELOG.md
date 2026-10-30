@@ -208,6 +208,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **A login page for the web page.** It asked for its password with the browser's own box
+  (HTTP Basic), which some browsers never show (DuckDuckGo's) and which can't be logged
+  out of. Now a login page asks for it and keeps you logged in on that browser for 30
+  days (a cookie; only its hash is kept, so a restart doesn't log you out), with *Log out*
+  in the menu. Scripts can still send the password with each request.
 - **Daily report: own perception's misses fail a check when it starts the visits.** With
   `PERCEPTION=own`, Frigate's porch arrivals own perception missed are arrivals nobody
   greeted, and the `own_perception` check now fails on them (*missed N of Frigate's porch
