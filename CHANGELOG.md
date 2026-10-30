@@ -203,6 +203,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **A stalled own perception restarts Gatekeeper.** With `PERCEPTION=own`, own perception's
+  look loop beats on every pass. No beat for `OWN_PERCEPTION_STALL_SECONDS` (60) is an
+  internal hang, *own perception stalled*: `/healthz` turns unhealthy, and after
+  `HANG_EXIT_SECONDS` the watchdog exits so Docker restarts it. Before, it could stop
+  looking for hours with nothing logged while Gatekeeper reported healthy, and nobody at
+  the door was greeted.
 - **Daily report: the knock listener shows it's listening.** It logs, each hour, how many
   sounds went to the classifier and the top score, and the *Knocks heard* line adds them
   up (or says no checks were logged). Before, 0 knocks read the same on a quiet day as

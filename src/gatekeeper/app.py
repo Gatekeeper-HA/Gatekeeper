@@ -319,7 +319,7 @@ def used_zones(settings: Settings) -> dict[str, str]:
     return purposes
 
 
-def start_own_perception(settings: Settings, zones: Zones, listeners=()):
+def start_own_perception(settings: Settings, zones: Zones, listeners=(), on_look=lambda: None):
     """Our own perception (own_perception.py): it logs each person track, with the zones
     it walked through, and tells each of ``listeners`` (the recorder, and with
     PERCEPTION=own the visits) about its person events and tracks that ended. The zones
@@ -348,6 +348,7 @@ def start_own_perception(settings: Settings, zones: Zones, listeners=()):
         fps=settings.own_perception_fps,
         on_event=on_event,
         on_track=on_track,
+        on_look=on_look,
     )
 
     def run() -> None:
@@ -650,7 +651,11 @@ def main() -> None:
         log.info("recording clips to %s", settings.clip_dir)
     if own_on:
         listeners = [x for x in (recorder, perception if own_visits else None) if x is not None]
-        own = start_own_perception(settings, zones, listeners)
+        if own_visits:  # it starts the visits: a stall is an internal hang (health.py)
+            health.look_max_age = settings.own_perception_stall_seconds
+        own = start_own_perception(
+            settings, zones, listeners, on_look=health.looked if own_visits else lambda: None
+        )
         if own_visits:
             perception.attach(own)
         on_stop.append(own.stop)

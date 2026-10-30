@@ -416,6 +416,7 @@ class OwnPerception:
         fps: float = 5.0,
         on_event: Callable[[PersonEvent], None] = lambda event: None,
         on_track: Callable[[Track], None] = lambda track: log.info(summary(track)),
+        on_look: Callable[[], None] = lambda: None,
         opener: Callable[[str], Any] = open_rtsp,
         clock: Callable[[], float] = time.time,
         sleep: Callable[[float], None] = time.sleep,
@@ -426,6 +427,7 @@ class OwnPerception:
         self.every = 1.0 / fps
         self._on_event = on_event
         self._on_track = on_track
+        self._on_look = on_look  # a heartbeat, each pass of look_forever (health.py)
         self._opener = opener
         self._clock = clock
         self._sleep = sleep
@@ -498,6 +500,7 @@ class OwnPerception:
                 if self._frame is None or self._frame[0] <= last:
                     self._cond.wait(1.0)
                 fresh = self._frame if self._frame and self._frame[0] > last else None
+            self._on_look()
             self.log_stats(self._clock())
             if fresh is None:
                 self.end_stale()

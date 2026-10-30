@@ -65,6 +65,35 @@ def test_mqtt_outage_is_not_an_internal_hang(health):
     assert not health.internal_hang()
 
 
+def test_own_perception_stalled_is_an_internal_hang_once_it_has_looked(health, clock):
+    health.sweep_done()
+    health.mqtt_connected = True
+    assert "own_perception_age_seconds" not in health.check()[1]  # not starting the visits
+    health.look_max_age = 60
+    clock.now += 600  # the model still loading: no pass yet, not a hang
+    health.sweep_done()
+    assert health.check() == (
+        True,
+        {
+            "status": "ok",
+            "problems": [],
+            "mqtt_connected": True,
+            "sweep_age_seconds": 0.0,
+            "visit_age_seconds": None,
+            "own_perception_age_seconds": None,
+            "audio_tap": "off",
+        },
+    )
+    health.looked()
+    clock.now += 61
+    health.sweep_done()
+    assert health.check()[1]["problems"] == ["own perception stalled"]
+    assert health.check()[1]["own_perception_age_seconds"] == 61.0
+    assert health.internal_hang()
+    health.looked()
+    assert health.check()[0]
+
+
 def test_watchdog_exits_after_a_sustained_hang(health, clock, monkeypatch):
     import gatekeeper.health as mod
 
