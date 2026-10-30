@@ -93,12 +93,17 @@ def build_notify_backends(settings: Settings) -> list:
             reply_url = "/".join(
                 (settings.ntfy_public_url.rstrip("/"), quote(settings.ntfy_reply_topic))
             )
+        # Tapping a notification opens the Live page (when the web page is on).
+        click_url = ""
+        if settings.web_password.get_secret_value() and settings.web_public_url:
+            click_url = f"{settings.web_public_url.rstrip('/')}/live/"
         backends.append(
             NtfyBackend(
                 settings.ntfy_url,
                 settings.ntfy_topic,
                 settings.ntfy_token.get_secret_value(),
                 reply_url=reply_url,
+                click_url=click_url,
             )
         )
     if not backends:
