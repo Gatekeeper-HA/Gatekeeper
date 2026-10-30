@@ -1341,6 +1341,54 @@ def test_with_own_perception_starting_the_visits_its_tracks_are_the_arrivals():
     assert f"Own perception (starts the visits, since {report.local(NOW - 9000)})" in text
 
 
+def test_own_perception_starting_the_visits_fails_a_check_for_frigates_arrivals_it_missed():
+    # It stopped seeing anyone: its own tracks (the arrivals) are all greeted, but Frigate
+    # saw people on the porch it missed, and nobody greeted them.
+    on = "own perception on (visits): go2rtc:8554/front_door_sub, zones porch"
+    log = own_log(
+        (NOW - 9000, "app", "own perception on (shadow): go2rtc:8554/front_door_sub, zones porch"),
+        (NOW - 6000, "app", on),
+        own_track(NOW - 5000, NOW - 4990, "porch"),
+    )
+    greeted = visit(NOW - 4998, NOW - 4970)
+    arrivals = [
+        {"start_time": NOW - 8000, "end_time": NOW - 7990},  # missed in shadow: data only
+        {"start_time": NOW - 4999, "end_time": NOW - 4990},  # seen, greeted
+        {"start_time": NOW - 3000, "end_time": NOW - 2990},  # missed
+        {"start_time": NOW - 2000, "end_time": NOW - 1990},  # missed
+    ]
+    r = build(
+        inputs(
+            arrivals=arrivals,
+            log_text=log,
+            trigger_zones=("porch",),
+            perception="own",
+            own_perception="shadow",
+            visits=[greeted],
+            window_visits=[greeted],
+        )
+    )
+    assert "arrivals_greeted" not in failing(r)
+    assert r["own_perception"]["missed_visits"] == 2
+    assert failing(r)["own_perception"] == (
+        "own perception starts the visits but missed 2 of Frigate's porch arrivals: not greeted"
+    )
+    assert [c["name"] for c in r["checks"]].count("own_perception") == 1
+    # In shadow mode its misses are data, not a failed check.
+    shadow = build(
+        inputs(
+            arrivals=arrivals,
+            log_text=log.replace(on, "own perception on (shadow): go2rtc:8554/front_door_sub"),
+            trigger_zones=("porch",),
+            own_perception="shadow",
+            visits=[greeted],
+            window_visits=[greeted],
+        )
+    )
+    assert shadow["own_perception"]["missed_visits"] is None
+    assert "own_perception" not in failing(shadow)
+
+
 def test_own_perceptions_arrivals_count_from_the_switch():
     # Frigate started the visits until a restart in the evening; own perception's tracks
     # before then were shadow tracks, not arrivals it had to greet.
