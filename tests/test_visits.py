@@ -353,3 +353,10 @@ def test_clips_are_served_whole_or_in_part(log, tmp_path):
         assert c.get(f"clip/{day}/..%2Fvisit-labels.json")[0] == 404
     finally:
         c.server.shutdown()
+
+
+def test_a_visit_a_knock_started_is_labelled_like_any():
+    knocked = record("press-1799999900.000", 1799999930.0, trigger="knock",
+                     classification="no_response")  # fmt: skip
+    assert labelable(knocked)
+    assert describe(knocked).startswith("Knocked: greeted")

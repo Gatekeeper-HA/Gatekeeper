@@ -177,6 +177,8 @@ def classification(visit: dict) -> str:
     an answer to classify (the speaker didn't connect, a timeout)."""
     if visit.get("classification"):
         return visit["classification"]
+    if visit.get("trigger") == "knock":
+        return "knocked"
     pressed = visit.get("trigger") == "button" or visit.get("outcome") == "pressed_during_visit"
     return "pressed" if pressed else "unclassified"
 

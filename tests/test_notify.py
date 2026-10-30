@@ -268,3 +268,13 @@ def test_compose_someone_recognized_is_quiet_and_named():
     assert n.priority == 2
     n = compose(visit(outcome="household", details={"name": "Alex", "greeted": True}))
     assert n.message == "Recognized by face, after the greeting started."
+
+
+def test_a_knock_says_so():
+    n = compose(visit(trigger="knock", classification="no_response"))
+    assert n.tags[0] == "door" and n.message.startswith("Knocked. No answer.")
+    during = compose(visit(trigger="knock", outcome="pressed_during_visit"))
+    assert during.title == "A knock at the front door" and during.tags == ["door"]
+    assert compose(visit(trigger="button", outcome="pressed_during_visit")).title == (
+        "Doorbell pressed at the front door"
+    )

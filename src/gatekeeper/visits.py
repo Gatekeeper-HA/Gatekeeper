@@ -144,9 +144,9 @@ def labelable(record: dict) -> bool:
     nor a press during a visit (it's part of that visit)."""
     outcome = str(record.get("outcome", ""))
     return (
-        record.get("trigger", "person") in ("person", "button")
+        record.get("trigger", "person") in ("person", "button", "knock")
         and not outcome.startswith("package_")
-        and outcome != "pressed_during_visit"
+        and outcome not in ("pressed_during_visit", "knock")  # a knock heard: not a visit
     )
 
 
@@ -155,6 +155,7 @@ def describe(record: dict) -> str:
     outcome = record.get("outcome", "")
     details = record.get("details") or {}
     pressed = record.get("trigger") == "button"
+    knocked = record.get("trigger") == "knock"
     if outcome == "household":
         how = "stopped the greeting" if details.get("greeted") else "not greeted"
         return f"Recognized as {details.get('name') or 'someone enrolled'} ({how})"
@@ -169,7 +170,7 @@ def describe(record: dict) -> str:
     if record.get("flow") in FLOWS:
         return FLOWS[record["flow"]]
     said = CLASSIFICATIONS.get(record.get("classification") or "", "")
-    what = "Doorbell pressed: greeted" if pressed else "Greeted"
+    what = "Doorbell pressed: greeted" if pressed else "Knocked: greeted" if knocked else "Greeted"
     if details.get("walked_away"):
         return f"{what}, they walked away: a send-off"
     return f"{what}, {said}" if said else what

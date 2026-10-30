@@ -189,3 +189,40 @@ def test_sigterm_stops_cleanly(monkeypatch):
     app.stop_on_sigterm([lambda: calls.append("own perception"), boom], exit_fn=codes.append)
     handlers[signal.SIGTERM](signal.SIGTERM, None)
     assert calls == ["own perception"] and codes == [0]
+
+
+def test_a_knock_is_a_doorbell_press_when_on(monkeypatch):
+    from pathlib import Path
+
+    from gatekeeper import app, knock
+    from gatekeeper.config import Settings
+
+    heard = {}
+
+    class Listener:
+        def __init__(self, tap, classifier, *, threshold, on_knock):
+            heard["on_knock"] = on_knock
+
+        def run_forever(self):
+            pass
+
+    class Tracker:
+        visit = False
+
+        def person_present(self):
+            return False
+
+        def in_visit(self):
+            return self.visit
+
+    monkeypatch.setattr(knock, "KnockListener", Listener)
+    monkeypatch.setattr(app, "start_thread", lambda *a, **k: None)
+    cases = [("on", False, ["knock"]), ("on", True, []), ("shadow", False, [])]
+    for mode, in_visit, pressed in cases:
+        presses, tracker = [], Tracker()
+        tracker.visit = in_visit
+        settings = Settings(knock_listener=mode, log_dir=Path("."))
+        monkeypatch.setattr(knock.Knocks, "add", lambda self, record: None)
+        app.start_knock_listener(settings, object(), tracker, presses.append)
+        heard["on_knock"](0.9, 1_800_000_000.0)
+        assert presses == pressed, (mode, in_visit)

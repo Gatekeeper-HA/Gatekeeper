@@ -228,10 +228,11 @@ class Settings(BaseSettings):
     # Downloads SigLIP (~200 MB) once.
     delivery_guess: bool = False
     # Hearing a knock at the door (knock.py): "shadow" logs each knock, for the Visits
-    # page and the daily report; nothing at the door yet. Needs the audio tap, and an
+    # page and the daily report; "on" also treats a knock like a doorbell press (a visit
+    # starts: someone knocked who may not be on camera). Needs the audio tap, and an
     # NVIDIA GPU to be quick (the classifier takes seconds on a CPU). Downloads AST
     # (~350 MB) once.
-    knock_listener: Literal["off", "shadow"] = "off"
+    knock_listener: Literal["off", "shadow", "on"] = "off"
     # The classifier's "Knock" score (0-1) that counts as one.
     knock_threshold: float = 0.5
     model_dir: Path = Path.home() / ".cache" / "gatekeeper" / "models"

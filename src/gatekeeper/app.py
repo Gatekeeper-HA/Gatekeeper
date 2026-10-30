@@ -254,9 +254,11 @@ def knock_log(settings: Settings):
     return Knocks(settings.knocks_file)
 
 
-def start_knock_listener(settings: Settings, tap, tracker):
-    """Hearing knocks, in shadow (knock.py): each one logged, with whether anyone was on
-    camera and whether a visit was running. The classifier loads with the first check."""
+def start_knock_listener(settings: Settings, tap, tracker, on_press=lambda trigger: None):
+    """Hearing knocks (knock.py): each one logged, with whether anyone was on camera and
+    whether a visit was running. With KNOCK_LISTENER=on, a knock while no visit is running
+    is a doorbell press (``on_press("knock")``): someone knocked, maybe out of view. The
+    classifier loads with the first check."""
     from gatekeeper.knock import Classifier, KnockListener, Knocks
 
     knocks = Knocks(settings.knocks_file)
@@ -275,6 +277,8 @@ def start_knock_listener(settings: Settings, tap, tracker):
             "" if record["on_camera"] else ", nobody on camera",
             ", during a visit" if record["in_visit"] else "",
         )
+        if settings.knock_listener == "on" and not record["in_visit"]:
+            on_press("knock")
 
     listener = KnockListener(
         tap,
@@ -283,7 +287,10 @@ def start_knock_listener(settings: Settings, tap, tracker):
         on_knock=on_knock,
     )
     start_thread("knock", listener.run_forever)
-    log.info("knock listener on (shadow)")
+    log.info(
+        "knock listener on (%s)",
+        "a knock is a doorbell press" if settings.knock_listener == "on" else "shadow",
+    )
 
 
 def stop_on_sigterm(
@@ -677,15 +684,11 @@ def main() -> None:
         on_stop.append(own.stop)
     if recorder is not None:
         on_stop.append(recorder.stop)  # after own perception: its last tracks go in
-    if settings.knock_listener == "shadow":
-        if tap is None:
-            log.warning("KNOCK_LISTENER needs the audio tap (AUDIO_TAP); not listening")
-        else:
-            start_knock_listener(settings, tap, tracker)
     start_thread("retention", Retention(settings).run_forever)
 
-    def on_press() -> None:
-        action, visit_id = tracker.press()
+    def on_press(trigger: str = "button") -> None:
+        """The doorbell pressed (or, ``trigger`` "knock", a knock heard)."""
+        action, visit_id = tracker.press(trigger)
         if action == "merged":
             # Not on the doorbell listener's event loop: the reply plays audio.
             start_thread(
@@ -695,9 +698,15 @@ def main() -> None:
                     f"press-{time.time():.3f}",
                     settings.camera_name,
                     outcome="pressed_during_visit",
-                    trigger="button",
+                    trigger=trigger,
                 ),
             )
+
+    if settings.knock_listener != "off":
+        if tap is None:
+            log.warning("KNOCK_LISTENER needs the audio tap (AUDIO_TAP); not listening")
+        else:
+            start_knock_listener(settings, tap, tracker, on_press)
 
     if settings.reolink_host:
         button = DoorbellButton(
