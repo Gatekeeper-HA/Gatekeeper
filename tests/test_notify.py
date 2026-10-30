@@ -270,6 +270,16 @@ def test_compose_someone_recognized_is_quiet_and_named():
     assert n.message == "Recognized by face, after the greeting started."
 
 
+def test_a_knock_says_so():
+    n = compose(visit(trigger="knock", classification="no_response"))
+    assert n.tags[0] == "door" and n.message.startswith("Knocked. No answer.")
+    during = compose(visit(trigger="knock", outcome="pressed_during_visit"))
+    assert during.title == "A knock at the front door" and during.tags == ["door"]
+    assert compose(visit(trigger="button", outcome="pressed_during_visit")).title == (
+        "Doorbell pressed at the front door"
+    )
+
+
 def test_tapping_the_notification_opens_the_live_page():
     backend = NtfyBackend("http://ntfy", "doorbell", click_url="https://192.0.2.10:8098/live/")
     req = backend.request(Notification("Someone at the front door", "No answer."), None)

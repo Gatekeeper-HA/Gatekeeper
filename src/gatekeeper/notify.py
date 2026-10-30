@@ -109,10 +109,12 @@ def compose(visit: Visit) -> Notification:
             priority=2,
         )
     if visit.outcome == "pressed_during_visit":
+        knocked = visit.trigger == "knock"
         return Notification(
-            title=f"Doorbell pressed at the {place}",
-            message="Pressed during or just after a visit Gatekeeper handled.",
-            tags=["bell"],
+            title=f"{'A knock' if knocked else 'Doorbell pressed'} at the {place}",
+            message=f"{'Knocked' if knocked else 'Pressed'} during or just after a visit "
+            "Gatekeeper handled.",
+            tags=["door" if knocked else "bell"],
             priority=4,
         )
     if visit.outcome in ("owner_took_over", "owner_talking") and visit.classification is None:
@@ -136,6 +138,9 @@ def compose(visit: Visit) -> Notification:
     said = f'Said: "{visit.transcript}"' if visit.transcript else "No answer."
     if visit.trigger == "button":
         tags = ["bell", *tags]
+    elif visit.trigger == "knock":
+        tags = ["door", *tags]
+        said = f"Knocked. {said}"
 
     if visit.stage == "alert":
         # Sent as soon as a conversation starts; the full story follows.

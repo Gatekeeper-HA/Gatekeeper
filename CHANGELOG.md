@@ -13,6 +13,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   clips of it (found by time, so visits Frigate started have them too); a tap plays it in
   the phone's or browser's player. Clips are served in byte ranges, as Safari needs, and
   only files that are clips can be fetched.
+- **A knock is a doorbell press** (`KNOCK_LISTENER=on`). A knock heard while no visit is
+  running starts one, greeted and notified like a press, for visitors who knock instead
+  of ringing, maybe out of the camera's view. During a visit it's only logged. In shadow
+  on the rig: no false knock in over 5,700 sharp sounds checked (top score 0.26, against
+  0.5; test knocks scored 0.59–0.92).
 - **Own perception starts the visits** (`PERCEPTION=own`, `frigate` by default). Frigate
   isn't needed. Person events, zones, the latest frame and snapshots come from
   Gatekeeper's own perception. The Visits page's pictures and the delivery guess's frames

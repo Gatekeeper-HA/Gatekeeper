@@ -203,6 +203,17 @@ def test_press_with_nobody_detected_starts_a_new_visit(clock):
     assert h.triggers == [(visit_id, "button")]
 
 
+def test_a_knock_starts_a_visit_like_a_press(clock):
+    # Someone knocked, maybe out of view: a visit, told apart from the doorbell.
+    h = TriggerHarness(clock, dwell=3)
+    action, visit_id = h.tracker.press("knock")
+    assert action == "started" and visit_id == f"press-{clock.now:.3f}"
+    h.run_workers()
+    assert h.triggers == [(visit_id, "knock")]
+    # Like a press, the household rules (went in, recognized) don't cut it short.
+    assert h.tracker._active_pressed is True
+
+
 def test_press_during_a_visit_or_cooldown_is_merged(clock):
     h = TriggerHarness(clock, dwell=0, cooldown=90)
     h.send("person_new")  # starts the visit (dwell 0)

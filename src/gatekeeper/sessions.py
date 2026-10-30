@@ -69,7 +69,7 @@ class Session:
     handled: bool = False
     in_progress: bool = False
     merged_into: str | None = None
-    trigger: str = "person"  # or "button"
+    trigger: str = "person"  # or "button", or "knock" (heard, like a press)
     zones: frozenset[str] = frozenset()  # Frigate zones the person has entered
     current_zones: frozenset[str] = frozenset()  # where they are now
     created: float = 0.0  # when Frigate first reported the person
@@ -264,7 +264,7 @@ class SessionTracker:
             else:
                 session.in_progress = True
                 self._active_visit = event_id
-                self._active_pressed = session.trigger == "button"
+                self._active_pressed = session.trigger != "person"  # rang or knocked
 
         if verdict == "left":
             log.info("person event %s came out of the door and walked away: not greeted", event_id)
@@ -454,16 +454,18 @@ class SessionTracker:
             return f"{in_zone:.1f} s in the trigger zone, under the {self.dwell_seconds:g} s dwell"
         return f"{in_zone:.1f} s in the trigger zone, not started"
 
-    def press(self) -> tuple[str, str]:
-        """Handle a doorbell press. Returns ``("started", visit_id)`` if a visit
-        starts now, or ``("merged", visit_id)`` if one is running or just ended."""
+    def press(self, trigger: str = "button") -> tuple[str, str]:
+        """Handle a doorbell press (or a knock: ``trigger`` "knock"). Returns
+        ``("started", visit_id)`` if a visit starts now, or ``("merged", visit_id)`` if
+        one is running or just ended."""
         now = self._clock()
         with self._lock:
             merge_into = self._active_visit or (
                 self._last_visit if now < self._cooldown_until else None
             )
             if merge_into:
-                log.info("doorbell pressed during visit %s", merge_into)
+                what = "a knock" if trigger == "knock" else "doorbell pressed"
+                log.info("%s during visit %s", what, merge_into)
                 if merge_into == self._active_visit:
                     self._active_pressed = True
                 return "merged", merge_into
@@ -479,7 +481,7 @@ class SessionTracker:
                 self.sessions[event_id] = Session(first_seen=now, last_seen=now)
             session = self.sessions[event_id]
             session.first_seen = min(session.first_seen, now - self.dwell_seconds)
-            session.trigger = "button"
+            session.trigger = trigger
         self.maybe_start(event_id)
         return "started", event_id
 

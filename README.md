@@ -149,7 +149,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `CLIP_DIR` | `/clips` | Where the clips are kept, a folder a day |
 | `CLIP_RETENTION_DAYS` | `7` | Days clips are kept (0 = forever) |
 | `DELIVERY_GUESS` | `false` | Gatekeeper's guess at each greeted visitor, a delivery or not: [delivery guess](#delivery-guess-shadow). Shadow only; the compose stack reads it from `.env` |
-| `KNOCK_LISTENER` | `off` | `shadow`: Gatekeeper listens for knocks at the door and logs them: [knocks](#knocks-shadow). Needs the audio tap and an NVIDIA GPU to be quick. The compose stack reads it from `.env` |
+| `KNOCK_LISTENER` | `off` | `shadow`: Gatekeeper listens for knocks at the door and logs them; `on`: a knock is also a doorbell press: [knocks](#knocks). Needs the audio tap and an NVIDIA GPU to be quick. The compose stack reads it from `.env` |
 | `KNOCK_THRESHOLD` | `0.5` | The sound classifier's *Knock* score (0–1) that counts as a knock |
 | `MODEL_DIR` | `~/.cache/gatekeeper/models` | Where the detector's model is downloaded (once) |
 | `WEB_PORT` | `8098` | The web page: [visits](#visits), [household faces](#household-faces) and [zones](#zones) |
@@ -660,13 +660,18 @@ daylight the rig's camera looks into a bright sky, and faces on the walkway are 
 dark to recognize. At night, under the porch light, they're clear. The daily report counts
 the recognitions and how often a face was seen.
 
-## Knocks (shadow)
+## Knocks
 
 Some visitors knock instead of ringing, and some aren't seen at all: one walked up along the
 house, out of the camera's view, knocked, and was never on camera. With `KNOCK_LISTENER=shadow`,
 Gatekeeper listens for knocks and logs each one, with whether anyone was on camera and
 whether a visit was running. Knocks show on the Visits page and in the daily report.
-Nothing at the door depends on them yet.
+
+With `KNOCK_LISTENER=on`, a knock also counts as a doorbell press. While no visit is
+running, it starts one, greeted and notified like a press (*Knocked.*, with the door's
+tag), whether or not anyone is on camera. Just after a visit, it gets the pressed reply.
+During a visit it's only logged, since that visitor is already being talked to. The
+greeting is one of the usual lines, not one that mentions the bell.
 
 The audio tap hears the door all the time. A cheap check finds sharp sounds; only those
 2 seconds go to a sound classifier (AST, trained on AudioSet, BSD-3-Clause, ~350 MB,
