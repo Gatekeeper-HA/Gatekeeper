@@ -412,6 +412,24 @@ def test_looking_takes_the_newest_frame_scaled_for_the_detector():
     }
 
 
+def test_looking_beats_on_each_pass_even_without_frames():
+    beats = []
+    service = OwnPerception("rtsp://x", Detector(), Tracker("x"), on_look=lambda: beats.append(1))
+
+    class Waits(type(threading.Condition())):  # no frame comes: each wait times out
+        def wait(self, timeout=None):
+            if len(beats) == 2:
+                service._stopping = True
+            return False
+
+    service._cond = Waits()
+    worker = threading.Thread(target=service.look_forever)
+    worker.start()
+    worker.join(5)
+    assert not worker.is_alive()
+    assert len(beats) == 3  # no frame came: each wait still ends in a heartbeat
+
+
 # -- settings and wiring ------------------------------------------------------
 
 
@@ -465,3 +483,7 @@ def test_app_starts_it_with_the_zones_gatekeeper_uses(monkeypatch, tmp_path):
     assert service.tracker._zones() == {"porch": PORCH, "door": None}
     assert service.detector.args == (tmp_path / "yolox_tiny.onnx", 0.3, 2, "auto")
     assert started == ["own-perception-start", "own-perception-read", "own-perception"]
+    beats = []
+    beating = app.start_own_perception(settings, Perception(), on_look=lambda: beats.append(1))
+    beating._on_look()
+    assert beats == [1]

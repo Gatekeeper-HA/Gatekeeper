@@ -209,6 +209,9 @@ class Settings(BaseSettings):
     own_perception_fps: float = 5.0
     # The detector's score (0-1) for a person.
     own_perception_threshold: float = 0.3
+    # With perception "own": its look loop not passing for this long is an internal
+    # hang (health.py): unhealthy, then the watchdog's exit and restart.
+    own_perception_stall_seconds: float = 60.0
     # Gatekeeper's own recordings (recording.py): a clip (MP4) while own perception sees
     # someone, from the high-resolution stream (face_rtsp_url) as it came and the
     # microphone, and a picture of each person. Needs own_perception.

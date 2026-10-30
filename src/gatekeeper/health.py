@@ -1,8 +1,9 @@
 """Liveness: a /healthz endpoint, a probe for Docker's HEALTHCHECK, and a
 watchdog that exits the process on an internal hang.
 
-Healthy means: connected to MQTT, the session sweep loop is running, and no
-visit has been running far longer than its timeout. Docker (compose) doesn't
+Healthy means: connected to MQTT, the session sweep loop is running, no
+visit has been running far longer than its timeout, and (when it starts the
+visits) own perception's look loop is running. Docker (compose) doesn't
 restart unhealthy containers, so on an internal hang (sweep stalled or a visit
 stuck) that lasts ``hang_exit_seconds`` the watchdog exits and
 ``restart: unless-stopped`` brings Gatekeeper back. An MQTT outage only
@@ -44,9 +45,16 @@ class Health:
         self._visit_started: float | None = None
         # Set when the audio tap runs: is it receiving audio?
         self.tap_ok: Callable[[], bool] | None = None
+        # Set when own perception starts the visits: how long its look loop may go
+        # without a pass (looked()). Not counted before the first, while the model loads.
+        self.look_max_age: float | None = None
+        self._last_look: float | None = None
 
     def sweep_done(self) -> None:
         self._last_sweep = self._clock()
+
+    def looked(self) -> None:
+        self._last_look = self._clock()
 
     def visit_started(self) -> None:
         with self._lock:
@@ -56,18 +64,23 @@ class Health:
         with self._lock:
             self._visit_started = None
 
-    def _ages(self) -> tuple[float | None, float | None]:
+    def _ages(self) -> tuple[float | None, float | None, float | None]:
         now = self._clock()
         sweep_age = None if self._last_sweep is None else now - self._last_sweep
         visit_age = None if self._visit_started is None else now - self._visit_started
-        return sweep_age, visit_age
+        look_age = None if self._last_look is None else now - self._last_look
+        return sweep_age, visit_age, look_age
 
-    def _hangs(self, sweep_age: float | None, visit_age: float | None) -> list[str]:
+    def _hangs(
+        self, sweep_age: float | None, visit_age: float | None, look_age: float | None
+    ) -> list[str]:
         problems = []
         if sweep_age is None or sweep_age > self.sweep_max_age:
             problems.append("session sweep stalled")
         if visit_age is not None and visit_age > self.visit_max_age:
             problems.append("visit stuck")
+        if self.look_max_age is not None and look_age is not None and look_age > self.look_max_age:
+            problems.append("own perception stalled")
         return problems
 
     def internal_hang(self) -> bool:
@@ -75,8 +88,8 @@ class Health:
 
     def check(self) -> tuple[bool, dict]:
         """Return ``(healthy, details)``."""
-        sweep_age, visit_age = self._ages()
-        problems = self._hangs(sweep_age, visit_age)
+        sweep_age, visit_age, look_age = self._ages()
+        problems = self._hangs(sweep_age, visit_age, look_age)
         if not self.mqtt_connected:
             problems.append("mqtt disconnected")
         details = {
@@ -85,6 +98,11 @@ class Health:
             "mqtt_connected": self.mqtt_connected,
             "sweep_age_seconds": None if sweep_age is None else round(sweep_age, 1),
             "visit_age_seconds": None if visit_age is None else round(visit_age, 1),
+            **(
+                {"own_perception_age_seconds": None if look_age is None else round(look_age, 1)}
+                if self.look_max_age is not None
+                else {}
+            ),
             # Informational: without the tap, visits record a fixed window instead.
             "audio_tap": "off" if self.tap_ok is None else ("ok" if self.tap_ok() else "down"),
         }

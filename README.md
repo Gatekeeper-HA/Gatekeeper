@@ -141,6 +141,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `OWN_PERCEPTION_URL` | `AUDIO_RTSP_URL` + `_sub` | The camera's low-resolution stream (go2rtc's `<CAMERA_NAME>_sub`) |
 | `OWN_PERCEPTION_FPS` | `5` | Frames looked at per second, at most. The compose stack sets `3` |
 | `OWN_PERCEPTION_THRESHOLD` | `0.3` | The detector's score (0–1) that counts as a person |
+| `OWN_PERCEPTION_STALL_SECONDS` | `60` | With `PERCEPTION=own`: own perception not looking for this long makes Gatekeeper unhealthy, and after `HANG_EXIT_SECONDS` it restarts ([health](#health)) |
 | `OWN_PERCEPTION_THREADS` | `2` | CPU threads for the detector |
 | `OWN_PERCEPTION_DEVICE` | `auto` | `auto`: the detector runs on an NVIDIA GPU when the image has CUDA ([GPU](#gpu-nvidia)) and it works, else on the CPU. `cuda` logs a warning when it falls back. The GPU override sets `cuda` |
 | `RECORDING` | `false` | Gatekeeper's own clips while someone's at the door, from `FACE_RTSP_URL` and the microphone: [recordings](#recordings). Needs `OWN_PERCEPTION`; the compose stack reads it from `.env` |
@@ -764,6 +765,10 @@ with the problems listed. The image's Docker `HEALTHCHECK` uses it, so `docker c
 shows `healthy`/`unhealthy`. Docker doesn't restart unhealthy containers by itself, so on an
 internal hang lasting `HANG_EXIT_SECONDS` Gatekeeper exits and `restart: unless-stopped`
 brings it back. An MQTT outage only reports unhealthy, since the client reconnects by itself.
+With `PERCEPTION=own`, own perception's look loop not passing for
+`OWN_PERCEPTION_STALL_SECONDS` is a hang too (*own perception stalled*, and
+`own_perception_age_seconds`): nobody at the door would be seen. It isn't counted
+before the model has loaded.
 `audio_tap` is `ok`, `down` or `off`; while it's down, visits fall back to recording a fixed
 window, so it doesn't make Gatekeeper unhealthy.
 

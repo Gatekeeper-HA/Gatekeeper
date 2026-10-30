@@ -208,6 +208,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **A stalled own perception restarts Gatekeeper.** With `PERCEPTION=own`, own perception's
+  look loop beats on every pass. No beat for `OWN_PERCEPTION_STALL_SECONDS` (60) is an
+  internal hang, *own perception stalled*: `/healthz` turns unhealthy, and after
+  `HANG_EXIT_SECONDS` the watchdog exits so Docker restarts it. Before, it could stop
+  looking for hours with nothing logged while Gatekeeper reported healthy, and nobody at
+  the door was greeted.
 - **A login page for the web page.** It asked for its password with the browser's own box
   (HTTP Basic), which some browsers never show (DuckDuckGo's) and which can't be logged
   out of. Now a login page asks for it and keeps you logged in on that browser for 30
