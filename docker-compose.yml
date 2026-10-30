@@ -203,6 +203,9 @@ services:
       # Gatekeeper's own perception (Frigate then only stands in for zones not drawn on
       # the Zones page and for older visits' pictures).
       PERCEPTION: "${PERCEPTION:-frigate}"
+      # An internal hang (the sweep or own perception stalled, a visit stuck) lasting this
+      # long exits Gatekeeper so Docker restarts it.
+      HANG_EXIT_SECONDS: "${HANG_EXIT_SECONDS:-300}"
       OWN_PERCEPTION_FPS: "3"
       # Gatekeeper's guess at each greeted visitor (a delivery or not), in shadow: off
       # unless DELIVERY_GUESS=1 in .env.
