@@ -50,6 +50,8 @@ POLICE_TITLES = {
 OUTCOME_TEXT = {
     "reply_failed": "the doorbell speaker didn't connect",
     "talkback_busy": "another visit was in progress",
+    "owner_took_over": "you took over from the Live page",
+    "owner_talking": "you were talking at the door",
     "talkback_failed": "the doorbell speaker didn't connect",
     "talkback_unavailable": "talkback isn't available",
     "timeout": "the visit timed out",
@@ -112,6 +114,15 @@ def compose(visit: Visit) -> Notification:
             message="Pressed during or just after a visit Gatekeeper handled.",
             tags=["bell"],
             priority=4,
+        )
+    if visit.outcome in ("owner_took_over", "owner_talking") and visit.classification is None:
+        return Notification(
+            title=f"Someone at the {place}",
+            message="You talked to them from the Live page; Gatekeeper stepped out."
+            if visit.outcome == "owner_took_over"
+            else "Not greeted: you were talking at the door.",
+            tags=["speaking_head"],
+            priority=3,
         )
     if visit.classification is None:
         reason = OUTCOME_TEXT.get(visit.outcome, visit.outcome)

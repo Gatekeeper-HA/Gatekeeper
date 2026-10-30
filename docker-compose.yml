@@ -191,6 +191,10 @@ services:
       # The web page (visits, household faces) on :8098, off unless GATEKEEPER_WEB_PASSWORD
       # is set.
       WEB_PASSWORD: "${GATEKEEPER_WEB_PASSWORD:-}"
+      # The web page over HTTPS with its own (self-signed) certificate, for talking back
+      # from the Live page: off unless WEB_TLS=1 in .env. It names the server's address.
+      WEB_TLS: "${WEB_TLS:-0}"
+      WEB_TLS_NAMES: "${SERVER_IP:?set SERVER_IP in .env}"
       # Gatekeeper's own person detection, next to Frigate's: off unless
       # OWN_PERCEPTION=shadow in .env. It only logs its tracks; the daily report compares
       # them with Frigate's. The rig's CPU takes ~265 ms a frame through the detector.

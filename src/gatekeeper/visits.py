@@ -58,6 +58,8 @@ OUTCOMES = {
     "talkback_failed": "Couldn't speak at the door (the speaker didn't connect)",
     "talkback_unavailable": "Couldn't speak at the door (the speaker didn't connect)",
     "talkback_busy": "Couldn't speak at the door (the speaker was busy)",
+    "owner_took_over": "You talked to them from the Live page (Gatekeeper stepped out)",
+    "owner_talking": "Not greeted: you were talking at the door",
     "reply_failed": "Greeted, but the reply failed",
     "timeout": "The visit got stuck and was stopped",
     "error": "Something went wrong during the visit",
