@@ -936,3 +936,29 @@ def test_someone_recognized_before_their_greeting_is_only_logged_and_quietly_not
     assert (n.outcome, n.details) == ("household", {"name": "Alex", "greeted": False})
     (record,) = rig.log_records()
     assert record["outcome"] == "household" and record["details"]["name"] == "Alex"
+
+
+def test_the_resident_talking_stops_the_visit_at_once(settings):
+    # Talking back from the Live page: the visit ends right away (its talkback closes),
+    # and nobody is greeted while they talk.
+    rig = Rig(settings, speech=[], stalls={"_presynth_greeting.wav"})  # it would wait 20 s
+    done = []
+    worker = threading.Thread(target=lambda: done.append(rig.interaction.run(EID)))
+    started = time.monotonic()
+    worker.start()
+    while rig.interaction._running is None and time.monotonic() - started < 5:
+        time.sleep(0.01)
+    assert rig.interaction.step_out() == EID
+    worker.join(5)
+    assert time.monotonic() - started < 3
+    (visit,) = done
+    assert visit.outcome == "owner_took_over" and rig.calls[-1] == ("close", 1)
+    assert rig.log_records()[0]["outcome"] == "owner_took_over"
+
+    assert rig.interaction.owner_talking()
+    later = rig.interaction.run("1727712100.000000-def456")
+    assert later.outcome == "owner_talking"
+    assert not any(c == ("connect", 2) for c in rig.calls)  # not greeted
+    rig.interaction.owner_talks(0)  # they're done
+    assert not rig.interaction.owner_talking()
+    assert rig.interaction.step_out(0) is None  # nothing running

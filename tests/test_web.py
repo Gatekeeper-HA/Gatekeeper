@@ -84,8 +84,8 @@ def faces(tmp_path):
 def test_the_page_needs_the_password(faces):
     wrong = Client.__new__(Client)
     wrong.base, wrong.auth = faces.base, "Basic " + base64.b64encode(b"x:guess").decode()
-    status, _, headers = wrong.get()
-    assert status == 401 and "Basic" in headers["WWW-Authenticate"]
+    status, body, _ = wrong.get()  # sent to the login page
+    assert status == 200 and b"<input type=password name=password" in body
     assert wrong.get("face/e1.npz/0.jpg")[0] == 401
 
 

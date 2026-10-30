@@ -10,8 +10,8 @@ also lists who is enrolled, with forget and purge (face_admin.py does the same f
 the command line).
 
 Faces are biometric data:
-- the page needs a password (HTTP Basic: any user name, ``WEB_PASSWORD``), and is off
-  without one;
+- the page needs a password (``WEB_PASSWORD``), asked for on its login page (logins.py;
+  scripts can send it with HTTP Basic), and is off without one;
 - every change needs a token from the page itself, so another site can't make one
   from your browser;
 - nothing is cached.
@@ -27,12 +27,16 @@ import base64
 import datetime
 import hmac
 import html
+import http.cookies
 import json
 import logging
 import re
 import secrets
 import shutil
+import socket
+import ssl
 import threading
+import time
 import urllib.parse
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -40,7 +44,7 @@ from pathlib import Path
 
 import numpy as np
 
-from gatekeeper import face_admin
+from gatekeeper import face_admin, logins
 from gatekeeper.faces import Gallery
 
 log = logging.getLogger(__name__)
@@ -346,7 +350,7 @@ def nav(current: str) -> str:
             f"<strong>{text}</strong>" if key == current else f'<a href="{href}">{text}</a>'
             for key, text, href in links
         )
-        + "</nav>"
+        + f' <a href="{up}logout" class=note>Log out</a></nav>'
     )
 
 
@@ -361,18 +365,65 @@ def _chosen(values: list[str]) -> set[tuple[str, int]]:
 
 class _Server(ThreadingHTTPServer):
     daemon_threads = True
+    ssl_context: ssl.SSLContext | None = None  # HTTPS (WEB_TLS)
+
+    def handle_error(self, request, client_address) -> None:
+        # A browser that gave up on the certificate, a closed tab: not worth a traceback.
+        log.debug("web: a connection from %s failed", client_address[0], exc_info=True)
 
 
 def handler(
-    page: FacesPage, password: str, visits=None, zones=None, live=None
+    page: FacesPage,
+    password: str,
+    visits=None,
+    zones=None,
+    live=None,
+    logged_in: logins.Logins | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     """``visits``: the Visits page (visits.VisitsPage) at ``/``, with the faces at
     ``faces/``; without it the faces are at ``/``. ``zones``: the Zones page
     (zones.ZonesPage) at ``zones/``."""
     expected = password.encode()
+    sessions = logged_in or logins.Logins(None)
 
     class Handler(BaseHTTPRequestHandler):
+        def setup(self) -> None:
+            """With HTTPS: the TLS handshake here, in this connection's own thread; a
+            plain http:// request (an old bookmark) is sent to https:// instead."""
+            self._to_https = False
+            context = self.server.ssl_context
+            if context is not None:
+                self.request.settimeout(15)
+                if self.request.recv(1, socket.MSG_PEEK) == b"\x16":  # a TLS handshake
+                    self.request = context.wrap_socket(self.request, server_side=True)
+                else:
+                    self._to_https = True
+            super().setup()
+
+        def _redirected_to_https(self) -> bool:
+            if not self._to_https:
+                return False
+            host = re.sub(r"[^\w.:\[\]-]", "", self.headers.get("Host", ""))
+            self.send_response(301)
+            self.send_header("Location", f"https://{host}{self.path}")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return True
+
+        def _login_token(self) -> str:
+            cookie = http.cookies.SimpleCookie()
+            try:
+                cookie.load(self.headers.get("Cookie", ""))
+            except http.cookies.CookieError:
+                return ""
+            return cookie[logins.COOKIE].value if logins.COOKIE in cookie else ""
+
         def _authorized(self) -> bool:
+            """Logged in (the login page's cookie), or the password given with the
+            request (HTTP Basic, for scripts). Else a page is sent to the login page,
+            anything else refused."""
+            if sessions.valid(self._login_token()):
+                return True
             header = self.headers.get("Authorization", "")
             if header.startswith("Basic "):
                 try:
@@ -381,11 +432,41 @@ def handler(
                     given = b""
                 if hmac.compare_digest(given, expected):
                     return True
-            self.send_response(401)
-            self.send_header("WWW-Authenticate", 'Basic realm="Gatekeeper", charset="UTF-8"')
+            url = urllib.parse.urlsplit(self.path)
+            if self.command == "GET" and url.path.endswith("/"):
+                target = url.path.lstrip("/") + (f"?{url.query}" if url.query else "")
+                up = "../" * (url.path.count("/") - 1)
+                self._redirect(f"{up}login?" + urllib.parse.urlencode({"next": target}))
+            else:
+                self._send(401, b"Log in first.", "text/plain")
+            return False
+
+        def _redirect(self, location: str, cookie: str | None = None) -> None:
+            self.send_response(303)
+            self.send_header("Location", location)
+            if cookie is not None:
+                self.send_header("Set-Cookie", cookie)
             self.send_header("Content-Length", "0")
             self.end_headers()
-            return False
+
+        def _cookie(self, token: str, seconds: int) -> str:
+            secure = "; Secure" if self.server.ssl_context is not None else ""
+            return (
+                f"{logins.COOKIE}={token}; Path=/; Max-Age={seconds}; HttpOnly; SameSite=Lax"
+                f"{secure}"
+            )
+
+        def _login(self, length: int) -> None:
+            form = urllib.parse.parse_qs(self.rfile.read(length).decode("utf-8", "replace"))
+            target = logins.safe_next(form.get("next", [""])[0])
+            given = form.get("password", [""])[0].encode()
+            if not hmac.compare_digest(given, expected):
+                time.sleep(1.0)  # one guess a second, at most
+                log.info("web: a wrong password")
+                body = logins.page("That's not the password.", target).encode()
+                self._send(401, body, "text/html; charset=utf-8")
+                return
+            self._redirect(target, self._cookie(sessions.start(), logins.DAYS * 86400))
 
         def _send(self, status: int, body: bytes, kind: str) -> None:
             self.send_response(status)
@@ -397,15 +478,19 @@ def handler(
             self.end_headers()
             self.wfile.write(body)
 
-        def _live_offer(self, length: int) -> None:
-            """The Live page's WebRTC offer, passed to go2rtc: its answer, as SDP."""
+        def _live_offer(self, length: int, talk: bool = False) -> None:
+            """The Live page's WebRTC offer, passed to go2rtc: its answer, as SDP. ``talk``:
+            the resident's microphone, for the doorbell's speaker."""
             sdp = self.rfile.read(length).decode("utf-8", "replace")
             if not hmac.compare_digest(self.headers.get("X-Token", ""), page.token):
                 self._send(403, b"That page is out of date: reload it.", "text/plain")
                 return
             query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
             try:
-                answer = live.offer(sdp, hd=query.get("hd", ["0"])[0] == "1")
+                if talk:
+                    answer = live.talk(sdp)
+                else:
+                    answer = live.offer(sdp, hd=query.get("hd", ["0"])[0] == "1")
             except ValueError as e:
                 self._send(400, str(e).encode(), "text/plain; charset=utf-8")
                 return
@@ -451,6 +536,19 @@ def handler(
             self._send(status, body, "text/html; charset=utf-8")
 
         def do_GET(self) -> None:
+            if self._redirected_to_https():
+                return
+            url_path = urllib.parse.urlsplit(self.path).path
+            if url_path.endswith("/login"):
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                body = logins.page(target=query.get("next", [""])[0]).encode()
+                self._send(200, body, "text/html; charset=utf-8")
+                return
+            if url_path.endswith("/logout"):
+                sessions.end(self._login_token())
+                up = "../" * (url_path.count("/") - 1)
+                self._redirect(f"{up}login", self._cookie("", 0))
+                return
             if not self._authorized():
                 return
             path = urllib.parse.urlsplit(self.path).path
@@ -491,14 +589,27 @@ def handler(
                 self._send(200, jpeg, "image/jpeg")
 
         def do_POST(self) -> None:
-            if not self._authorized():
+            if self._redirected_to_https():
                 return
             length = int(self.headers.get("Content-Length") or 0)
             if length > MAX_BODY:
                 self.send_error(413)
                 return
-            if live and urllib.parse.urlsplit(self.path).path.endswith("/live/offer"):
-                self._live_offer(length)
+            if urllib.parse.urlsplit(self.path).path.endswith("/login"):
+                self._login(length)
+                return
+            if not self._authorized():
+                return
+            post_path = urllib.parse.urlsplit(self.path).path
+            if live and post_path.endswith(("/live/offer", "/live/talk")):
+                self._live_offer(length, talk=post_path.endswith("/talk"))
+                return
+            if live and post_path.endswith(("/live/talk/alive", "/live/talk/end")):
+                if not hmac.compare_digest(self.headers.get("X-Token", ""), page.token):
+                    self._send(403, b"That page is out of date: reload it.", "text/plain")
+                    return
+                live.talking(post_path.endswith("/alive"))
+                self._send(204, b"", "text/plain")
                 return
             # Blank values too: a visit's label set back to "What was it?" clears it.
             form = urllib.parse.parse_qs(
@@ -560,14 +671,20 @@ def serve(
     visits=None,
     zones=None,
     live=None,
+    tls: ssl.SSLContext | None = None,
+    logged_in: logins.Logins | None = None,
 ) -> ThreadingHTTPServer:
-    """Serve the pages on ``port`` in a daemon thread."""
+    """Serve the pages on ``port`` in a daemon thread; over HTTPS with ``tls``."""
     for other in (visits, zones, live):
         if other is not None:
             other.token = page.token  # one token proves a form came from any page
-    server = _Server(("0.0.0.0", port), handler(page, password, visits, zones, live))
+    server = _Server(("0.0.0.0", port), handler(page, password, visits, zones, live, logged_in))
+    server.ssl_context = tls
     threading.Thread(target=server.serve_forever, name="web", daemon=True).start()
     log.info(
-        "%s on :%d", "visits and faces pages" if visits else "faces page", server.server_address[1]
+        "%s on :%d%s",
+        "visits and faces pages" if visits else "faces page",
+        server.server_address[1],
+        " (https)" if tls else "",
     )
     return server

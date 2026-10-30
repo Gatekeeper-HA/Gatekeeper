@@ -133,6 +133,11 @@ class Settings(BaseSettings):
     # Default <camera_name>_live (low resolution) and <camera_name>_live_hd.
     live_stream: str = ""
     live_hd_stream: str = ""
+    # The web page over HTTPS (tls.py), with a self-signed certificate made once: browsers
+    # give the microphone (talking back from the Live page) only to an HTTPS page.
+    # web_tls_names: the addresses it's reached at, comma-separated (the server's IP).
+    web_tls: bool = False
+    web_tls_names: str = ""
     # Defaults to rtsp://go2rtc:8554/<camera_name> when unset.
     audio_rtsp_url: str = ""
 

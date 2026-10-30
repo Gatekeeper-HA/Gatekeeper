@@ -16,7 +16,7 @@ OFFER = "v=0\r\no=- 1 1 IN IP4 0.0.0.0\r\ns=-\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\
 class Go2rtc:
     """go2rtc's API as far as the Live page uses it: POST /api/webrtc?src=<stream>."""
 
-    def __init__(self, streams=("front_door_live", "front_door_live_hd")):
+    def __init__(self, streams=("front_door_live", "front_door_live_hd", "front_door_talk")):
         self.asked = []
         outer = self
 
@@ -105,3 +105,56 @@ def test_the_live_streams_default_to_the_cameras():
 
     s = Settings(camera_name="back_door")
     assert (s.live_stream, s.live_hd_stream) == ("back_door_live", "back_door_live_hd")
+
+
+class Owner:
+    """The Interaction, as the Live page sees it."""
+
+    def __init__(self):
+        self.calls = []
+
+    def step_out(self, seconds):
+        self.calls.append(("step_out", seconds))
+        return "1727712000.123456-abc123"
+
+    def owner_talks(self, seconds):
+        self.calls.append(("owner_talks", seconds))
+
+
+def test_talking_steps_gatekeeper_out_first(go2rtc):
+    owner = Owner()
+    live = LivePage(go2rtc.url, "front_door_live", "front_door_live_hd", "front_door_talk", owner)
+    assert live.talk(OFFER).endswith("answer for front_door_talk\r\n")
+    assert owner.calls == [("step_out", 30.0)] and go2rtc.asked[-1][0] == "front_door_talk"
+    live.talking(True)
+    live.talking(False)
+    assert owner.calls[1:] == [("owner_talks", 30.0), ("owner_talks", 0)]
+    with pytest.raises(ValueError, match="isn't set up"):
+        LivePage(go2rtc.url, "a", "b").talk(OFFER)
+
+
+def test_talking_on_the_web(tmp_path, go2rtc):
+    owner = Owner()
+    faces = web.FacesPage(tmp_path / "faces", enabled=True, candidate_days=14)
+    live = LivePage(go2rtc.url, "front_door_live", "front_door_live_hd", "front_door_talk", owner)
+    server = web.serve(faces, PASSWORD, port=0, live=live)
+    base = f"http://127.0.0.1:{server.server_address[1]}/"
+    auth = "Basic " + base64.b64encode(f"x:{PASSWORD}".encode()).decode()
+
+    def post(path, data=b"", token=None):
+        headers = {"Authorization": auth, "X-Token": token or faces.token}
+        req = urllib.request.Request(base + path, data=data, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req) as r:
+                return r.status, r.read().decode()
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode()
+
+    try:
+        assert post("live/talk", OFFER.encode())[0] == 200
+        assert post("live/talk/alive") == (204, "")
+        assert post("live/talk/end") == (204, "")
+        assert post("live/talk/alive", token="stale")[0] == 403
+        assert owner.calls == [("step_out", 30.0), ("owner_talks", 30.0), ("owner_talks", 0)]
+    finally:
+        server.shutdown()

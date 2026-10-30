@@ -302,6 +302,11 @@ class Interaction:
         self._on_logged = list(on_logged)
         # go2rtc supports one talkback WebRTC session at a time.
         self._talkback_lock = threading.Lock()
+        # The resident talking at the door from the Live page: the visit running (its event
+        # loop, task and Visit) is cancelled at once, and none is greeted until they're done.
+        self._running: tuple[asyncio.AbstractEventLoop, asyncio.Task, Visit] | None = None
+        self._running_lock = threading.Lock()
+        self._owner_until = 0.0  # time.monotonic() the resident's talking lease ends
         # Visits to stop, and why (went_inside, recognized; from SessionTracker).
         self._stops: dict[str, tuple[str, dict]] = {}
         self._stops_lock = threading.Lock()
@@ -333,7 +338,10 @@ class Interaction:
         visit = Visit(event_id, self.settings.camera_name, trigger=trigger)
         try:
             log.info("interaction started")
-            if not self._talkback_lock.acquire(blocking=False):
+            if self.owner_talking():
+                log.info("the resident is talking at the door; not greeted")
+                visit.outcome = "owner_talking"
+            elif not self._talkback_lock.acquire(blocking=False):
                 log.warning("talkback busy; logging the visit without a greeting")
                 visit.outcome = "talkback_busy"
             else:
@@ -343,6 +351,9 @@ class Interaction:
                     log.info("stopped: %s", stop.outcome)
                     visit.outcome = stop.outcome
                     visit.details.update(stop.details)
+                except asyncio.CancelledError:
+                    log.info("the resident started talking at the door; Gatekeeper stepped out")
+                    visit.outcome = "owner_took_over"
                 except TimeoutError:
                     log.error("visit timed out after %.0f s", self.settings.visit_timeout_seconds)
                     visit.outcome = "timeout"
@@ -400,7 +411,11 @@ class Interaction:
         token = event_id_var.set(visit.event_id)
         try:
             self._notify(visit)
-            if self._webrtc_available and self._talkback_lock.acquire(blocking=False):
+            if (
+                self._webrtc_available
+                and not self.owner_talking()
+                and self._talkback_lock.acquire(blocking=False)
+            ):
                 try:
                     visit.response = self.settings.replies["pressed"]
                     asyncio.run(self._say_once(visit, "pressed", visit.response))
@@ -525,7 +540,35 @@ class Interaction:
                 log.exception("visit-logged callback failed")
 
     async def _run_with_timeout(self, visit: Visit) -> None:
-        await asyncio.wait_for(self._run_async(visit), self.settings.visit_timeout_seconds)
+        task = asyncio.current_task()
+        assert task is not None
+        with self._running_lock:
+            self._running = (asyncio.get_running_loop(), task, visit)
+        try:
+            await asyncio.wait_for(self._run_async(visit), self.settings.visit_timeout_seconds)
+        finally:
+            with self._running_lock:
+                self._running = None
+
+    def step_out(self, seconds: float = 30.0) -> str | None:
+        """The resident started talking at the door (the Live page): the visit running
+        ends at once, its talkback closed, and none is greeted for ``seconds`` (renewed by
+        ``owner_talks`` while they talk). The event id of the visit stopped, if any."""
+        self.owner_talks(seconds)
+        with self._running_lock:
+            running = self._running
+        if running is None:
+            return None
+        loop, task, visit = running
+        loop.call_soon_threadsafe(task.cancel)
+        return visit.event_id
+
+    def owner_talks(self, seconds: float = 30.0) -> None:
+        """The resident is (still) talking: no greetings for ``seconds``; 0: they're done."""
+        self._owner_until = time.monotonic() + seconds if seconds > 0 else 0.0
+
+    def owner_talking(self) -> bool:
+        return time.monotonic() < self._owner_until
 
     async def _in_thread(self, fn: Callable, *args):
         loop = asyncio.get_running_loop()
