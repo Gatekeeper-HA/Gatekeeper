@@ -151,7 +151,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `KNOCK_THRESHOLD` | `0.5` | The sound classifier's *Knock* score (0–1) that counts as a knock |
 | `MODEL_DIR` | `~/.cache/gatekeeper/models` | Where the detector's model is downloaded (once) |
 | `WEB_PORT` | `8098` | The web page: [visits](#visits), [household faces](#household-faces) and [zones](#zones) |
-| `WEB_PASSWORD` | *(none)* | Its password (HTTP Basic, any user name). Without one the page is off. The compose stack reads `GATEKEEPER_WEB_PASSWORD` from `.env` |
+| `WEB_PASSWORD` | *(none)* | Its password, asked for on its login page (scripts can send it with HTTP Basic, any user name). Without one the page is off. The compose stack reads `GATEKEEPER_WEB_PASSWORD` from `.env` |
 | `FACE_CANDIDATE_DAYS` | `14` | How long the faces of people who went in by the door are kept for you to enroll |
 | `LISTEN_SECONDS` | `4` | How long to wait for the visitor to start answering after the greeting (or, without the audio tap, how long to record after it) |
 | `AUDIO_TAP` | `true` | Read the camera's audio all the time and stop listening when the visitor stops talking. `false`: record a fixed window per prompt |
@@ -474,9 +474,17 @@ the limit. To check yours, leave a box in the zone and walk away, by day and at 
 The log shows each check's scores (`doorstep change at …: package score …`), and the daily
 report has the day's numbers.
 
+## The web page
+
+`http://<SERVER_IP>:8098/` (`https://` with `WEB_TLS`) asks for `GATEKEEPER_WEB_PASSWORD`
+on its login page, then keeps you logged in on that browser for 30 days from your last
+visit (a cookie; only its hash is kept, in `LOG_DIR/web-logins.json`, so a restart doesn't
+log you out). *Log out* is at the end of the menu. Scripts can send the password with each
+request instead (HTTP Basic, any user name).
+
 ## Visits
 
-`http://<SERVER_IP>:8098/` (with `GATEKEEPER_WEB_PASSWORD`, any user name) lists the last
+`http://<SERVER_IP>:8098/` lists the last
 few days at the door, newest first. Each visit shows what Gatekeeper did, in words
 (*Greeted, no answer*, *Taken for the household coming out*, *Another trip of a
 delivery*, *Recognized as Alex*...), what it heard, and the camera's picture.
@@ -609,8 +617,7 @@ a face is big enough to recognize while they're still on the walkway.
 
 **Enrolling.** Only enroll people who agreed to be recognized. Faces are biometric data,
 regulated in some places (Illinois, Texas, Washington, the EU and the UK). After a few days
-of the household coming and going, open the faces page: `http://<SERVER_IP>:8098/faces/`, with
-`GATEKEEPER_WEB_PASSWORD` in `.env` (any user name).
+of the household coming and going, open the faces page: `http://<SERVER_IP>:8098/faces/`.
 - **Faces to enroll:** the kept faces, grouped by person. Untick any face that isn't them,
   pick or type their name, tick that they agreed, and enroll. Faces that aren't the
   household can be deleted.

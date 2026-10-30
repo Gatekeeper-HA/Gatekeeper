@@ -208,6 +208,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **A login page for the web page.** It asked for its password with the browser's own box
+  (HTTP Basic), which some browsers never show (DuckDuckGo's) and which can't be logged
+  out of. Now a login page asks for it and keeps you logged in on that browser for 30
+  days (a cookie; only its hash is kept, so a restart doesn't log you out), with *Log out*
+  in the menu. Scripts can still send the password with each request.
 - **Daily report: the knock listener shows it's listening.** It logs, each hour, how many
   sounds went to the classifier and the top score, and the *Knocks heard* line adds them
   up (or says no checks were logged). Before, 0 knocks read the same on a quiet day as

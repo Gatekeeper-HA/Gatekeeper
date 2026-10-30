@@ -624,6 +624,7 @@ def main() -> None:
             zones, used_zones(settings), lambda: (shot := perception.latest_frame()) and shot.jpeg
         )
         from gatekeeper.live import LivePage
+        from gatekeeper.logins import Logins
 
         tls = None
         if settings.web_tls:
@@ -646,6 +647,7 @@ def main() -> None:
             zones=zones_page,
             live=live,
             tls=tls,
+            logged_in=Logins(settings.log_dir / "web-logins.json"),
         )
     start_thread(
         "sweep", tracker.sweep_forever, settings.sweep_interval_seconds, on_sweep=health.sweep_done
