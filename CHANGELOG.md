@@ -213,6 +213,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   sounds went to the classifier and the top score, and the *Knocks heard* line adds them
   up (or says no checks were logged). Before, 0 knocks read the same on a quiet day as
   with a listener that wasn't checking anything.
+- **A stall says where it's stuck.** Own perception's look loop not passing for 60 s is
+  logged (in shadow too) with the stack of its thread, once, and again when it's looking
+  again. The hang watchdog logs every thread's stack before it exits. Own perception
+  stopped for hours once with nothing in the log (#110), and this shows where.
 - **Daily report: the knock classifier's start-up warning is known noise.** transformers
   warns that some of AST's mel filters are all zero, once per start; that's how the model
   was trained, so it's counted with the harmless lines instead of listed every day.
