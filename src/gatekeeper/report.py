@@ -722,9 +722,27 @@ def log_events(lines: list[str]) -> list[dict]:
             continue
         if level in LEVELS:
             events.append(_event(level, logger, message, time_))
-            last_line = i
+            i, events[-1]["where"] = stack_after(lines, i + 1)
+            last_line = i - 1
+            continue
         i += 1
     return events
+
+
+def stack_after(lines: list[str], i: int) -> tuple[int, str]:
+    """A stack logged after a message (``traceback.format_stack``: a stall saying where
+    it's stuck; ``health.thread_stacks``: ``-- <thread>`` before each): its innermost
+    frame, or each thread's, and the line after it."""
+    threads: list[list[str]] = []
+    while i < len(lines) and (lines[i][:1] in (" ", "\t") or lines[i].startswith("-- ")):
+        if lines[i].startswith("-- "):
+            threads.append([lines[i][3:].strip(), ""])
+        elif lines[i].lstrip().startswith("File "):
+            if not threads:
+                threads.append(["", ""])
+            threads[-1][1] = lines[i].strip()
+        i += 1
+    return i, "; ".join(f"{name}: {frame}" if name else frame for name, frame in threads if frame)
 
 
 def _event(level, logger, message, time_, exception=None, where="") -> dict:
@@ -1585,6 +1603,8 @@ def render_markdown(report: dict) -> str:
             line = f"- **{g['level']}** ×{g['count']} `{g['logger']}`: {g['message']}"
             if g["exception"]:
                 line += f" → `{g['exception']}` {g['where']}"
+            elif g["where"]:
+                line += f" → {g['where']}"
             out.append(line + f" ({g['first']} – {g['last']})")
         out.append("")
     out.append(f"Known harmless lines ignored: {report['logs']['ignored']}.")

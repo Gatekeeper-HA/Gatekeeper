@@ -216,6 +216,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **Daily report: a stall says where it's stuck.** The stack logged after *own perception
+  stalled … it's at:* and *internal hang … the threads:* was dropped, so the report showed
+  nothing after the colon. Its innermost frame (each thread's, for the hang) is now the
+  log kind's `where`, shown in the *Logs* list.
 - **A stalled own perception restarts Gatekeeper.** With `PERCEPTION=own`, own perception's
   look loop beats on every pass. No beat for `OWN_PERCEPTION_STALL_SECONDS` (60) is an
   internal hang, *own perception stalled*: `/healthz` turns unhealthy, and after
