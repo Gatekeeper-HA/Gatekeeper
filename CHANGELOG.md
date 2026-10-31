@@ -216,6 +216,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **Daily report: a watchdog exit is one hang.** The exit and the container restart it
+  causes were added up, so one stall read *2 hang/restart(s)*. Restarts beyond the exits
+  (a crash) still count.
 - **A stalled own perception restarts Gatekeeper.** With `PERCEPTION=own`, own perception's
   look loop beats on every pass. No beat for `OWN_PERCEPTION_STALL_SECONDS` (60) is an
   internal hang, *own perception stalled*: `/healthz` turns unhealthy, and after

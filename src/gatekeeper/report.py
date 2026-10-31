@@ -1013,7 +1013,8 @@ def build(i: Inputs) -> dict:
     created = {name: ts for name, ts in recreated.items() if name not in kept}
     logs["since"] = {name: local(ts) for name, ts in created.items()}
     logs["kept"] = {name: local(ts) for name, ts in recreated.items() if name in kept}
-    hangs = outcomes.get("timeout", 0) + host.get("hang_exits", 0) + host.get("restarts", 0)
+    # A watchdog exit is what restarts the container: one hang, not two.
+    hangs = outcomes.get("timeout", 0) + max(host.get("hang_exits", 0), host.get("restarts", 0))
 
     checks: list[dict] = []
 
