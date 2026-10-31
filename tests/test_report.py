@@ -104,6 +104,38 @@ def test_a_traceback_belongs_to_the_error_line_before_it():
     assert "health.py" in traceback["where"]
 
 
+def test_a_stall_says_where_its_stuck():
+    lines = [
+        "2026-10-30 12:22:29,001 CRITICAL gatekeeper.own_perception [-] own perception "
+        "stalled: its look loop hasn't passed for 60 s; it's at:",
+        '  File "/usr/lib/python3.12/threading.py", line 1030, in _bootstrap',
+        "    self._bootstrap_inner()",
+        '  File "/app/src/gatekeeper/own_perception.py", line 560, in look_forever',
+        "    boxes = self._detector(image)",
+        "2026-10-30 12:23:29,001 CRITICAL gatekeeper.health [-] internal hang for 60 s: "
+        "['own perception stalled']; exiting; the threads:",
+        "-- MainThread",
+        '  File "/app/src/gatekeeper/app.py", line 300, in run',
+        "    stop.wait()",
+        "-- own-perception",
+        '  File "/app/src/gatekeeper/own_perception.py", line 560, in look_forever',
+        "    boxes = self._detector(image)",
+        "2026-10-30 12:23:30,001 INFO    gatekeeper.app [-] stopping",
+    ]
+    r = build(inputs(log_text="### gatekeeper\n" + "\n".join(lines) + "\n"))
+
+    stall, hang = r["logs"]["sources"]["gatekeeper"]["top"]
+    assert stall["where"] == (
+        'File "/app/src/gatekeeper/own_perception.py", line 560, in look_forever'
+    )
+    assert hang["where"] == (
+        'MainThread: File "/app/src/gatekeeper/app.py", line 300, in run; '
+        'own-perception: File "/app/src/gatekeeper/own_perception.py", line 560, '
+        "in look_forever"
+    )
+    assert 'it\'s at: → File "/app/src/gatekeeper/own_perception.py"' in render_markdown(r)
+
+
 def test_whisper_model_device_and_transcription_times():
     info = report.whisper_info(GATEKEEPER_LOG.splitlines())
 
