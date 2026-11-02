@@ -236,6 +236,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   sounds went to the classifier and the top score, and the *Knocks heard* line adds them
   up (or says no checks were logged). Before, 0 knocks read the same on a quiet day as
   with a listener that wasn't checking anything.
+- **Daily report: when the top knock score happened.** The *Knocks heard* line adds the
+  hour of the day's top score (*top score 0.39 in the hour to …*), so the sound behind a
+  score creeping toward the threshold can be found and listened to.
 - **A stall says where it's stuck.** Own perception's look loop not passing for 60 s is
   logged (in shadow too) with the stack of its thread, once, and again when it's looking
   again. The hang watchdog logs every thread's stack before it exits. Own perception

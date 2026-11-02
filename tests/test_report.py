@@ -1234,8 +1234,23 @@ def test_the_knock_listeners_checks_show_it_listening():
         "stats_hours": 3,
         "checks": 37,
         "top_score": 0.31,
+        "top_at": report.local(report.log_time("2026-10-28 12:00:00")),
     }
-    assert "Knocks heard (shadow): 0; 37 sound(s) checked, top score 0.31" in render_text(r)
+    assert (
+        "Knocks heard (shadow): 0; 37 sound(s) checked, top score 0.31 in the hour to "
+        f"{report.local(report.log_time('2026-10-28 12:00:00'))}" in render_text(r)
+    )
+
+
+def test_a_quiet_knock_listener_has_no_top_score_time():
+    log = (
+        "### gatekeeper\n2026-10-28 10:00:00,000 INFO     gatekeeper.knock [-] knock listener "
+        "stats: 0 check(s) in 3600 s, top score 0.00\n"
+    )
+    r = build(inputs(knocks=[], log_text=log))
+    assert r["knocks"]["top_score"] == 0.0 and r["knocks"]["top_at"] is None
+    assert "0 sound(s) checked, top score 0.00\n" in render_text(r) + "\n"
+    assert "in the hour to" not in render_text(r)
 
 
 def test_the_owners_labels_are_compared_with_what_gatekeeper_did():

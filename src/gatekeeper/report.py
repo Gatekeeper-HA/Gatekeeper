@@ -394,16 +394,25 @@ def doorbell_info(lines: list[str]) -> dict | None:
 
 def knock_stats(lines: list[str]) -> dict:
     """The knock listener's hourly stats in the window: the sounds it checked, the top
-    score, and how many hours it logged (0: no stats line, so nothing shows it listening)."""
+    score, and how many hours it logged (0: no stats line, so nothing shows it listening).
+    ``top_at``: when the hour with the top score ended (its stats line), so the sound can
+    be found and listened to; None when no check scored above 0 or the line has no time."""
     hours = checks = 0
-    top = 0.0
+    top, top_at = 0.0, None
     for line in lines:
         m = GATEKEEPER_LINE.match(line)
         if k := KNOCK_STATS.match(m["message"] if m else line):
             hours += 1
             checks += int(k["checks"])
-            top = max(top, float(k["top"]))
-    return {"stats_hours": hours, "checks": checks, "top_score": top if hours else None}
+            if float(k["top"]) > top:
+                top = float(k["top"])
+                top_at = local(log_time(m["time"])) if m else None
+    return {
+        "stats_hours": hours,
+        "checks": checks,
+        "top_score": top if hours else None,
+        "top_at": top_at,
+    }
 
 
 def recording_info(lines: list[str]) -> dict | None:
@@ -1339,6 +1348,7 @@ def summary_lines(report: dict) -> list[str]:
             )
             + (
                 f"; {kn['checks']} sound(s) checked, top score {kn['top_score']:.2f}"
+                + (f" in the hour to {kn['top_at']}" if kn.get("top_at") else "")
                 if kn["stats_hours"]
                 else "; no checks logged"
             )
