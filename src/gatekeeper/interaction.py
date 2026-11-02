@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import datetime
 import functools
 import json
 import logging
@@ -17,7 +18,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from gatekeeper import dialogue, talkback
+from gatekeeper import dialogue, talkback, threat
 from gatekeeper.audio import Synthesizer, Transcriber, capture_audio_clip
 from gatekeeper.camera import go2rtc_frame, photo_sharpness
 from gatekeeper.classify import CONVERSATIONS, classify_response
@@ -69,6 +70,8 @@ FRAME_INTERVAL_SECONDS = 0.5
 # close()), or None if it can't connect.
 ConnectFn = Callable[[], Awaitable[Any]]
 CaptureFn = Callable[[str, Path, int], Path | None]
+# Threat levels never cut these short: they have conversations of their own, as careful.
+THREAT_EXEMPT = ("emergency", "law_enforcement")
 
 
 @dataclass
@@ -823,6 +826,21 @@ class Interaction:
                 visit.outcome = "completed"
                 return
 
+        found = self._assess_threat(visit)
+        if found is not None and found.level >= 2:
+            # Suspicious or worse: no more conversation, one firm line.
+            key = "threat_urgent" if found.level >= 3 else "threat_suspicious"
+            visit.response = s.phrases[key]
+            self._notify(visit)
+            said = await self._say(talk, visit, key, visit.response)
+            if said is None:
+                visit.outcome = "reply_failed"
+                return
+            await self._time_reply(visit, said)
+            await talk.heard(said)
+            visit.outcome = "completed"
+            return
+
         if visit.classification in CONVERSATIONS:
             # Officers, emergencies, canvassers: a conversation of their own.
             await dialogue.run(visit.classification, visit, _Turns(self, talk, visit), s)
@@ -838,6 +856,26 @@ class Interaction:
         await self._time_reply(visit, reply)
         await talk.heard(reply)
         visit.outcome = "completed"
+
+    def _assess_threat(self, visit: Visit) -> threat.Assessment | None:
+        """What the visitor said, against threat.py's signs (THREAT_LEVELS): kept in the
+        visit's details when there's any sign; returned when Gatekeeper acts on it."""
+        if self.settings.threat_levels == "off":
+            return None
+        heard = [turn["heard"] for turn in visit.dialogue if turn.get("heard")]
+        found = threat.assess(heard, datetime.datetime.fromtimestamp(self._clock()).hour)
+        if not found.signs:
+            return None
+        acted = self.settings.threat_levels == "on" and visit.classification not in THREAT_EXEMPT
+        visit.details["threat"] = found.record(acted)
+        log.info(
+            "threat level %d (%s): %s%s",
+            found.level,
+            threat.LEVEL_NAMES[found.level],
+            ", ".join(s.name for s in found.signs),
+            "" if acted else " (not acted on)",
+        )
+        return found if acted else None
 
     async def _time_reply(self, visit: Visit, playback) -> None:
         """Set ``reply_latency`` from the first reply played after the visitor's answer:

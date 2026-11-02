@@ -108,6 +108,7 @@ PHRASE_KEYS = (
     "police_hold_warrant", "police_warrant_done",
     "police_notifying", "police_leave", "police_leave_again",
     "civic_ask_identity", "civic_ask_message", "civic_thanks",
+    "threat_suspicious", "threat_urgent",
 )  # fmt: skip
 # What the resident can answer from the notification (quick_reply.py), QUICK_REPLY_<KEY>.
 QUICK_REPLY_KEYS = ("coming", "later", "no_thanks")
@@ -346,6 +347,16 @@ class Settings(BaseSettings):
     phrase_civic_thanks: str = (
         "Thank you. I'll make sure the resident gets your message. "
         "Feel free to leave any literature at the door."
+    )
+    # Threat levels (threat.py): "off", "shadow" (assessed and logged, nothing changes)
+    # or "on". At "suspicious" (2) Gatekeeper stops the conversation with the first line,
+    # at "urgent" (3) with the second, and the notification is urgent, with the reasons.
+    threat_levels: Literal["off", "shadow", "on"] = "off"
+    phrase_threat_suspicious: str = (
+        "I've let the resident know you're here. This visit is being recorded."
+    )
+    phrase_threat_urgent: str = (
+        "You need to leave now. The resident has been alerted, and you are being recorded."
     )
 
     # Notifications. FRIGATE_API supplies the visitor's snapshot; an empty

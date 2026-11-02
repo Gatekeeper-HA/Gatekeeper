@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Threat levels** (`THREAT_LEVELS`: `off`, `shadow` or `on`), from what the visitor says.
+  - **The signs:** asking whether anyone's home or when they'll be back, asking to come in
+    or for a code, scam talk, swearing, demands to be let in, and threats. Late at night
+    raises the others.
+  - **The levels:** watch, suspicious and urgent. At suspicious or worse, Gatekeeper says
+    one firm line (`PHRASE_THREAT_SUSPICIOUS`, `PHRASE_THREAT_URGENT`) and stops, and the
+    notification is priority 5 with the reasons. One sign only adds a note.
+  - **Exceptions:** emergencies and officers keep their own conversations.
+  - **Records:** the visit record has `details.threat`, and the daily report counts levels
+    and signs.
+  - **Never counted:** appearance, accent or language.
 - **Tapping a notification opens the Live page**, to see who it is and talk to them at once.
   Its address (`WEB_PUBLIC_URL`) defaults to the web page at the server's address, https
   with `WEB_TLS`.

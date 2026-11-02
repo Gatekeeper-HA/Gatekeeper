@@ -158,7 +158,23 @@ def compose(visit: Visit) -> Notification:
         replied = f"Replied: {visit.response}"
     else:
         replied = f"Couldn't reply: {OUTCOME_TEXT.get(visit.outcome, visit.outcome)}."
-    lines = [said, *_conversation_lines(visit), replied]
+    threat = visit.details.get("threat") or {}
+    why = "; ".join(threat.get("reasons", []))
+    if threat.get("acted") and threat.get("level", 0) >= 2:
+        # threat.py: urgent, with the reasons, whatever the visitor said they were.
+        urgent = threat["level"] >= 3
+        return Notification(
+            title=(
+                f"Urgent: threatening visitor at the {place}"
+                if urgent
+                else f"Suspicious visitor at the {place}"
+            ),
+            message="\n".join([said, f"Why: {why}.", replied]),
+            tags=["rotating_light" if urgent else "warning"],
+            priority=5,
+        )
+    note = [f"Note: {why}."] if threat.get("acted") else []
+    lines = [said, *note, *_conversation_lines(visit), replied]
     return Notification(
         title=title.format(place=place),
         message="\n".join(lines),

@@ -962,3 +962,63 @@ def test_the_resident_talking_stops_the_visit_at_once(settings):
     rig.interaction.owner_talks(0)  # they're done
     assert not rig.interaction.owner_talking()
     assert rig.interaction.step_out(0) is None  # nothing running
+
+
+# Threat levels (threat.py).
+
+
+def test_a_suspicious_visitor_gets_one_firm_line(settings):
+    settings.threat_levels = "on"
+    rig = Rig(settings, answer="Is anyone home? Can I come in real quick?")
+    notified = []
+    rig.interaction._on_notify = [notified.append]
+    visit = rig.interaction.run(EID)
+    plays = [c[1] for c in rig.calls if c[0] == "play"]
+    assert plays[0] == "_presynth_greeting.wav"
+    assert plays[1].endswith("_threat_suspicious.wav")
+    assert visit.response == settings.phrase_threat_suspicious
+    assert visit.details["threat"] == {
+        "level": 2,
+        "signs": ["asks_occupancy", "asks_entry"],
+        "reasons": ["asked whether anyone's home", "asked to come in"],
+        "acted": True,
+    }
+    assert visit.outcome == "completed" and len(notified) == 1
+
+
+def test_a_threat_gets_the_urgent_line(settings):
+    settings.threat_levels = "on"
+    rig = Rig(settings, answer="Open up or I'm gonna kick in the door")
+    visit = rig.interaction.run(EID)
+    assert visit.response == settings.phrase_threat_urgent
+    assert visit.details["threat"]["level"] == 3
+
+
+def test_one_sign_is_noted_but_the_visit_goes_on(settings):
+    settings.threat_levels = "on"
+    rig = Rig(settings, answer="Hi, is anyone home?")
+    visit = rig.interaction.run(EID)
+    assert visit.response == settings.reply_generic
+    assert visit.details["threat"]["level"] == 1 and visit.details["threat"]["acted"]
+
+
+def test_in_shadow_nothing_changes_but_its_recorded(settings):
+    settings.threat_levels = "shadow"
+    rig = Rig(settings, answer="Is anyone home? Can I come in real quick?")
+    visit = rig.interaction.run(EID)
+    assert visit.response == settings.reply_generic
+    assert visit.details["threat"]["level"] == 2 and not visit.details["threat"]["acted"]
+
+
+def test_off_assesses_nothing(settings):
+    rig = Rig(settings, answer="Is anyone home? Can I come in real quick?")
+    visit = rig.interaction.run(EID)
+    assert settings.threat_levels == "off" and "threat" not in visit.details
+
+
+def test_an_emergency_keeps_its_own_conversation(settings):
+    settings.threat_levels = "on"
+    rig = Rig(settings, answer="Help, there's smoke! Is anyone home? Open the door!")
+    visit = rig.interaction.run(EID)
+    assert visit.classification == "emergency" and visit.flow == "emergency"
+    assert visit.details["threat"]["level"] == 2 and not visit.details["threat"]["acted"]

@@ -297,3 +297,31 @@ def test_the_web_page_address_for_notifications():
     assert Settings().web_public_url == ""
     custom = Settings(web_public_url="https://door.example/")
     assert custom.web_public_url == "https://door.example/"
+
+
+def threat_visit(level, acted=True):
+    reasons = ["asked whether anyone's home", "asked to come in"][: max(level, 1)]
+    return visit(
+        classification="cooperative_other",
+        transcript="Is anyone home? Can I come in?",
+        response="I've let the resident know you're here. This visit is being recorded.",
+        details={"threat": {"level": level, "signs": [], "reasons": reasons, "acted": acted}},
+    )
+
+
+def test_a_suspicious_visit_is_urgent_with_the_reasons():
+    n = compose(threat_visit(2))
+    assert (n.title, n.priority, n.tags) == ("Suspicious visitor at the front door", 5, ["warning"])
+    assert n.message.splitlines()[1] == "Why: asked whether anyone's home; asked to come in."
+    n = compose(threat_visit(3))
+    assert n.title == "Urgent: threatening visitor at the front door"
+    assert (n.priority, n.tags) == (5, ["rotating_light"])
+
+
+def test_one_sign_is_a_note_and_shadow_changes_nothing():
+    n = compose(threat_visit(1))
+    assert (n.title, n.priority) == ("Visitor at the front door", 4)
+    assert "Note: asked whether anyone's home." in n.message
+    n = compose(threat_visit(2, acted=False))
+    assert (n.title, n.priority) == ("Visitor at the front door", 4)
+    assert "Note:" not in n.message and "Why:" not in n.message
