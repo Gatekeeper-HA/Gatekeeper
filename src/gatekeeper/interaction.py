@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import datetime
 import functools
 import json
 import logging
@@ -17,7 +18,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from gatekeeper import dialogue, talkback
+from gatekeeper import dialogue, occasions, talkback
 from gatekeeper.audio import Synthesizer, Transcriber, capture_audio_clip
 from gatekeeper.camera import go2rtc_frame, photo_sharpness
 from gatekeeper.classify import CONVERSATIONS, classify_response
@@ -69,6 +70,10 @@ FRAME_INTERVAL_SECONDS = 0.5
 # close()), or None if it can't connect.
 ConnectFn = Callable[[], Awaitable[Any]]
 CaptureFn = Callable[[str, Path, int], Path | None]
+
+
+# The kinds of line Halloween has its own of (config.HALLOWEEN_*).
+HALLOWEEN_KINDS = ("greeting", "no_answer", "goodbye")
 
 
 @dataclass
@@ -625,7 +630,9 @@ class Interaction:
         """What to say for ``kind`` ("greeting" or "no_answer"): (phrase key, text). One of
         Gatekeeper's lines at random, not the one said last time; those that mention the
         bell only after a doorbell press; only lines synthesized already (the rest come in
-        the background after startup)."""
+        the background after startup). On Halloween, the Halloween ones."""
+        if visit.details.get("occasion") == "halloween" and kind in HALLOWEEN_KINDS:
+            kind = f"halloween_{kind}"
         texts = getattr(self.settings, f"{kind}_texts")
         lines = texts(pressed=visit.trigger == "button")
         lines = {k: t for k, t in lines.items() if k in self._presynth} or lines
@@ -640,7 +647,9 @@ class Interaction:
         if not visit.transcript:
             visit.classification = "no_response"
             return "no_answer"
-        visit.classification, reply_key = classify_response(visit.transcript)
+        visit.classification, reply_key = classify_response(
+            visit.transcript, halloween=visit.details.get("occasion") == "halloween"
+        )
         return reply_key
 
     async def _answer_from_window(
@@ -786,6 +795,11 @@ class Interaction:
 
     async def _converse(self, visit: Visit, talk: _Talk) -> None:
         s = self.settings
+        if occasions.is_halloween(s, datetime.datetime.fromtimestamp(self._clock())):
+            visit.details["occasion"] = "halloween"
+            if visit.trigger != "person" and occasions.SPOOKY_KEY in self._presynth:
+                # A press or a knock: the spooky sound first, then the greeting.
+                await self._say(talk, visit, occasions.SPOOKY_KEY, "")
         greeting_key, greeting_text = self._line("greeting", visit)
         greeting = await self._say(talk, visit, greeting_key, greeting_text)
         if greeting is None:
@@ -828,7 +842,10 @@ class Interaction:
             await dialogue.run(visit.classification, visit, _Turns(self, talk, visit), s)
             return
 
-        visit.response = s.replies[reply_key]
+        if reply_key == "halloween":
+            reply_key, visit.response = self._line("halloween_reply", visit)
+        else:
+            visit.response = s.replies[reply_key]
         self._notify(visit)
 
         reply = await self._say(talk, visit, reply_key, visit.response)

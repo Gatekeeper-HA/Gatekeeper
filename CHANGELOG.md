@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Halloween** (`HALLOWEEN`, `auto`: October 31, 4-10 pm). A doorbell press or a knock
+  plays a spooky sound outside before the greeting (generated in code, nothing to license).
+  The greetings, no-answer lines and send-offs are Halloween ones, gentle with a shy kid
+  rather than teasing. "Trick or treat" is classified `trick_or_treat` and answered by
+  `HALLOWEEN_TREATS`: treats in a bowl, none this year, or compliments only (the
+  default), never a promise that anyone will come to the door. It's notified as
+  *Trick-or-treaters*. Emergencies still come first.
 - **Tapping a notification opens the Live page**, to see who it is and talk to them at once.
   Its address (`WEB_PUBLIC_URL`) defaults to the web page at the server's address, https
   with `WEB_TLS`.

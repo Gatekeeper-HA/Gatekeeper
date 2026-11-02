@@ -12,7 +12,7 @@ from urllib.parse import quote
 
 import paho.mqtt.client as mqtt
 
-from gatekeeper import __version__
+from gatekeeper import __version__, occasions
 from gatekeeper.audio import Synthesizer, Transcriber, presynth_all
 from gatekeeper.audio_tap import AudioTap
 from gatekeeper.button import DoorbellButton
@@ -417,6 +417,7 @@ def main() -> None:
     # The personality's greetings and no-answer lines: a few of each now, the rest in the
     # background (about 10 s each on a CPU); only lines ready are said.
     lines = {**settings.greeting_texts(), **settings.no_answer_texts(), **settings.goodbye_texts()}
+    lines |= settings.halloween_texts()  # only needed one evening a year: in the background
     first_lines = {}
     for kind in ("greeting", "no_answer", "goodbye"):
         mine = [k for k in lines if k == kind or k.startswith(f"{kind}_")]
@@ -437,6 +438,11 @@ def main() -> None:
             },
         },
     )
+
+    if settings.halloween != "off":
+        presynth[occasions.SPOOKY_KEY] = occasions.spooky_sound(
+            settings.out_dir / f"_presynth_{occasions.SPOOKY_KEY}.wav"
+        )
 
     later = {k: t for k, t in lines.items() if k not in presynth}
     if later:

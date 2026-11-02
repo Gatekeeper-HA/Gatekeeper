@@ -100,6 +100,59 @@ NO_ANSWER_PRESSED_LINES = (
     "expires.",
     "You rang my bell, not my emotional support hotline. What do you need?",
 )
+# Halloween evening (occasions.py): spooky and fun, for trick-or-treaters. Every greeting
+# still says the door is watched or recorded, and the no-answer lines are gentle: a shy kid
+# in a costume isn't someone to tease.
+HALLOWEEN_GREETING_LINES = (
+    "Mwahaha... welcome, brave souls, to the haunted front door! Everything here is watched "
+    "and recorded. Trick or treat?",
+    "Who dares ring this doorbell on Halloween night? Speak up, little ghouls, this spooky "
+    "door is recording!",
+    "Boo! Did I scare you? Happy Halloween! This haunted doorbell sees and records all. What "
+    "do you say?",
+    "Ooooh, visitors from the other side! Happy Halloween! I'm the haunted doorbell, and I'm "
+    "recording. Trick or treat?",
+    "Welcome to the creepiest doorbell on the block! It's watching, it's recording, and it "
+    "wants to hear the magic words.",
+)
+HALLOWEEN_NO_ANSWER_LINES = (
+    "Too spooked to speak? That's okay! Just say trick or treat, if you dare.",
+    "Hello? Is that a ghost? Ghosts can talk too, you know. Say trick or treat!",
+    "The haunted doorbell is waiting... say the magic words: trick or treat!",
+    "Don't be shy, little monster. What brings you to the spooky door tonight?",
+)
+HALLOWEEN_GOODBYE_LINES = (
+    "Happy Halloween! Watch out for ghosts on your way!",
+    "Bye for now! Stay spooky out there!",
+    "Happy haunting, and look both ways for zombies!",
+)
+# The answer to "trick or treat", by HALLOWEEN_TREATS: "bowl" (treats in a bowl by the
+# door), "none" (no treats this year), or "unset" (compliments, and no promises).
+HALLOWEEN_REPLY_LINES = {
+    "bowl": (
+        "Happy Halloween! Help yourselves to a treat from the bowl, one each. The ghosts are "
+        "counting!",
+        "Spooktacular costumes! Grab a treat from the bowl by the door. Just one, or the bats "
+        "will tell.",
+        "Trick or treat accepted! There's a bowl by the door: take one each, and happy "
+        "haunting!",
+    ),
+    "none": (
+        "Happy Halloween! No treats at this haunted house this year, but your costumes are "
+        "frightfully good!",
+        "Oh no, the ghosts ate all the candy here this year! Happy Halloween, and great "
+        "costumes!",
+        "Sorry, no treats at this door tonight. But those costumes? Terrifyingly awesome. "
+        "Happy Halloween!",
+    ),
+    "unset": (
+        "Happy Halloween! Those costumes are frightfully good. Stay spooky out there!",
+        "Ooooh, terrifying! Best costumes I've seen all night. Happy Halloween!",
+        "Spooktacular! The haunted doorbell approves. Happy Halloween, and watch out for "
+        "ghosts!",
+    ),
+}
+
 # Lines of the multi-turn conversations (dialogue.py), PHRASE_<KEY> in the environment.
 PHRASE_KEYS = (
     "emergency_wait",
@@ -293,6 +346,20 @@ class Settings(BaseSettings):
     # the only one.
     reply_goodbye: str = ""
     goodbye_lines: list[str] = list(GOODBYE_LINES)
+    # Halloween (occasions.py): "auto" is October 31 from HALLOWEEN_START_HOUR to
+    # HALLOWEEN_END_HOUR (local time); "on" or "off" force it. Its lines replace the
+    # greetings, no-answer lines and send-offs that evening, and answer "trick or treat"
+    # by HALLOWEEN_TREATS: "bowl" (treats in a bowl by the door), "none", or "unset"
+    # (compliments the costumes and promises nothing). Each pool is a JSON list.
+    halloween: Literal["auto", "on", "off"] = "auto"
+    halloween_start_hour: int = 16
+    halloween_end_hour: int = 22
+    halloween_treats: Literal["unset", "bowl", "none"] = "unset"
+    halloween_greeting_lines: list[str] = list(HALLOWEEN_GREETING_LINES)
+    halloween_no_answer_lines: list[str] = list(HALLOWEEN_NO_ANSWER_LINES)
+    halloween_goodbye_lines: list[str] = list(HALLOWEEN_GOODBYE_LINES)
+    # Empty: HALLOWEEN_REPLY_LINES for HALLOWEEN_TREATS.
+    halloween_reply_lines: list[str] = []
     reply_delivery: str = "Thank you. Please leave the package at the door."
     reply_sales: str = "No solicitation. Please leave the property."
     reply_maintenance: str = "Please wait while I notify the resident."
@@ -428,6 +495,8 @@ class Settings(BaseSettings):
             )
         if len(self.quick_reply_list) > 3:
             raise ValueError("QUICK_REPLIES: at most 3 (ntfy shows no more buttons)")
+        if not 0 <= self.halloween_start_hour < self.halloween_end_hour <= 24:
+            raise ValueError("HALLOWEEN_START_HOUR must be before HALLOWEEN_END_HOUR, both 0-24")
         return self
 
     @property
@@ -494,6 +563,49 @@ class Settings(BaseSettings):
             pressed,
             "Hello. This property is monitored. Please state the purpose of your visit.",
         )
+
+    def halloween_greeting_texts(self, pressed: bool | None = None) -> dict[str, str]:
+        """Halloween's greetings by phrase key: halloween_greeting_1..."""
+        return _pool(
+            "halloween_greeting",
+            "",
+            self.halloween_greeting_lines,
+            [],
+            pressed,
+            "Happy Halloween! This door is watched and recorded. Trick or treat?",
+        )
+
+    def halloween_no_answer_texts(self, pressed: bool | None = None) -> dict[str, str]:
+        return _pool(
+            "halloween_no_answer",
+            "",
+            self.halloween_no_answer_lines,
+            [],
+            pressed,
+            "Don't be shy! Say trick or treat.",
+        )
+
+    def halloween_goodbye_texts(self, pressed: bool | None = None) -> dict[str, str]:
+        return _pool(
+            "halloween_goodbye", "", self.halloween_goodbye_lines, [], pressed, "Happy Halloween!"
+        )
+
+    def halloween_reply_texts(self, pressed: bool | None = None) -> dict[str, str]:
+        """The answers to "trick or treat", by HALLOWEEN_TREATS unless
+        HALLOWEEN_REPLY_LINES is set."""
+        lines = self.halloween_reply_lines or list(HALLOWEEN_REPLY_LINES[self.halloween_treats])
+        return _pool("halloween_reply", "", lines, [], pressed, "Happy Halloween!")
+
+    def halloween_texts(self) -> dict[str, str]:
+        """Every Halloween line, to pre-synthesize (none when HALLOWEEN is off)."""
+        if self.halloween == "off":
+            return {}
+        return {
+            **self.halloween_greeting_texts(),
+            **self.halloween_no_answer_texts(),
+            **self.halloween_goodbye_texts(),
+            **self.halloween_reply_texts(),
+        }
 
     @property
     def phrases(self) -> dict[str, str]:
