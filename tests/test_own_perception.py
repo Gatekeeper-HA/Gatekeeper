@@ -1,11 +1,13 @@
 import threading
+import time
 
+import av
 import numpy as np
 import pytest
 
 from gatekeeper import own_perception as own
 from gatekeeper.config import Settings
-from gatekeeper.own_perception import Detection, Motion, OwnPerception, Tracker
+from gatekeeper.own_perception import Detection, Motion, OwnPerception, Tracker, to_array
 
 PORCH = [(0.5, 0.5), (1.0, 0.5), (1.0, 1.0), (0.5, 1.0)]
 DOOR = [(0.8, 0.5), (1.0, 0.5), (1.0, 1.0), (0.8, 1.0)]
@@ -341,11 +343,12 @@ def test_tracks_end_when_the_stream_stops():
 class VideoFrame:
     def __init__(self, level, width=640, height=480):
         self.level, self.width, self.height = level, width, height
-        self.asked = None
 
-    def to_ndarray(self, **kwargs):
-        self.asked = kwargs
-        return np.full((kwargs["height"], kwargs["width"], 3), self.level, np.uint8)
+
+def grey_frame(level, width=640, height=480):
+    """A real av.VideoFrame, as the decoder gives them (yuv420p)."""
+    rgb = np.full((height, width, 3), level, np.uint8)
+    return av.VideoFrame.from_ndarray(rgb, format="rgb24").reformat(format="yuv420p")
 
 
 class Container:
@@ -395,21 +398,51 @@ def test_looking_takes_the_newest_frame_scaled_for_the_detector():
         "rtsp://x", detector, Tracker("x"), fps=4, clock=lambda: clock[0], sleep=slept.append
     )
     looked = []
-    service.look = lambda bgr, at, frame=None: (looked.append((bgr.shape, at)), service.stop())
-    newest = VideoFrame(80)
-    service._frame = (99.5, newest)
-    worker = threading.Thread(target=service.look_forever)
+    service.look = lambda bgr, at, frame=None: (
+        looked.append((bgr.shape, round(float(bgr.mean())), at)),
+        service.stop(),
+    )
+    service._frame = (99.5, grey_frame(80))
+    worker = threading.Thread(target=service.look_forever, daemon=True)
     worker.start()
     worker.join(5)
     assert not worker.is_alive()
-    assert looked == [((240, 320, 3), 99.5)]
+    assert looked == [((240, 320, 3), 80, 99.5)]  # the detector's size, the frame's pixels
     assert slept == [0.25]  # 4 a second, from when it took the frame (however old)
-    assert newest.asked == {
-        "width": 320,
-        "height": 240,
-        "format": "bgr24",
-        "interpolation": "BILINEAR",
-    }
+
+
+def test_to_array_is_the_frames_to_ndarray():
+    frame = grey_frame(120)
+    for kwargs in (
+        {"format": "rgb24"},
+        {"width": 320, "height": 240, "format": "bgr24", "interpolation": "BILINEAR"},
+    ):
+        assert np.array_equal(to_array(frame, **kwargs), frame.to_ndarray(**kwargs))
+
+
+def test_two_threads_can_convert_the_same_frame_at_once():
+    # #122: the look thread scaling the newest frame while a snapshot converts it at full
+    # size deadlocked in the frame's one scaler. With a scaler per thread, both go on.
+    frame = grey_frame(60, 1280, 720)
+    counts = [0, 0]
+    stop = time.monotonic() + 1.0
+    sizes = (
+        {"width": 640, "height": 384, "format": "bgr24", "interpolation": "BILINEAR"},
+        {"format": "rgb24"},
+    )
+
+    def convert(i):
+        while time.monotonic() < stop:
+            to_array(frame, **sizes[i])
+            counts[i] += 1
+
+    threads = [threading.Thread(target=convert, args=(i,), daemon=True) for i in (0, 1)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+    assert not any(t.is_alive() for t in threads)
+    assert min(counts) > 5
 
 
 def test_looking_beats_on_each_pass_even_without_frames():
