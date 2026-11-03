@@ -216,6 +216,10 @@ services:
       # Threat levels from what visitors say: off unless THREAT_LEVELS=shadow (logged and
       # in the daily report only) or on (a firm line and an urgent notification) in .env.
       THREAT_LEVELS: "${THREAT_LEVELS:-off}"
+      # Opt-in Text 911 / Call 911 buttons on urgent notifications, and the address the
+      # text gives: off unless EMERGENCY_BUTTONS=1 and HOME_ADDRESS="..." in .env.
+      EMERGENCY_BUTTONS: "${EMERGENCY_BUTTONS:-0}"
+      HOME_ADDRESS: "${HOME_ADDRESS:-}"
       # Gatekeeper's own clips while someone's at the door (needs OWN_PERCEPTION): off
       # unless RECORDING=1 in .env. About 4 Mbit/s from the Reolink, kept 7 days.
       RECORDING: "${RECORDING:-0}"

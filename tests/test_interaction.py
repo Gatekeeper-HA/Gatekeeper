@@ -967,29 +967,47 @@ def test_the_resident_talking_stops_the_visit_at_once(settings):
 # Threat levels (threat.py).
 
 
-def test_a_suspicious_visitor_gets_one_firm_line(settings):
+def played_keys(rig):
+    """The phrase keys played, from the clips' names (_presynth_<key>.wav, <EID>_<key>.wav)."""
+    names = [c[1] for c in rig.calls if c[0] == "play"]
+    return [
+        n.removesuffix(".wav").removeprefix("_presynth_").removeprefix(f"{EID}_") for n in names
+    ]
+
+
+def test_a_suspicious_visitor_is_talked_off_the_property(settings):
     settings.threat_levels = "on"
-    rig = Rig(settings, answer="Is anyone home? Can I come in real quick?")
-    notified = []
-    rig.interaction._on_notify = [notified.append]
+    rig = Rig(settings, answer="Is anyone home? Can I come in real quick?", present=lambda: True)
+    notified = []  # the reply when notified (the Notifier copies the visit then)
+    rig.interaction._on_notify = [lambda v: notified.append(v.response)]
     visit = rig.interaction.run(EID)
-    plays = [c[1] for c in rig.calls if c[0] == "play"]
-    assert plays[0] == "_presynth_greeting.wav"
-    assert plays[1].endswith("_threat_suspicious.wav")
-    assert visit.response == settings.phrase_threat_suspicious
+    # They stay: every line in turn, listening between them.
+    assert played_keys(rig) == ["greeting", "threat_1", "threat_2", "threat_3", "threat_4"]
+    assert visit.response == " ".join(settings.threat_lines)
     found = visit.details["threat"]
-    assert (found["level"], found["acted"]) == (2, True)
+    assert (found["level"], found["acted"], found["lines_said"]) == (2, True, 4)
     # (late_night after them, where the rig's 1970 clock falls at night: CI's UTC)
     assert found["signs"][:2] == ["asks_occupancy", "asks_entry"]
     assert found["reasons"][:2] == ["asked whether anyone's home", "asked to come in"]
-    assert visit.outcome == "completed" and len(notified) == 1
+    assert visit.outcome == "completed"
+    # The resident was told at once, with the first line.
+    assert notified == [settings.threat_lines[0]]
 
 
-def test_a_threat_gets_the_urgent_line(settings):
+def test_a_suspicious_visitor_who_leaves_hears_no_more(settings):
     settings.threat_levels = "on"
-    rig = Rig(settings, answer="Open up or I'm gonna kick in the door")
+    rig = Rig(settings, answer="Is anyone home? Can I come in?", leaving=lambda: True)
     visit = rig.interaction.run(EID)
-    assert visit.response == settings.phrase_threat_urgent
+    assert played_keys(rig) == ["greeting", "threat_1"]
+    assert visit.details["threat"]["lines_said"] == 1
+
+
+def test_a_threat_starts_with_the_urgent_line(settings):
+    settings.threat_levels = "on"
+    rig = Rig(settings, answer="Open up or I'm gonna kick in the door", present=lambda: True)
+    visit = rig.interaction.run(EID)
+    assert played_keys(rig) == ["greeting", "threat_urgent", "threat_2", "threat_3", "threat_4"]
+    assert visit.response.startswith(settings.phrase_threat_urgent)
     assert visit.details["threat"]["level"] == 3
 
 

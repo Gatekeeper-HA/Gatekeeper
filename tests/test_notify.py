@@ -5,7 +5,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 
 from gatekeeper.interaction import Visit
-from gatekeeper.notify import Notification, Notifier, NtfyBackend, compose
+from gatekeeper.notify import Notification, Notifier, NtfyBackend, compose, emergency_links
 
 
 def visit(**kw):
@@ -325,3 +325,41 @@ def test_one_sign_is_a_note_and_shadow_changes_nothing():
     n = compose(threat_visit(2, acted=False))
     assert (n.title, n.priority) == ("Visitor at the front door", 4)
     assert "Note:" not in n.message and "Why:" not in n.message
+
+
+def test_911_buttons_for_a_suspicious_visit_or_an_emergency():
+    v = threat_visit(2)
+    (text, body), call = emergency_links(v, "12 Elm St")
+    assert text == "Text 911" and call == ("Call 911", "tel:911")
+    assert body.startswith("sms:911?body=Suspicious%20person%20at%20my%20door%20at%2012%20Elm%20St")
+    assert "asked%20whether%20anyone%27s%20home" in body
+    assert "," not in body and ";" not in body  # safe in ntfy's Actions header
+    # Without an address there's nothing to text: only the call.
+    assert emergency_links(v, "") == [("Call 911", "tel:911")]
+    # An emergency: what they said.
+    fire = visit(classification="emergency", transcript="There's smoke coming out of your garage")
+    assert "smoke%20coming" in emergency_links(fire, "12 Elm St")[0][1]
+    # Nothing for an ordinary visit, one sign, or a level not acted on (shadow).
+    assert emergency_links(visit(classification="likely_delivery"), "12 Elm St") == []
+    assert emergency_links(threat_visit(1), "12 Elm St") == []
+    assert emergency_links(threat_visit(3, acted=False), "12 Elm St") == []
+
+
+def test_ntfy_puts_the_911_buttons_first_and_shows_three_at_most():
+    backend = NtfyBackend("http://ntfy", "doorbell", "tk", reply_url="http://h:8090/r")
+    n = Notification(
+        "Suspicious visitor",
+        "hi",
+        links=[("Text 911", "sms:911?body=x"), ("Call 911", "tel:911")],
+        actions=[("I'm coming", "e1 coming 1"), ("Not now", "e1 later 2")],
+    )
+    assert backend.request(n, None).get_header("Actions") == (
+        'view, "Text 911", sms:911?body=x, clear=true; '
+        'view, "Call 911", tel:911, clear=true; '
+        "http, \"I'm coming\", http://h:8090/r, method=POST, body=e1 coming 1, clear=true"
+    )
+    # Link buttons don't need the reply topic.
+    plain = NtfyBackend("http://ntfy", "doorbell", "tk")
+    assert plain.request(n, None).get_header("Actions") == (
+        'view, "Text 911", sms:911?body=x, clear=true; view, "Call 911", tel:911, clear=true'
+    )

@@ -67,6 +67,8 @@ class Notification:
     priority: int = 3
     # Quick reply buttons: (label, what the button posts).
     actions: list[tuple[str, str]] = field(default_factory=list)
+    # Buttons that open a link on the phone (label, URL): Text 911, Call 911.
+    links: list[tuple[str, str]] = field(default_factory=list)
 
 
 def _clock_time(ts) -> str:
@@ -183,6 +185,28 @@ def compose(visit: Visit) -> Notification:
     )
 
 
+def emergency_links(visit: Visit, address: str) -> list[tuple[str, str]]:
+    """EMERGENCY_BUTTONS: for a suspicious visit (threat.py, acted on) or an emergency, a
+    button that opens the phone's messages to 911 with the address and what happened
+    (HOME_ADDRESS; the resident still taps send) and one that calls 911."""
+    threat = visit.details.get("threat") or {}
+    suspicious = threat.get("acted") and threat.get("level", 0) >= 2
+    if not (suspicious or visit.classification == "emergency"):
+        return []
+    links = []
+    if address:
+        if suspicious:
+            body = (
+                f"Suspicious person at my door at {address}: "
+                f"{'; '.join(threat.get('reasons', []))}. My doorbell camera is recording."
+            )
+        else:
+            body = f'Emergency reported at my door at {address}: "{visit.transcript[:120]}"'
+        links.append(("Text 911", "sms:911?body=" + urllib.parse.quote(body)))
+    links.append(("Call 911", "tel:911"))
+    return links
+
+
 NOT_SAID = "(didn't say)"
 
 
@@ -260,11 +284,15 @@ class NtfyBackend:
             headers["Authorization"] = f"Bearer {self.token}"
         if self.click_url:
             headers["Click"] = self.click_url
-        if n.actions and self.reply_url:
-            headers["Actions"] = "; ".join(
+        # ntfy shows up to three buttons: 911 first, then the quick replies.
+        buttons = [f'view, "{label}", {url}, clear=true' for label, url in n.links]
+        if self.reply_url:
+            buttons += [
                 f'http, "{label}", {self.reply_url}, method=POST, body={body}, clear=true'
                 for label, body in n.actions
-            )
+            ]
+        if buttons:
+            headers["Actions"] = "; ".join(buttons[:3])
         if image:
             # The body is the attachment; ntfy reads the message from this
             # header and turns literal "\n" into newlines.
@@ -288,11 +316,14 @@ class Notifier:
         clock: Callable[[], float] = time.monotonic,
         log_to: EventLog | None = None,
         actions: Callable[[Visit], list[tuple[str, str]]] = lambda visit: [],
+        links: Callable[[Visit], list[tuple[str, str]]] = lambda visit: [],
     ) -> None:
         self.backends = list(backends)
         self._snapshot = snapshot
-        # Quick reply buttons for a visit's notification (app.py).
+        # Quick reply buttons for a visit's notification (app.py), and link buttons
+        # (emergency_links).
         self._actions = actions
+        self._links = links
         self._clock = clock
         # One line per attempt (notifications.jsonl), so "was every visit
         # notified, and how fast" can be checked later.
@@ -307,6 +338,7 @@ class Notifier:
         started = self._clock()
         notification = compose(visit)
         notification.actions = self._actions(visit)
+        notification.links = self._links(visit)
         image = None
         if visit.image is not None:  # e.g. a warrant held up to the camera
             try:

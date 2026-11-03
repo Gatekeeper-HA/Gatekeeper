@@ -10,9 +10,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - **The signs:** asking whether anyone's home or when they'll be back, asking to come in
     or for a code, scam talk, swearing, demands to be let in, and threats. Late at night
     raises the others.
-  - **The levels:** watch, suspicious and urgent. At suspicious or worse, Gatekeeper says
-    one firm line (`PHRASE_THREAT_SUSPICIOUS`, `PHRASE_THREAT_URGENT`) and stops, and the
-    notification is priority 5 with the reasons. One sign only adds a note.
+  - **The levels:** watch, suspicious and urgent. At suspicious or worse, Gatekeeper stops
+    answering and talks them off the property while they stay (`THREAT_LINES`: the
+    resident knows and it's recorded, a big dog behind the door, the police will be
+    called, a last warning; `PHRASE_THREAT_URGENT` first for a threat). The notification is
+    priority 5 with the reasons. One sign only adds a note.
+  - **911 buttons** (opt-in, `EMERGENCY_BUTTONS`, `HOME_ADDRESS`): *Text 911* opens the
+    phone's messages to 911 with the address and what happened filled in (the resident
+    taps send), and *Call 911*, on suspicious-visit and emergency notifications.
   - **Exceptions:** emergencies and officers keep their own conversations.
   - **Records:** the visit record has `details.threat`, and the daily report counts levels
     and signs.

@@ -184,8 +184,10 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `GOODBYE_LINES` | 7 send-offs | Said instead of a no-answer line to someone already walking away when the greeting gets no answer (a courier who dropped something off, mostly). A JSON list replaces them; `REPLY_GOODBYE` sets a single one |
 | `REPLY_PRESSED` | *The resident has already been notified.* | Said when the doorbell is pressed during a visit's cooldown |
 | `THREAT_LEVELS` | `off` | [Threat levels](#threat-levels): `shadow` assesses each visit and logs it (nothing else changes); `on` also acts on it. The compose stack reads it from `.env` |
-| `PHRASE_THREAT_SUSPICIOUS` | *I've let the resident know you're here. This visit is being recorded.* | Said instead of the reply to a suspicious visitor (level 2), and nothing more |
-| `PHRASE_THREAT_URGENT` | *You need to leave now. The resident has been alerted, and you are being recorded.* | To a threat (level 3) |
+| `THREAT_LINES` | 4 lines (`config.py`) | What Gatekeeper says to a suspicious visitor (level 2), one after another while they stay: that the resident knows and it's recorded, the big dog behind the door, that the police will be called, a last warning. A JSON list replaces them |
+| `PHRASE_THREAT_URGENT` | *You need to leave now. The resident has been alerted, and you are being recorded.* | The first line to a threat (level 3), then the rest of `THREAT_LINES` |
+| `EMERGENCY_BUTTONS` | `false` | Opt-in: *Text 911* and *Call 911* buttons on the notification of a suspicious visitor or an emergency. *Text 911* opens your phone's messages to 911 with `HOME_ADDRESS` and what happened filled in; you still tap send. The compose stack reads both from `.env` |
+| `HOME_ADDRESS` | *(none)* | Your street address, for *Text 911*. Without it, only *Call 911* |
 | `PHRASE_EMERGENCY_WAIT` | *I have alerted the resident. Please wait.* | To someone reporting an emergency |
 | `PHRASE_POLICE_ASK_REASON` | *This is an automated assistant, and this conversation is recorded. What is the reason for your visit, and do you have a warrant?* | First question to law enforcement, unless their first sentence already said why they came or whether they have a warrant |
 | `PHRASE_POLICE_DISCLOSURE` | *This is an automated assistant, and this conversation is recorded.* | Said instead, right before the next question, when the reason question is skipped |
@@ -334,8 +336,23 @@ and stops engaging.
 | Level | When | At the door | On your phone |
 |---|---|---|---|
 | 1, watch | one sign | as usual | the usual notification, with a *Note:* saying what it was |
-| 2, suspicious | a strong sign, or two others | only `PHRASE_THREAT_SUSPICIOUS`, and the conversation ends | *Suspicious visitor*, priority 5, with *Why:* |
-| 3, urgent | a threat, or several strong signs | `PHRASE_THREAT_URGENT` | *Urgent: threatening visitor*, priority 5, with *Why:* |
+| 2, suspicious | a strong sign, or two others | stops answering and talks them off the property: `THREAT_LINES` in turn, listening between them, until they leave | *Suspicious visitor*, priority 5, with *Why:* |
+| 3, urgent | a threat, or several strong signs | the same, starting with `PHRASE_THREAT_URGENT` | *Urgent: threatening visitor*, priority 5, with *Why:* |
+
+The lines never say anything about the household, and they mention the police only as what
+will happen, never that they were called:
+
+1. *"I've let the resident know you're here. This visit is being recorded."*
+2. *"Just so you know, there's a very big dog behind this door, and he doesn't like
+   strangers."*
+3. *"You need to leave the property now. If you don't, the police will be called."*
+4. *"This is your last warning. Leave now."*
+
+With `EMERGENCY_BUTTONS` on, the notification of a suspicious visitor or an emergency has
+*Text 911* and *Call 911* buttons. *Text 911* opens your phone's messages, addressed to 911,
+with your address and what happened written for you, and you still tap send: Gatekeeper never
+contacts 911 itself. Text-to-911 isn't available everywhere. Where it isn't, your carrier
+replies that you need to call, so *Call 911* is always there too.
 
 Emergencies and officers keep their own conversations (the levels are recorded, not acted
 on). What someone looks like, how they talk or what language they speak never counts.

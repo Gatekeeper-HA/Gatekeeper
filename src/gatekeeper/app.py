@@ -22,7 +22,7 @@ from gatekeeper.frigate import FrigatePerception
 from gatekeeper.health import Health, serve
 from gatekeeper.interaction import HOUSEHOLD_OUTCOMES, Interaction, Visit
 from gatekeeper.logs import setup_logging
-from gatekeeper.notify import Notifier, NtfyBackend
+from gatekeeper.notify import Notifier, NtfyBackend, emergency_links
 from gatekeeper.packages import Baselines, PackageModel, PackageWatcher
 from gatekeeper.perception import Perception
 from gatekeeper.publish import QUICK_REPLY_TOPIC, Publisher
@@ -431,6 +431,7 @@ def main() -> None:
             **settings.replies,
             **first_lines,
             **settings.phrases,
+            **(settings.threat_texts() if settings.threat_levels != "off" else {}),
             **{
                 f"quick_{key}": settings.quick_reply_phrases[key]
                 for key in settings.quick_reply_list
@@ -525,6 +526,9 @@ def main() -> None:
         snapshot=snapshot,
         log_to=EventLog(settings.notification_log_file),
         actions=quick.buttons if quick else lambda visit: [],
+        links=(lambda visit: emergency_links(visit, settings.home_address))
+        if settings.emergency_buttons
+        else (lambda visit: []),
     )
     if quick and settings.ntfy_url:
         replies = NtfyReplies(

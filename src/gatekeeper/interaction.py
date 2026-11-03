@@ -828,17 +828,7 @@ class Interaction:
 
         found = self._assess_threat(visit)
         if found is not None and found.level >= 2:
-            # Suspicious or worse: no more conversation, one firm line.
-            key = "threat_urgent" if found.level >= 3 else "threat_suspicious"
-            visit.response = s.phrases[key]
-            self._notify(visit)
-            said = await self._say(talk, visit, key, visit.response)
-            if said is None:
-                visit.outcome = "reply_failed"
-                return
-            await self._time_reply(visit, said)
-            await talk.heard(said)
-            visit.outcome = "completed"
+            await self._deter(visit, talk, found)
             return
 
         if visit.classification in CONVERSATIONS:
@@ -856,6 +846,40 @@ class Interaction:
         await self._time_reply(visit, reply)
         await talk.heard(reply)
         visit.outcome = "completed"
+
+    async def _deter(self, visit: Visit, talk: _Talk, found: threat.Assessment) -> None:
+        """Suspicious or worse: Gatekeeper stops answering and talks them off the property,
+        THREAT_LINES in turn (PHRASE_THREAT_URGENT first at "urgent"), listening between
+        them, until they leave or it runs out of lines. The resident is notified at once."""
+        lines = list(self.settings.threat_texts().items())
+        if found.level >= 3:
+            lines = [("threat_urgent", self.settings.phrases["threat_urgent"]), *lines[1:]]
+        visit.response = lines[0][1]
+        self._notify(visit)
+        said = []
+        playback = None
+        for n, (key, line) in enumerate(lines):
+            if n and not self._still_here():
+                break
+            playback = await self._say(talk, visit, key, line)
+            if playback is None:
+                break
+            said.append(line)
+            if n == 0:
+                await self._time_reply(visit, playback)
+            if n < len(lines) - 1:
+                await self._hear(visit, key, line, playback)  # what they say back, kept
+        visit.details["threat"]["lines_said"] = len(said)
+        visit.response = " ".join(said) or None
+        if playback is not None:
+            await talk.heard(playback)
+        visit.outcome = "completed" if said else "reply_failed"
+
+    def _still_here(self) -> bool:
+        """Is anyone still on the porch, and not walking away? (True when it can't tell.)"""
+        if self._leaving is not None and self._leaving():
+            return False
+        return self._present is None or self._present()
 
     def _assess_threat(self, visit: Visit) -> threat.Assessment | None:
         """What the visitor said, against threat.py's signs (THREAT_LEVELS): kept in the
