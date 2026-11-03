@@ -6,6 +6,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **A crash leaves a trace.** If Gatekeeper dies from a native crash (a segfault or abort in
+  PyAV, ONNX Runtime or CUDA), it writes the error and every thread's stack to its log. The
+  daily report counts the crash as an error and shows where the crashing thread was.
 - **Tapping a notification opens the Live page**, to see who it is and talk to them at once.
   Its address (`WEB_PUBLIC_URL`) defaults to the web page at the server's address, https
   with `WEB_TLS`.
