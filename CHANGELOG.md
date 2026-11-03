@@ -216,6 +216,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **Own perception's look loop no longer stalls** (#110, #122). It hung inside PyAV's
+  frame conversion when a snapshot (a press, the package check, the web page) converted
+  the newest frame while the look thread was scaling it: PyAV keeps one scaler per
+  frame, and two threads in it at once deadlock (reproduced on the rig's PyAV, both
+  stuck after one conversion each). Each thread now has a scaler of its own. The
+  watchdog stays as the safety net.
 - **A stalled own perception restarts Gatekeeper.** With `PERCEPTION=own`, own perception's
   look loop beats on every pass. No beat for `OWN_PERCEPTION_STALL_SECONDS` (60) is an
   internal hang, *own perception stalled*: `/healthz` turns unhealthy, and after
