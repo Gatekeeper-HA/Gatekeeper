@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import collections
 import contextvars
 import datetime
 import functools
@@ -164,6 +165,15 @@ class Stopped(Exception):
 HOUSEHOLD_OUTCOMES = ("entered", "household")
 
 
+def visit_started(record: dict) -> float:
+    """When a logged visit started, from its id (``<ts>-...``, ``press-<ts>``); else when
+    it was logged."""
+    try:
+        return float(str(record["event_id"]).removeprefix("press-").split("-")[0])
+    except (KeyError, ValueError):
+        return float(record.get("ts", 0.0))
+
+
 class TalkbackStalled(Exception):
     """A phrase never started playing: the doorbell's speaker connection stopped."""
 
@@ -303,6 +313,8 @@ class Interaction:
         # on_logged: with the final record. Callbacks must not block.
         self._on_notify = list(on_notify)
         self._on_logged = list(on_logged)
+        # The visits logged lately (records), for visits_since.
+        self._recent: collections.deque[dict] = collections.deque(maxlen=100)
         # go2rtc supports one talkback WebRTC session at a time.
         self._talkback_lock = threading.Lock()
         # The resident talking at the door from the Live page: the visit running (its event
@@ -532,9 +544,15 @@ class Interaction:
         finally:
             event_id_var.reset(token)
 
+    def visits_since(self, since: float) -> list[dict]:
+        """The visits logged lately that started at or after ``since`` (the time in their
+        id: a Frigate or own perception event's start, or press-<ts>)."""
+        return [r for r in list(self._recent) if visit_started(r) >= since]
+
     def _log_visit(self, visit: Visit, publish: bool = True) -> None:
         record = visit.record(self._clock())
         self._event_log.append(record)
+        self._recent.append(record)
         log.info("visit: %s", json.dumps(record, ensure_ascii=False))
         for callback in self._on_logged if publish else ():
             try:

@@ -363,3 +363,15 @@ def test_ntfy_puts_the_911_buttons_first_and_shows_three_at_most():
     assert plain.request(n, None).get_header("Actions") == (
         'view, "Text 911", sms:911?body=x, clear=true; view, "Call 911", tel:911, clear=true'
     )
+
+
+def test_a_package_taken_by_a_visitor_is_urgent_with_what_they_said():
+    taken = {"level": 2, "signs": ["package_taken"], "reasons": [], "said": "UPS, return pickup"}
+    v = visit(outcome="package_picked_up", details={"since": 0, "threat": {**taken, "acted": True}})
+    n = compose(v)
+    assert (n.title, n.priority) == ("Package taken by a visitor at the front door", 5)
+    assert 'they said: "UPS, return pickup"' in n.message
+    assert emergency_links(v, "12 Elm St") == []  # not an emergency in progress
+    # In shadow: the usual notification.
+    v.details["threat"]["acted"] = False
+    assert compose(v).title == "Package picked up at the front door"

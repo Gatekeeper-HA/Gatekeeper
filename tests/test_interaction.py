@@ -1039,3 +1039,19 @@ def test_an_emergency_keeps_its_own_conversation(settings):
     visit = rig.interaction.run(EID)
     assert visit.classification == "emergency" and visit.flow == "emergency"
     assert visit.details["threat"]["level"] == 2 and not visit.details["threat"]["acted"]
+
+
+def test_visits_since_lists_the_visits_logged_lately(settings):
+    from gatekeeper.interaction import visit_started
+
+    rig = Rig(settings)
+    rig.interaction.run(EID)  # started at 1727712000.123456 (its id)
+    rig.interaction.log_not_greeted("press-1727712100.0", "left")
+    assert [r["event_id"] for r in rig.interaction.visits_since(1727712000.0)] == [
+        EID,
+        "press-1727712100.0",
+    ]
+    assert [r["event_id"] for r in rig.interaction.visits_since(1727712050.0)] == [
+        "press-1727712100.0"
+    ]
+    assert visit_started({"event_id": "package-12.5", "ts": 99.0}) == 99.0

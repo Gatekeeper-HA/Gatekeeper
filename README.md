@@ -348,6 +348,13 @@ will happen, never that they were called:
 3. *"You need to leave the property now. If you don't, the police will be called."*
 4. *"This is your last warning. Leave now."*
 
+**A package taken by a visitor.** When a package disappears after a visit where only
+visitors came (nobody went in, came out of the door, or was recognized by face), the
+*Package picked up* notification becomes *Package taken by a visitor*, priority 5. It
+quotes what they said at the door (*"UPS, return pickup"*), so you can tell a return or a
+neighbor from a theft. It has no 911 buttons: a package already gone isn't an emergency in
+progress.
+
 With `EMERGENCY_BUTTONS` on, the notification of a suspicious visitor or an emergency has
 *Text 911* and *Call 911* buttons. *Text 911* opens your phone's messages, addressed to 911,
 with your address and what happened written for you, and you still tap send: Gatekeeper never

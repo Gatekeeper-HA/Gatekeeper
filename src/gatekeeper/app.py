@@ -12,7 +12,7 @@ from urllib.parse import quote
 
 import paho.mqtt.client as mqtt
 
-from gatekeeper import __version__
+from gatekeeper import __version__, threat
 from gatekeeper.audio import Synthesizer, Transcriber, presynth_all
 from gatekeeper.audio_tap import AudioTap
 from gatekeeper.button import DoorbellButton
@@ -136,6 +136,12 @@ def start_packages(
             trigger="package",
         )
         visit.details = {"box": list(package.box), "score": package.score, "since": package.since}
+        if kind == "picked_up" and settings.threat_levels != "off":
+            # Who was at the door: a minute's slack for when they were first seen.
+            taken = threat.package_taken(interaction.visits_since(came - 60))
+            if taken:
+                visit.details["threat"] = {**taken, "acted": settings.threat_levels == "on"}
+                log.info("package taken by a visitor (%s)", taken["visitor"])
         # Delivered: the doorstep with the package. Picked up: who came for it.
         image = after.jpeg
         if kind == "picked_up":

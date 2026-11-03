@@ -84,6 +84,18 @@ def compose(visit: Visit) -> Notification:
             tags=["package"],
             priority=3,
         )
+    if visit.outcome == "package_picked_up" and (visit.details.get("threat") or {}).get("acted"):
+        # threat.package_taken: only visitors came, none of the household.
+        said = visit.details["threat"].get("said")
+        return Notification(
+            title=f"Package taken by a visitor at the {place}",
+            message=f"It had been there since {_clock_time(visit.details.get('since'))}. "
+            "Whoever took it didn't go inside"
+            + (f'; they said: "{said}"' if said else "")
+            + ". If you didn't expect a pickup, check the clip. The photo is of who came.",
+            tags=["package", "warning"],
+            priority=5,
+        )
     if visit.outcome == "package_picked_up":
         return Notification(
             title=f"Package picked up at the {place}",
@@ -191,6 +203,8 @@ def emergency_links(visit: Visit, address: str) -> list[tuple[str, str]]:
     (HOME_ADDRESS; the resident still taps send) and one that calls 911."""
     threat = visit.details.get("threat") or {}
     suspicious = threat.get("acted") and threat.get("level", 0) >= 2
+    if visit.outcome.startswith("package_"):
+        return []  # a package already gone isn't an emergency in progress
     if not (suspicious or visit.classification == "emergency"):
         return []
     links = []

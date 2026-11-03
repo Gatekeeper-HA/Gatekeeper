@@ -144,6 +144,33 @@ class Assessment:
         }
 
 
+# The visit log's outcomes that mean the household was there: went in, recognized by
+# face, came out of the door, or came back soon after.
+HOUSEHOLD_LIKE = {"entered", "household", "left", "stepped_out", "returned"}
+VISITOR_TRIGGERS = ("person", "button", "knock")
+
+
+def package_taken(visits: list[dict]) -> dict | None:
+    """A package picked up after ``visits`` (the visit log's records while someone was at the
+    door): suspicious when only visitors came, none of the household. Then the record for
+    the package's notification, with what the visitor said; else None. A courier collecting
+    a return looks the same, so it's "suspicious", not "urgent", and the resident is told
+    what they said."""
+    if any(v.get("outcome") in HOUSEHOLD_LIKE for v in visits):
+        return None
+    greeted = [v for v in visits if v.get("trigger") in VISITOR_TRIGGERS]
+    if not greeted:
+        return None
+    said = next((v["transcript"] for v in reversed(greeted) if v.get("transcript")), "")
+    return {
+        "level": 2,
+        "signs": ["package_taken"],
+        "reasons": ["took a package and left without going inside"],
+        "said": said,
+        "visitor": greeted[-1].get("event_id"),
+    }
+
+
 def word_signs(text: str) -> list[Sign]:
     normalized = " ".join(text.lower().replace("’", "'").split())
     return [sign for sign, pattern in WORD_SIGNS if pattern.search(normalized)]

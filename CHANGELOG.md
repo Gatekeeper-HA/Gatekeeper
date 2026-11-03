@@ -15,6 +15,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     resident knows and it's recorded, a big dog behind the door, the police will be
     called, a last warning; `PHRASE_THREAT_URGENT` first for a threat). The notification is
     priority 5 with the reasons. One sign only adds a note.
+  - **A package taken by a visitor:** when a package disappears after a visit where only
+    visitors came (nobody went in, came out of the door, or was recognized), the
+    notification is *Package taken by a visitor*, priority 5, with what they said at the
+    door, so a return pickup or a neighbor can be told from a theft.
   - **911 buttons** (opt-in, `EMERGENCY_BUTTONS`, `HOME_ADDRESS`): *Text 911* opens the
     phone's messages to 911 with the address and what happened filled in (the resident
     taps send), and *Call 911*, on suspicious-visit and emergency notifications.

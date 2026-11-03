@@ -83,3 +83,24 @@ def test_the_record_gives_the_reasons():
         "reasons": ["asked whether anyone's home", "asked to come in"],
         "acted": True,
     }
+
+
+def logged(event_id, outcome="completed", trigger="person", transcript=""):
+    return {"event_id": event_id, "outcome": outcome, "trigger": trigger, "transcript": transcript}
+
+
+def test_a_package_taken_while_only_visitors_came():
+    from gatekeeper.threat import package_taken
+
+    visitor = logged("1800000000.0-abc", transcript="UPS, return pickup")
+    taken = package_taken([visitor])
+    assert taken["level"] == 2 and taken["signs"] == ["package_taken"]
+    assert taken["said"] == "UPS, return pickup" and taken["visitor"] == "1800000000.0-abc"
+    # The household was there (went in, recognized, came out of the door, came back): no.
+    for outcome in ("entered", "household", "left", "stepped_out", "returned"):
+        assert package_taken([visitor, logged("1800000010.0-x", outcome=outcome)]) is None
+    # Nobody greeted (only package records, or nothing): no.
+    assert package_taken([logged("package-1.0", "package_delivered", "package")]) is None
+    assert package_taken([]) is None
+    # A press or a knock is a visitor too.
+    assert package_taken([logged("press-1800000000.0", trigger="button")])["said"] == ""
