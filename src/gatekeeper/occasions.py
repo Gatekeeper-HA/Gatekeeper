@@ -2,7 +2,8 @@
 
 On Halloween (``HALLOWEEN``: "auto" is October 31 from ``HALLOWEEN_START_HOUR`` to
 ``HALLOWEEN_END_HOUR``, local time; "on" and "off" force it), a doorbell press plays a spooky
-sound before the greeting, the greetings, no-answer lines and send-offs are Halloween ones,
+sound before the greeting (``HALLOWEEN_PRESS_SOUND``: a witch's cackle, a theremin, or the
+owner's own file), the greetings, no-answer lines and send-offs are Halloween ones,
 and "trick or treat" gets a treat line (classify.py, config.HALLOWEEN_*). A covered face
 means nothing that night: it's a costume.
 """
@@ -10,15 +11,26 @@ means nothing that night: it's a costume.
 from __future__ import annotations
 
 import datetime
+import logging
+import shutil
 import wave
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
 
 from gatekeeper.config import Settings
 
+log = logging.getLogger(__name__)
+
 SPOOKY_KEY = "halloween_sound"  # its phrase key: played like a pre-synthesized line
 SPOOKY_RATE = 24000  # Kokoro's rate, like every other clip
+SOUNDS = Path(__file__).parent / "sounds"
+# The press sounds that ship (HALLOWEEN_PRESS_SOUND). The witch is Kokoro's bf_emma saying
+# "Heh heh heh heh heh heh!", made higher and faster with a cackling tremolo and an echo
+# (scripts/sounds/halloween_witch.py): Kokoro and its voices are Apache-2.0, so it's ours.
+BUILT_IN = {"witch": "halloween-witch.wav"}
+MAX_CUSTOM_SECONDS = 10  # the owner's own sound is cut there: it plays before the greeting
 
 
 def is_halloween(settings: Settings, when: datetime.datetime) -> bool:
@@ -30,6 +42,43 @@ def is_halloween(settings: Settings, when: datetime.datetime) -> bool:
         and when.day == 31
         and settings.halloween_start_hour <= when.hour < settings.halloween_end_hour
     )
+
+
+def convert(source: Path, dest: Path) -> bool:
+    """A sound file of any kind ffmpeg reads, as a mono WAV at Kokoro's rate."""
+    from gatekeeper.audio import run_until
+
+    code, stderr, _ = run_until(
+        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(source), "-ac", "1",
+         "-ar", str(SPOOKY_RATE), "-t", str(MAX_CUSTOM_SECONDS), str(dest)],
+        timeout=30,
+    )  # fmt: skip
+    if code != 0:
+        log.warning("couldn't convert %s: %s", source, stderr.decode(errors="replace")[-200:])
+    return code == 0 and dest.exists()
+
+
+def press_sound(
+    choice: str, out_dir: Path, convert: Callable[[Path, Path], bool] = convert
+) -> Path:
+    """The Halloween press sound (``HALLOWEEN_PRESS_SOUND``), written to ``out_dir`` like a
+    pre-synthesized line: "witch" (shipped), "theremin" (made here), or a path to the
+    owner's own file, converted once (an unknown name or a file that won't convert falls
+    back to the witch)."""
+    path = out_dir / f"_presynth_{SPOOKY_KEY}.wav"
+    if choice == "theremin":
+        return spooky_sound(path)
+    if choice in BUILT_IN:
+        shutil.copyfile(SOUNDS / BUILT_IN[choice], path)
+        return path
+    source = Path(choice)
+    if source.is_file() and convert(source, path):
+        log.info("Halloween press sound: %s", source)
+        return path
+    log.warning(
+        "HALLOWEEN_PRESS_SOUND %r isn't a sound file Gatekeeper can play; the witch", choice
+    )
+    return press_sound("witch", out_dir)
 
 
 def spooky_sound(path: Path, rate: int = SPOOKY_RATE) -> Path:

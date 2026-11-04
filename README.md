@@ -189,6 +189,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `EMERGENCY_BUTTONS` | `false` | Opt-in: *Text 911* and *Call 911* buttons on the notification of a suspicious visitor or an emergency. *Text 911* opens your phone's messages to 911 with `HOME_ADDRESS` and what happened filled in; you still tap send. The compose stack reads both from `.env` |
 | `HOME_ADDRESS` | *(none)* | Your street address, for *Text 911*. Without it, only *Call 911* |
 | `HALLOWEEN` | `auto` | [Halloween](#halloween): `auto` is October 31 from `HALLOWEEN_START_HOUR` (`16`) to `HALLOWEEN_END_HOUR` (`22`), local time; `on` or `off` force it. The compose stack reads it from `.env` |
+| `HALLOWEEN_PRESS_SOUND` | `witch` | The sound a doorbell press or a knock plays before the Halloween greeting: `witch` (a cackle), `theremin`, or the path to your own sound file in any format, e.g. `/audio/my-laugh.mp3` (the first 10 s are played). The compose stack reads it from `.env` |
 | `HALLOWEEN_TREATS` | `unset` | The answer to "trick or treat": `bowl` (help yourselves from the bowl by the door), `none` (no treats this year), or `unset` (compliments the costumes and promises nothing). The compose stack reads it from `.env` |
 | `HALLOWEEN_GREETING_LINES`, `HALLOWEEN_NO_ANSWER_LINES`, `HALLOWEEN_GOODBYE_LINES`, `HALLOWEEN_REPLY_LINES` | 5, 4, 3 and 3 lines | Halloween's own lines, each a JSON list; `HALLOWEEN_REPLY_LINES` replaces the ones `HALLOWEEN_TREATS` picks |
 | `PHRASE_EMERGENCY_WAIT` | *I have alerted the resident. Please wait.* | To someone reporting an emergency |
@@ -376,8 +377,10 @@ On Halloween evening (October 31, 4 pm to 10 pm by default: `HALLOWEEN`), the do
 plays along:
 
 - **A doorbell press or a knock** plays a short spooky sound outside before the greeting: a
-  theremin-like *"ooo-EEE-ooo"*, generated in code. The chime indoors is the doorbell's own
-  and doesn't change.
+  witch's cackle by default, or a theremin's *"ooo-EEE-ooo"* (`HALLOWEEN_PRESS_SOUND`).
+  For your own sound, put the file in the audio folder (`${DATA_DIR}/gatekeeper/audio` on
+  the compose stack) and set `HALLOWEEN_PRESS_SOUND=/audio/<file>`. The chime indoors is the
+  doorbell's own and doesn't change.
 - **The greeting** is a Halloween one, and still says the door is watched or recorded:
   *"Boo! Did I scare you? Happy Halloween! This haunted doorbell sees and records all. What
   do you say?"*
