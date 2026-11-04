@@ -6,6 +6,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **A crash leaves a trace.** If Gatekeeper dies from a native crash (a segfault or abort in
+  PyAV, ONNX Runtime or CUDA), it writes the error and every thread's stack to its log. The
+  daily report counts the crash as an error and shows where the crashing thread was.
 - **Tapping a notification opens the Live page**, to see who it is and talk to them at once.
   Its address (`WEB_PUBLIC_URL`) defaults to the web page at the server's address, https
   with `WEB_TLS`.
@@ -220,6 +223,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   stalled … it's at:* and *internal hang … the threads:* was dropped, so the report showed
   nothing after the colon. Its innermost frame (each thread's, for the hang) is now the
   log kind's `where`, shown in the *Logs* list.
+- **Own perception's look loop no longer stalls** (#110, #122). It hung inside PyAV's
+  frame conversion when a snapshot (a press, the package check, the web page) converted
+  the newest frame while the look thread was scaling it: PyAV keeps one scaler per
+  frame, and two threads in it at once deadlock (reproduced on the rig's PyAV, both
+  stuck after one conversion each). Each thread now has a scaler of its own. The
+  watchdog stays as the safety net.
 - **A stalled own perception restarts Gatekeeper.** With `PERCEPTION=own`, own perception's
   look loop beats on every pass. No beat for `OWN_PERCEPTION_STALL_SECONDS` (60) is an
   internal hang, *own perception stalled*: `/healthz` turns unhealthy, and after

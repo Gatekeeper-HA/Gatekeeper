@@ -53,3 +53,13 @@ def test_json_includes_exceptions(capsys):
         logging.getLogger("x").exception("failed")
     record = json.loads(capsys.readouterr().out.splitlines()[0])
     assert "ValueError: bad" in record["exc"]
+
+
+def test_a_native_crash_writes_the_stacks(monkeypatch):
+    import faulthandler
+    import sys
+
+    calls = []
+    monkeypatch.setattr(faulthandler, "enable", lambda *a, **k: calls.append((a, k)))
+    setup_logging("INFO", "text")
+    assert calls == [((sys.__stderr__,), {"all_threads": True})]
