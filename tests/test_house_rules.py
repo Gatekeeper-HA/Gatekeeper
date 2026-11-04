@@ -7,9 +7,12 @@ BROKEN = [
     ("Sam is home, but he's in the kitchen. Can you come in?", "occupancy"),
     ("The resident will be right with you.", "occupancy"),
     ("Nobody's home right now, so just leave it at the door.", "occupancy"),
-    ("Nobody’s home right now.", "occupancy"),  # a curly apostrophe
+    ("Nobody\u2019s home right now.", "occupancy"),  # a curly apostrophe
     ("They'll be back at six, try then!", "occupancy"),
     ("I'm not sure, but they'll be right out.", "occupancy"),  # "not" is before the "but"
+    ("Mr. Delgado is around back.", "occupancy"),
+    # Can't tell a meter from a person: on the safe side.
+    ("The meter's out by the sidewalk.", "occupancy"),
     ("We have an appointment scheduled at 3 pm.", "schedule"),
     ("Head around to the back gate and leave it there.", "access"),
     ("I'll open the door for you.", "entry"),
@@ -31,6 +34,8 @@ KEPT = [
     "I'm the doorbell's assistant, not a person.",
     "I've let the resident know you're here. This visit is being recorded.",
     "Happy Halloween! Love the costumes!",
+    "I'm letting the resident know you're out there right now.",
+    "I can't say when Mr. Delgado is around.",
 ]
 
 

@@ -21,6 +21,9 @@ NEGATION = re.compile(
     r"not able to)(\W+[\w']+){0,9}\W*$"
 )
 NEGATION_REACH = 70  # characters before a match looked at for a negation
+# Where a sentence ends (and "but"), for the negation: not at "Mr." in "I can't say when
+# Mr. Lee is around".
+SENTENCE_END = re.compile(r"(?<!\bmr)(?<!\bmrs)(?<!\bms)(?<!\bdr)(?<!\bst)[.!?]|\bbut\b")
 
 RULES = {
     "occupancy": [
@@ -38,7 +41,9 @@ RULES = {
         r"(to the door|down|out)\b",
         r"\b(resident|owner|homeowner|someone|somebody|he|she)\s+(will|'ll) be (right )?"
         r"(with you|here|down|out|there|at the door|back)\b",
-        r"\b(is|are|'s|'re)( not|n't)? (out|unavailable|around|upstairs|downstairs|busy)\b",
+        # Not the visitor's whereabouts: "I'm letting the resident know you're out there".
+        r"\b(?<!you )(?<!you)(is|are|'s|'re)( not|n't)? "
+        r"(out|unavailable|around|upstairs|downstairs|busy)\b",
         r"\baround the corner\b",
         r"\bnot the only one (here|home)\b",
         r"\b(we|they|someone)('ll| will) (get|grab|bring) (it|them|that|the \w+)( in)? "
@@ -79,16 +84,14 @@ _COMPILED = [(rule, re.compile(p)) for rule, patterns in RULES.items() for p in 
 
 def broken(line: str) -> list[str]:
     """The rules a line breaks, as "rule: the words", in order; [] when it keeps them."""
-    text = line.lower().replace("’", "'")
+    text = line.lower().replace("\u2019", "'")
     found = []
     for rule, pattern in _COMPILED:
         for m in pattern.finditer(text):
             # Negated in the same sentence, and not across "but": "I can't say. Please head
             # to the back yard" breaks one, and so does "I'm not sure, but they'll be right
             # out".
-            before = re.split(
-                r"[.!?]|\bbut\b", text[max(0, m.start() - NEGATION_REACH) : m.start()]
-            )
+            before = SENTENCE_END.split(text[max(0, m.start() - NEGATION_REACH) : m.start()])
             if NEGATION.search(before[-1]):
                 continue
             found.append(f"{rule}: {m.group(0)}")
