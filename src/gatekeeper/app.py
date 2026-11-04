@@ -447,8 +447,8 @@ def main() -> None:
     )
 
     if settings.halloween != "off":
-        presynth[occasions.SPOOKY_KEY] = occasions.spooky_sound(
-            settings.out_dir / f"_presynth_{occasions.SPOOKY_KEY}.wav"
+        presynth[occasions.SPOOKY_KEY] = occasions.press_sound(
+            settings.halloween_press_sound, settings.out_dir
         )
 
     later = {k: t for k, t in lines.items() if k not in presynth}

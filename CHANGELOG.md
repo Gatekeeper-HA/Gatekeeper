@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **A witch's cackle on Halloween** (`HALLOWEEN_PRESS_SOUND`, `witch` by default). It's
+  the owner's pick of the samples, made with Kokoro (`scripts/sounds/halloween_witch.py`)
+  and shipped with the package. `theremin` brings back the theremin. A path plays your own
+  sound file in any format (the first 10 s), and a missing or unplayable file falls back
+  to the witch.
 - **Threat levels** (`THREAT_LEVELS`: `off`, `shadow` or `on`), from what the visitor says.
   - **The signs:** asking whether anyone's home or when they'll be back, asking to come in
     or for a code, scam talk, swearing, demands to be let in, and threats. Late at night

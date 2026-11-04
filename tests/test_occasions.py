@@ -92,3 +92,39 @@ def test_the_halloween_lines_keep_the_house_rules():
     # Nothing says anyone is home or will come to the door (the treats are in a bowl).
     banned = r"\b(home|come in|coming|be right|i'll get|someone will|answer the door)\b"
     assert not [line for line in every if re.search(banned, line, re.I)]
+
+
+def test_the_witch_is_the_press_sound_by_default(settings, tmp_path):
+    from gatekeeper.occasions import BUILT_IN, SOUNDS, press_sound
+
+    assert settings.halloween_press_sound == "witch"
+    shipped = SOUNDS / BUILT_IN["witch"]
+    path = press_sound("witch", tmp_path)
+    assert path.read_bytes() == shipped.read_bytes()
+    with wave.open(str(path)) as wf:
+        assert (wf.getnchannels(), wf.getframerate()) == (1, SPOOKY_RATE)
+        assert 1.0 < wf.getnframes() / SPOOKY_RATE < 3.0  # a quick cackle before the greeting
+
+
+def test_the_theremin_and_your_own_sound(tmp_path):
+    from gatekeeper.occasions import BUILT_IN, SOUNDS, press_sound
+
+    with wave.open(str(press_sound("theremin", tmp_path))) as wf:
+        assert wf.getnframes() / wf.getframerate() == pytest.approx(2.4)
+
+    mine = tmp_path / "pro-laugh.mp3"
+    mine.write_bytes(b"not really an mp3")
+    converted = []
+
+    def convert(source, dest):
+        converted.append(source)
+        spooky_sound(dest)  # stands in for ffmpeg's output
+        return True
+
+    assert press_sound(str(mine), tmp_path, convert=convert).name == "_presynth_halloween_sound.wav"
+    assert converted == [mine]
+
+    # A file that's missing, or won't convert: the witch.
+    witch = (SOUNDS / BUILT_IN["witch"]).read_bytes()
+    assert press_sound(str(tmp_path / "missing.wav"), tmp_path).read_bytes() == witch
+    assert press_sound(str(mine), tmp_path, convert=lambda s, d: False).read_bytes() == witch

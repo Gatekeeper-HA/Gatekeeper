@@ -367,6 +367,9 @@ class Settings(BaseSettings):
     halloween_start_hour: int = 16
     halloween_end_hour: int = 22
     halloween_treats: Literal["unset", "bowl", "none"] = "unset"
+    # The press sound before the greeting: "witch" (a cackle), "theremin", or the path to a
+    # sound file of your own (any format; the first 10 s), e.g. /audio/my-laugh.mp3.
+    halloween_press_sound: str = "witch"
     halloween_greeting_lines: list[str] = list(HALLOWEEN_GREETING_LINES)
     halloween_no_answer_lines: list[str] = list(HALLOWEEN_NO_ANSWER_LINES)
     halloween_goodbye_lines: list[str] = list(HALLOWEEN_GOODBYE_LINES)
