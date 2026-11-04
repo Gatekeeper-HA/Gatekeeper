@@ -100,6 +100,17 @@ NO_ANSWER_PRESSED_LINES = (
     "expires.",
     "You rang my bell, not my emotional support hotline. What do you need?",
 )
+# What Gatekeeper says to a suspicious visitor (threat.py), one after another while they
+# stay, to talk them off the property: nothing about the household, and the police only
+# as what will happen (never that they were called).
+THREAT_LINES = (
+    "I've let the resident know you're here. This visit is being recorded.",
+    "Just so you know, there's a very big dog behind this door, and he doesn't like "
+    "strangers.",
+    "You need to leave the property now. If you don't, the police will be called.",
+    "This is your last warning. Leave now.",
+)
+
 # Halloween evening (occasions.py): spooky and fun, for trick-or-treaters. Every greeting
 # still says the door is watched or recorded, and the no-answer lines are gentle: a shy kid
 # in a costume isn't someone to tease.
@@ -161,6 +172,7 @@ PHRASE_KEYS = (
     "police_hold_warrant", "police_warrant_done",
     "police_notifying", "police_leave", "police_leave_again",
     "civic_ask_identity", "civic_ask_message", "civic_thanks",
+    "threat_urgent",
 )  # fmt: skip
 # What the resident can answer from the notification (quick_reply.py), QUICK_REPLY_<KEY>.
 QUICK_REPLY_KEYS = ("coming", "later", "no_thanks")
@@ -414,6 +426,20 @@ class Settings(BaseSettings):
         "Thank you. I'll make sure the resident gets your message. "
         "Feel free to leave any literature at the door."
     )
+    # Threat levels (threat.py): "off", "shadow" (assessed and logged, nothing changes)
+    # or "on". At "suspicious" (2) Gatekeeper stops answering and says THREAT_LINES in
+    # turn while they stay (a JSON list replaces them); at "urgent" (3) it starts with
+    # PHRASE_THREAT_URGENT instead of the first. The notification is urgent, with the reasons.
+    threat_levels: Literal["off", "shadow", "on"] = "off"
+    threat_lines: list[str] = list(THREAT_LINES)
+    phrase_threat_urgent: str = (
+        "You need to leave now. The resident has been alerted, and you are being recorded."
+    )
+    # Opt-in: "Text 911" and "Call 911" buttons on the notification of a suspicious visit or
+    # an emergency. Text 911 opens the phone's messages to 911 with HOME_ADDRESS and what
+    # happened filled in; the resident still taps send. Without HOME_ADDRESS, only Call 911.
+    emergency_buttons: bool = False
+    home_address: str = ""
 
     # Notifications. FRIGATE_API supplies the visitor's snapshot; an empty
     # NTFY_URL disables ntfy.
@@ -562,6 +588,17 @@ class Settings(BaseSettings):
             self.greeting_pressed_lines,
             pressed,
             "Hello. This property is monitored. Please state the purpose of your visit.",
+        )
+
+    def threat_texts(self) -> dict[str, str]:
+        """THREAT_LINES by phrase key: threat_1..."""
+        return _pool(
+            "threat",
+            "",
+            self.threat_lines,
+            [],
+            None,
+            "I've let the resident know you're here. This visit is being recorded.",
         )
 
     def halloween_greeting_texts(self, pressed: bool | None = None) -> dict[str, str]:

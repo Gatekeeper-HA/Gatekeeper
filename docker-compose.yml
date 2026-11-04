@@ -213,6 +213,13 @@ services:
       # Hearing knocks at the door: off unless KNOCK_LISTENER=shadow (logged only) or on
       # (a knock is a doorbell press) in .env.
       KNOCK_LISTENER: "${KNOCK_LISTENER:-off}"
+      # Threat levels from what visitors say: off unless THREAT_LEVELS=shadow (logged and
+      # in the daily report only) or on (a firm line and an urgent notification) in .env.
+      THREAT_LEVELS: "${THREAT_LEVELS:-off}"
+      # Opt-in Text 911 / Call 911 buttons on urgent notifications, and the address the
+      # text gives: off unless EMERGENCY_BUTTONS=1 and HOME_ADDRESS="..." in .env.
+      EMERGENCY_BUTTONS: "${EMERGENCY_BUTTONS:-0}"
+      HOME_ADDRESS: "${HOME_ADDRESS:-}"
       # Halloween evening's spooky sound, greetings and treat lines (auto: October 31,
       # 4-10 pm), and what to say about treats: bowl, none, or unset (compliments only).
       HALLOWEEN: "${HALLOWEEN:-auto}"

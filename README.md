@@ -183,6 +183,11 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `NO_ANSWER_PRESSED_LINES` | 2 lines | Said too after a doorbell press: they mention the bell |
 | `GOODBYE_LINES` | 7 send-offs | Said instead of a no-answer line to someone already walking away when the greeting gets no answer (a courier who dropped something off, mostly). A JSON list replaces them; `REPLY_GOODBYE` sets a single one |
 | `REPLY_PRESSED` | *The resident has already been notified.* | Said when the doorbell is pressed during a visit's cooldown |
+| `THREAT_LEVELS` | `off` | [Threat levels](#threat-levels): `shadow` assesses each visit and logs it (nothing else changes); `on` also acts on it. The compose stack reads it from `.env` |
+| `THREAT_LINES` | 4 lines (`config.py`) | What Gatekeeper says to a suspicious visitor (level 2), one after another while they stay: that the resident knows and it's recorded, the big dog behind the door, that the police will be called, a last warning. A JSON list replaces them |
+| `PHRASE_THREAT_URGENT` | *You need to leave now. The resident has been alerted, and you are being recorded.* | The first line to a threat (level 3), then the rest of `THREAT_LINES` |
+| `EMERGENCY_BUTTONS` | `false` | Opt-in: *Text 911* and *Call 911* buttons on the notification of a suspicious visitor or an emergency. *Text 911* opens your phone's messages to 911 with `HOME_ADDRESS` and what happened filled in; you still tap send. The compose stack reads both from `.env` |
+| `HOME_ADDRESS` | *(none)* | Your street address, for *Text 911*. Without it, only *Call 911* |
 | `HALLOWEEN` | `auto` | [Halloween](#halloween): `auto` is October 31 from `HALLOWEEN_START_HOUR` (`16`) to `HALLOWEEN_END_HOUR` (`22`), local time; `on` or `off` force it. The compose stack reads it from `.env` |
 | `HALLOWEEN_TREATS` | `unset` | The answer to "trick or treat": `bowl` (help yourselves from the bowl by the door), `none` (no treats this year), or `unset` (compliments the costumes and promises nothing). The compose stack reads it from `.env` |
 | `HALLOWEEN_GREETING_LINES`, `HALLOWEEN_NO_ANSWER_LINES`, `HALLOWEEN_GOODBYE_LINES`, `HALLOWEEN_REPLY_LINES` | 5, 4, 3 and 3 lines | Halloween's own lines, each a JSON list; `HALLOWEEN_REPLY_LINES` replaces the ones `HALLOWEEN_TREATS` picks |
@@ -313,6 +318,57 @@ Each is picked at random, never the same twice in a row. Set your own with
 for a single line. Greetings take 4-7 s to say, no-answer lines 4-8 s. A few of each are
 synthesized at startup and the rest in the background (about 10 s each on a CPU, once;
 they're cached). The daily report shows how often each line got the visitor talking.
+
+## Threat levels
+
+With `THREAT_LEVELS=on`, Gatekeeper watches for signs that a visit isn't what it seems. It
+never decides that someone is a criminal: it notices signs, raises a level, tells you why,
+and stops engaging.
+
+| Sign (from what they say) | Weight |
+|---|---|
+| Asks whether anyone's home, or when someone will be back | moderate |
+| Asks to come in, to use the bathroom, or to open the door | moderate |
+| Asks for a door, gate or alarm code, or to turn the alarm off | moderate |
+| Sounds like a scam: a final notice, a shut-off, pay now, gift cards, the IRS, a free inspection | moderate |
+| Swears | moderate |
+| Demands to be let in: *open the damn door*, *I know you're in there* | strong |
+| A threat: to break in or kick in the door, to hurt someone, a weapon | urgent |
+| Late at night (11 pm to 5 am) | weak: raises the others, never counts alone |
+
+| Level | When | At the door | On your phone |
+|---|---|---|---|
+| 1, watch | one sign | as usual | the usual notification, with a *Note:* saying what it was |
+| 2, suspicious | a strong sign, or two others | stops answering and talks them off the property: `THREAT_LINES` in turn, listening between them, until they leave | *Suspicious visitor*, priority 5, with *Why:* |
+| 3, urgent | a threat, or several strong signs | the same, starting with `PHRASE_THREAT_URGENT` | *Urgent: threatening visitor*, priority 5, with *Why:* |
+
+The lines never say anything about the household, and they mention the police only as what
+will happen, never that they were called:
+
+1. *"I've let the resident know you're here. This visit is being recorded."*
+2. *"Just so you know, there's a very big dog behind this door, and he doesn't like
+   strangers."*
+3. *"You need to leave the property now. If you don't, the police will be called."*
+4. *"This is your last warning. Leave now."*
+
+**A package taken by a visitor.** When a package disappears after a visit where only
+visitors came (nobody went in, came out of the door, or was recognized by face), the
+*Package picked up* notification becomes *Package taken by a visitor*, priority 5. It
+quotes what they said at the door (*"UPS, return pickup"*), so you can tell a return or a
+neighbor from a theft. It has no 911 buttons: a package already gone isn't an emergency in
+progress.
+
+With `EMERGENCY_BUTTONS` on, the notification of a suspicious visitor or an emergency has
+*Text 911* and *Call 911* buttons. *Text 911* opens your phone's messages, addressed to 911,
+with your address and what happened written for you, and you still tap send: Gatekeeper never
+contacts 911 itself. Text-to-911 isn't available everywhere. Where it isn't, your carrier
+replies that you need to call, so *Call 911* is always there too.
+
+Emergencies and officers keep their own conversations (the levels are recorded, not acted
+on). What someone looks like, how they talk or what language they speak never counts.
+`THREAT_LEVELS=shadow` assesses every visit and logs it, without changing anything: the
+daily report shows each level and sign. This first version reads the visitor's words (English); signs from the
+camera (a package taken, a hidden face, faces not allowed at the property) come next.
 
 ## Halloween
 

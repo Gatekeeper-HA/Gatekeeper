@@ -1487,3 +1487,36 @@ def test_own_perceptions_arrivals_count_from_the_switch():
     )
     assert r["arrivals"]["total"] == 1 and r["arrivals"]["since"] == report.local(NOW - 4000)
     assert f"Porch arrivals (own perception) since {report.local(NOW - 4000)}: 1" in render_text(r)
+
+
+def test_threat_signs_are_counted():
+    at = time.mktime((2026, 3, 3, 14, 5, 0, 0, 0, -1))
+    visits = [
+        {"ts": at, "event_id": "a"},
+        {
+            "ts": at,
+            "event_id": "b",
+            "details": {
+                "threat": {
+                    "level": 2,
+                    "signs": ["asks_occupancy", "asks_entry"],
+                    "reasons": [],
+                    "acted": True,
+                }
+            },
+        },
+        {
+            "ts": at,
+            "event_id": "c",
+            "details": {
+                "threat": {"level": 1, "signs": ["asks_occupancy"], "reasons": [], "acted": False}
+            },
+        },
+    ]
+    assert report.threat_info(visits) == {
+        "visits": 2,
+        "levels": {2: 1, 1: 1},
+        "signs": {"asks_occupancy": 2, "asks_entry": 1},
+        "acted": 1,
+        "at": ["Tue 14:05", "Tue 14:05"],
+    }

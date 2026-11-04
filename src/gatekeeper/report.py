@@ -167,6 +167,8 @@ OWN_STATS = re.compile(
 # the listener stopped (the doorbell restarted, or its push events stopped).
 BUTTON_LISTENING = re.compile(r"listening for button presses on .+ \(firmware (?P<firmware>\S+)\)")
 BUTTON_STOPPED = re.compile(r"doorbell button listener stopped: (?P<why>.+)$")
+# threat.LEVEL_NAMES (this module imports nothing from the package).
+LEVEL_NAMES = ("normal", "watch", "suspicious", "urgent")
 # A track and a Frigate event this close in time are the same person.
 OWN_SLACK_SECONDS = 5.0
 # A restart takes a few minutes (loading the models); a stream down for longer than this
@@ -632,6 +634,21 @@ def delivery_guess_info(guesses: dict, labels: dict, since: float) -> dict | Non
         out[kind]["of"] += 1
         out[kind]["right"] += (g.get("guess") == "delivery") == (kind == "deliveries")
     return out
+
+
+def threat_info(visits: list[dict]) -> dict:
+    """The visits threat.py found signs in (THREAT_LEVELS): how many at each level, which
+    signs, and how many Gatekeeper acted on (the rest were in shadow, or an emergency or
+    officers, which keep their own conversation)."""
+    found = [(v.get("details") or {}).get("threat") for v in visits]
+    found = [t for t in found if t]
+    return {
+        "visits": len(found),
+        "levels": dict(collections.Counter(t["level"] for t in found)),
+        "signs": dict(collections.Counter(s for t in found for s in t.get("signs", []))),
+        "acted": sum(1 for t in found if t.get("acted")),
+        "at": [local(v.get("ts", 0)) for v in visits if (v.get("details") or {}).get("threat")],
+    }
 
 
 def label_info(labelled: list[dict]) -> dict:
@@ -1253,6 +1270,7 @@ def build(i: Inputs) -> dict:
         "own_perception": own,
         "recording": recording,
         "delivery_guess": i.delivery_guess,
+        "threats": threat_info(visits),
         "knocks": None
         if i.knocks is None
         else {
@@ -1376,6 +1394,15 @@ def summary_lines(report: dict) -> list[str]:
             f"Recording: {rec['clips']} clip(s), {rec['minutes']:g} min, {rec['mb']} MB, "
             f"{rec['people']} person(s) pictured"
             + (f"; {rec['failed']} failed" if rec["failed"] else "")
+        )
+    if (th := report.get("threats")) and th["visits"]:
+        levels = ", ".join(
+            f"{LEVEL_NAMES[int(level)]} {n}" for level, n in sorted(th["levels"].items())
+        )
+        signs = ", ".join(f"{s} {n}" for s, n in sorted(th["signs"].items(), key=lambda kv: -kv[1]))
+        lines.append(
+            f"Threat signs: {th['visits']} visit(s), {levels} ({th['acted']} acted on); "
+            f"{signs}: {', '.join(th['at'][:10])}"
         )
     if (kn := report.get("knocks")) is not None:
         lines.append(

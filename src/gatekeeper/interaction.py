@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import collections
 import contextvars
 import datetime
 import functools
@@ -18,7 +19,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from gatekeeper import dialogue, occasions, talkback
+from gatekeeper import dialogue, occasions, talkback, threat
 from gatekeeper.audio import Synthesizer, Transcriber, capture_audio_clip
 from gatekeeper.camera import go2rtc_frame, photo_sharpness
 from gatekeeper.classify import CONVERSATIONS, classify_response
@@ -70,6 +71,8 @@ FRAME_INTERVAL_SECONDS = 0.5
 # close()), or None if it can't connect.
 ConnectFn = Callable[[], Awaitable[Any]]
 CaptureFn = Callable[[str, Path, int], Path | None]
+# Threat levels never cut these short: they have conversations of their own, as careful.
+THREAT_EXEMPT = ("emergency", "law_enforcement")
 
 
 # The kinds of line Halloween has its own of (config.HALLOWEEN_*).
@@ -164,6 +167,15 @@ class Stopped(Exception):
 
 # Outcomes of visits that turned out to be the household (Stopped, log_household).
 HOUSEHOLD_OUTCOMES = ("entered", "household")
+
+
+def visit_started(record: dict) -> float:
+    """When a logged visit started, from its id (``<ts>-...``, ``press-<ts>``); else when
+    it was logged."""
+    try:
+        return float(str(record["event_id"]).removeprefix("press-").split("-")[0])
+    except (KeyError, ValueError):
+        return float(record.get("ts", 0.0))
 
 
 class TalkbackStalled(Exception):
@@ -305,6 +317,8 @@ class Interaction:
         # on_logged: with the final record. Callbacks must not block.
         self._on_notify = list(on_notify)
         self._on_logged = list(on_logged)
+        # The visits logged lately (records), for visits_since.
+        self._recent: collections.deque[dict] = collections.deque(maxlen=100)
         # go2rtc supports one talkback WebRTC session at a time.
         self._talkback_lock = threading.Lock()
         # The resident talking at the door from the Live page: the visit running (its event
@@ -550,9 +564,15 @@ class Interaction:
         finally:
             event_id_var.reset(token)
 
+    def visits_since(self, since: float) -> list[dict]:
+        """The visits logged lately that started at or after ``since`` (the time in their
+        id: a Frigate or own perception event's start, or press-<ts>)."""
+        return [r for r in list(self._recent) if visit_started(r) >= since]
+
     def _log_visit(self, visit: Visit, publish: bool = True) -> None:
         record = visit.record(self._clock())
         self._event_log.append(record)
+        self._recent.append(record)
         log.info("visit: %s", json.dumps(record, ensure_ascii=False))
         for callback in self._on_logged if publish else ():
             try:
@@ -856,6 +876,11 @@ class Interaction:
                 visit.outcome = "completed"
                 return
 
+        found = self._assess_threat(visit)
+        if found is not None and found.level >= 2:
+            await self._deter(visit, talk, found)
+            return
+
         if visit.classification in CONVERSATIONS:
             # Officers, emergencies, canvassers: a conversation of their own.
             await dialogue.run(visit.classification, visit, _Turns(self, talk, visit), s)
@@ -874,6 +899,60 @@ class Interaction:
         await self._time_reply(visit, reply)
         await talk.heard(reply)
         visit.outcome = "completed"
+
+    async def _deter(self, visit: Visit, talk: _Talk, found: threat.Assessment) -> None:
+        """Suspicious or worse: Gatekeeper stops answering and talks them off the property,
+        THREAT_LINES in turn (PHRASE_THREAT_URGENT first at "urgent"), listening between
+        them, until they leave or it runs out of lines. The resident is notified at once."""
+        lines = list(self.settings.threat_texts().items())
+        if found.level >= 3:
+            lines = [("threat_urgent", self.settings.phrases["threat_urgent"]), *lines[1:]]
+        visit.response = lines[0][1]
+        self._notify(visit)
+        said = []
+        playback = None
+        for n, (key, line) in enumerate(lines):
+            if n and not self._still_here():
+                break
+            playback = await self._say(talk, visit, key, line)
+            if playback is None:
+                break
+            said.append(line)
+            if n == 0:
+                await self._time_reply(visit, playback)
+            if n < len(lines) - 1:
+                await self._hear(visit, key, line, playback)  # what they say back, kept
+        visit.details["threat"]["lines_said"] = len(said)
+        visit.response = " ".join(said) or None
+        if playback is not None:
+            await talk.heard(playback)
+        visit.outcome = "completed" if said else "reply_failed"
+
+    def _still_here(self) -> bool:
+        """Is anyone still on the porch, and not walking away? (True when it can't tell.)"""
+        if self._leaving is not None and self._leaving():
+            return False
+        return self._present is None or self._present()
+
+    def _assess_threat(self, visit: Visit) -> threat.Assessment | None:
+        """What the visitor said, against threat.py's signs (THREAT_LEVELS): kept in the
+        visit's details when there's any sign; returned when Gatekeeper acts on it."""
+        if self.settings.threat_levels == "off":
+            return None
+        heard = [turn["heard"] for turn in visit.dialogue if turn.get("heard")]
+        found = threat.assess(heard, datetime.datetime.fromtimestamp(self._clock()).hour)
+        if not found.signs:
+            return None
+        acted = self.settings.threat_levels == "on" and visit.classification not in THREAT_EXEMPT
+        visit.details["threat"] = found.record(acted)
+        log.info(
+            "threat level %d (%s): %s%s",
+            found.level,
+            threat.LEVEL_NAMES[found.level],
+            ", ".join(s.name for s in found.signs),
+            "" if acted else " (not acted on)",
+        )
+        return found if acted else None
 
     async def _time_reply(self, visit: Visit, playback) -> None:
         """Set ``reply_latency`` from the first reply played after the visitor's answer:

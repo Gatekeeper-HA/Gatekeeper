@@ -997,6 +997,99 @@ def test_the_resident_talking_stops_the_visit_at_once(settings):
     assert rig.interaction.step_out(0) is None  # nothing running
 
 
+# Threat levels (threat.py).
+
+
+def played_keys(rig):
+    """The phrase keys played, from the clips' names (_presynth_<key>.wav, <EID>_<key>.wav)."""
+    names = [c[1] for c in rig.calls if c[0] == "play"]
+    return [
+        n.removesuffix(".wav").removeprefix("_presynth_").removeprefix(f"{EID}_") for n in names
+    ]
+
+
+def test_a_suspicious_visitor_is_talked_off_the_property(settings):
+    settings.threat_levels = "on"
+    rig = Rig(settings, answer="Is anyone home? Can I come in real quick?", present=lambda: True)
+    notified = []  # the reply when notified (the Notifier copies the visit then)
+    rig.interaction._on_notify = [lambda v: notified.append(v.response)]
+    visit = rig.interaction.run(EID)
+    # They stay: every line in turn, listening between them.
+    assert played_keys(rig) == ["greeting", "threat_1", "threat_2", "threat_3", "threat_4"]
+    assert visit.response == " ".join(settings.threat_lines)
+    found = visit.details["threat"]
+    assert (found["level"], found["acted"], found["lines_said"]) == (2, True, 4)
+    # (late_night after them, where the rig's 1970 clock falls at night: CI's UTC)
+    assert found["signs"][:2] == ["asks_occupancy", "asks_entry"]
+    assert found["reasons"][:2] == ["asked whether anyone's home", "asked to come in"]
+    assert visit.outcome == "completed"
+    # The resident was told at once, with the first line.
+    assert notified == [settings.threat_lines[0]]
+
+
+def test_a_suspicious_visitor_who_leaves_hears_no_more(settings):
+    settings.threat_levels = "on"
+    rig = Rig(settings, answer="Is anyone home? Can I come in?", leaving=lambda: True)
+    visit = rig.interaction.run(EID)
+    assert played_keys(rig) == ["greeting", "threat_1"]
+    assert visit.details["threat"]["lines_said"] == 1
+
+
+def test_a_threat_starts_with_the_urgent_line(settings):
+    settings.threat_levels = "on"
+    rig = Rig(settings, answer="Open up or I'm gonna kick in the door", present=lambda: True)
+    visit = rig.interaction.run(EID)
+    assert played_keys(rig) == ["greeting", "threat_urgent", "threat_2", "threat_3", "threat_4"]
+    assert visit.response.startswith(settings.phrase_threat_urgent)
+    assert visit.details["threat"]["level"] == 3
+
+
+def test_one_sign_is_noted_but_the_visit_goes_on(settings):
+    settings.threat_levels = "on"
+    rig = Rig(settings, answer="Hi, is anyone home?")
+    visit = rig.interaction.run(EID)
+    assert visit.response == settings.reply_generic
+    assert visit.details["threat"]["level"] == 1 and visit.details["threat"]["acted"]
+
+
+def test_in_shadow_nothing_changes_but_its_recorded(settings):
+    settings.threat_levels = "shadow"
+    rig = Rig(settings, answer="Is anyone home? Can I come in real quick?")
+    visit = rig.interaction.run(EID)
+    assert visit.response == settings.reply_generic
+    assert visit.details["threat"]["level"] == 2 and not visit.details["threat"]["acted"]
+
+
+def test_off_assesses_nothing(settings):
+    rig = Rig(settings, answer="Is anyone home? Can I come in real quick?")
+    visit = rig.interaction.run(EID)
+    assert settings.threat_levels == "off" and "threat" not in visit.details
+
+
+def test_an_emergency_keeps_its_own_conversation(settings):
+    settings.threat_levels = "on"
+    rig = Rig(settings, answer="Help, there's smoke! Is anyone home? Open the door!")
+    visit = rig.interaction.run(EID)
+    assert visit.classification == "emergency" and visit.flow == "emergency"
+    assert visit.details["threat"]["level"] == 2 and not visit.details["threat"]["acted"]
+
+
+def test_visits_since_lists_the_visits_logged_lately(settings):
+    from gatekeeper.interaction import visit_started
+
+    rig = Rig(settings)
+    rig.interaction.run(EID)  # started at 1727712000.123456 (its id)
+    rig.interaction.log_not_greeted("press-1727712100.0", "left")
+    assert [r["event_id"] for r in rig.interaction.visits_since(1727712000.0)] == [
+        EID,
+        "press-1727712100.0",
+    ]
+    assert [r["event_id"] for r in rig.interaction.visits_since(1727712050.0)] == [
+        "press-1727712100.0"
+    ]
+    assert visit_started({"event_id": "package-12.5", "ts": 99.0}) == 99.0
+
+
 # Halloween evening (occasions.py).
 
 

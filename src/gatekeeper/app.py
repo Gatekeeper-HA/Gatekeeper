@@ -12,7 +12,7 @@ from urllib.parse import quote
 
 import paho.mqtt.client as mqtt
 
-from gatekeeper import __version__, occasions
+from gatekeeper import __version__, occasions, threat
 from gatekeeper.audio import Synthesizer, Transcriber, presynth_all
 from gatekeeper.audio_tap import AudioTap
 from gatekeeper.button import DoorbellButton
@@ -22,7 +22,7 @@ from gatekeeper.frigate import FrigatePerception
 from gatekeeper.health import Health, serve
 from gatekeeper.interaction import HOUSEHOLD_OUTCOMES, Interaction, Visit
 from gatekeeper.logs import setup_logging
-from gatekeeper.notify import Notifier, NtfyBackend
+from gatekeeper.notify import Notifier, NtfyBackend, emergency_links
 from gatekeeper.packages import Baselines, PackageModel, PackageWatcher
 from gatekeeper.perception import Perception
 from gatekeeper.publish import QUICK_REPLY_TOPIC, Publisher
@@ -136,6 +136,12 @@ def start_packages(
             trigger="package",
         )
         visit.details = {"box": list(package.box), "score": package.score, "since": package.since}
+        if kind == "picked_up" and settings.threat_levels != "off":
+            # Who was at the door: a minute's slack for when they were first seen.
+            taken = threat.package_taken(interaction.visits_since(came - 60))
+            if taken:
+                visit.details["threat"] = {**taken, "acted": settings.threat_levels == "on"}
+                log.info("package taken by a visitor (%s)", taken["visitor"])
         # Delivered: the doorstep with the package. Picked up: who came for it.
         image = after.jpeg
         if kind == "picked_up":
@@ -432,6 +438,7 @@ def main() -> None:
             **settings.replies,
             **first_lines,
             **settings.phrases,
+            **(settings.threat_texts() if settings.threat_levels != "off" else {}),
             **{
                 f"quick_{key}": settings.quick_reply_phrases[key]
                 for key in settings.quick_reply_list
@@ -531,6 +538,9 @@ def main() -> None:
         snapshot=snapshot,
         log_to=EventLog(settings.notification_log_file),
         actions=quick.buttons if quick else lambda visit: [],
+        links=(lambda visit: emergency_links(visit, settings.home_address))
+        if settings.emergency_buttons
+        else (lambda visit: []),
     )
     if quick and settings.ntfy_url:
         replies = NtfyReplies(
