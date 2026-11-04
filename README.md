@@ -149,6 +149,8 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `CLIP_DIR` | `/clips` | Where the clips are kept, a folder a day |
 | `CLIP_RETENTION_DAYS` | `7` | Days clips are kept (0 = forever) |
 | `DELIVERY_GUESS` | `false` | Gatekeeper's guess at each greeted visitor, a delivery or not: [delivery guess](#delivery-guess-shadow). Shadow only; the compose stack reads it from `.env` |
+| `CONVERSATION_MODEL` | `off` | `shadow`: after each visit, the conversation model is asked what it would have said, for the Visits page and the daily report: [conversation model](#conversation-model-shadow). The compose stack reads it from `.env`, with `CONVERSATION_MODEL_FILE` for the `conversation-model` service |
+| `CONVERSATION_MODEL_URL` | `http://conversation-model:8080` | Where the conversation model's llama.cpp server listens |
 | `KNOCK_LISTENER` | `off` | `shadow`: Gatekeeper listens for knocks at the door and logs them; `on`: a knock is also a doorbell press: [knocks](#knocks). Needs the audio tap and an NVIDIA GPU to be quick. The compose stack reads it from `.env` |
 | `KNOCK_THRESHOLD` | `0.5` | The sound classifier's *Knock* score (0–1) that counts as a knock |
 | `MODEL_DIR` | `~/.cache/gatekeeper/models` | Where the detector's model is downloaded (once) |
@@ -789,6 +791,38 @@ On the rig's first labelled visits, looks alone weren't reliable: the household 
 bags and boxes too, and at night the camera loses colour. Couriers did move differently,
 walking up, not answering and going back down the walk, so the guess uses both. Your labels
 show whether it's right often enough to be trusted with the greeting and the notification.
+
+## Conversation model (shadow)
+
+Today Gatekeeper's replies are fixed lines, chosen by the words it hears. The next step is a
+small language model that talks with the visitor, runs in the house, and keeps the house
+rules: never saying whether anyone is home or when they'll be back, never offering to open
+the door or sending anyone around the property, and a firm line for suspicious visits.
+Untrained models small enough for a home hub broke those rules often. Trained on a few
+thousand made-up visits, they didn't.
+
+With `CONVERSATION_MODEL=shadow`, the model only watches. After each visit it's asked what
+it would have said at each turn. It's told what Gatekeeper knew then: the time, a press or
+a knock, the earlier exchanges and the visitor's words, but not yet what the camera sees.
+Its answers are checked against the house rules (`house_rules.py`) and kept in
+`LOG_DIR/conversation-model.json`. The Visits page shows them under each visit. The daily
+report counts how often its kind of visit agrees with Gatekeeper's and with your labels,
+how often it would have warned someone off, and any line that breaks a rule. Nothing at the
+door depends on it yet.
+
+It runs in llama.cpp's server (the `conversation-model` service), so visitors' words never
+leave the house. Put the model file (a `.gguf`) in `${DATA_DIR}/gatekeeper/conversation-model`,
+then in `.env`:
+
+```
+COMPOSE_PROFILES=conversation-model
+CONVERSATION_MODEL=shadow
+CONVERSATION_MODEL_FILE=<the file's name>
+```
+
+With `docker-compose.gpu.yml` it runs on the GPU: a trained Qwen3-1.7B (1.1 GB) took 1.6 GB
+of a GTX 1660 Ti's memory and answered in under a second. On a CPU it's slower, which is fine
+in shadow. The trained models aren't published yet.
 
 ## Own perception (shadow)
 

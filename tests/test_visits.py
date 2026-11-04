@@ -282,6 +282,39 @@ def test_gatekeepers_guess_is_shown_next_to_the_label(log, tmp_path):
     )
 
 
+def test_the_conversation_models_answers_are_shown_under_the_visit(log, tmp_path):
+    from gatekeeper.conversation_model import Answers
+    from gatekeeper.visits import answer_text
+
+    page = page_for(log, tmp_path)
+    page.answers = Answers(tmp_path / "conversation-model.json")
+    page.answers.add(
+        "1799999600.000000-aaa111",
+        {
+            "at": NOW,
+            "model": "test.gguf",
+            "turns": [
+                {"kind": "nothing", "action": "ask", "say": "Hello?", "broken": []},
+                {
+                    "kind": "delivery",
+                    "action": "reply",
+                    "say": "Nobody's home, leave it there.",
+                    "broken": ["occupancy: nobody's home", "occupancy: 's home"],
+                },
+            ],
+        },
+    )
+    assert (
+        "Conversation model would have said: \u201cHello?\u201d (nothing, ask) Then: "
+        "\u201cNobody&#x27;s home, leave it there.\u201d (delivery, reply, breaks a rule: "
+        "occupancy)"
+    ) in page.render(days=3)
+    assert answer_text({"error": "URLError"}) == "Conversation model: couldn't be asked."
+    assert answer_text({"turns": [{"unusable": "Hmm."}]}) == (
+        "Conversation model would have said: (no usable answer)"
+    )
+
+
 def test_a_knock_is_a_row_of_its_own_with_no_picture_or_label(log, tmp_path):
     from gatekeeper.knock import Knocks
 

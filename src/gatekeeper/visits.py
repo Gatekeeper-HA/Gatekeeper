@@ -189,6 +189,7 @@ class VisitsPage:
         snapshot: Callable[[str], bytes | None],
         snapshot_dir: Path,
         guesses=None,
+        answers=None,
         knocks=None,
         clips=None,
         clock: Callable[[], float] = time.time,
@@ -198,6 +199,8 @@ class VisitsPage:
         self._snapshot = snapshot
         self.snapshot_dir = snapshot_dir
         self.guesses = guesses  # Gatekeeper's guesses (visitor_type.Guesses), if it makes them
+        # The conversation model's answers (conversation_model.Answers), if it's in shadow.
+        self.answers = answers
         self.knocks = knocks  # the knocks heard (knock.Knocks), if it listens
         self.clips = clips  # Gatekeeper's own recordings (recording.Clips), if it records
         self._clock = clock
@@ -276,6 +279,7 @@ class VisitsPage:
         rows = self.visits(days)
         labelled = sum(1 for r in rows if r["label"])
         guesses = self.guesses.all() if self.guesses else {}
+        answers = self.answers.all() if self.answers else {}
         out = [
             "<!doctype html><html lang=en><head><meta charset=utf-8>",
             '<meta name=viewport content="width=device-width, initial-scale=1">',
@@ -317,6 +321,8 @@ class VisitsPage:
             out.append(f"<div><strong>{e(_time(at))}</strong> {e(describe(r))}")
             if guesses and (g := guesses.get(eid)):
                 out.append(f"<br><span class=note>{e(guess_text(g))}</span>")
+            if answers and (a := answers.get(eid)):
+                out.append(f"<br><span class=note>{e(answer_text(a))}</span>")
             if r.get("transcript"):
                 out.append(f"<br><span class=note>Heard: &ldquo;{e(r['transcript'])}&rdquo;</span>")
             clips = self.clips_of(r)
@@ -343,6 +349,24 @@ class VisitsPage:
             )
         out.append("</form></body></html>")
         return "".join(out)
+
+
+def answer_text(answer: dict) -> str:
+    """What the conversation model would have said (in shadow), turn by turn, in words."""
+    if answer.get("error"):
+        return "Conversation model: couldn't be asked."
+    said = []
+    for turn in answer.get("turns") or []:
+        if "kind" not in turn:
+            said.append("(no usable answer)")
+            continue
+        broke = sorted({b.split(":")[0] for b in turn.get("broken") or []})
+        said.append(
+            f"\u201c{turn['say']}\u201d ({turn['kind'].replace('_', ' ')}, "
+            f"{turn['action'].replace('_', ' ')}"
+            f"{', breaks a rule: ' + ', '.join(broke) if broke else ''})"
+        )
+    return "Conversation model would have said: " + " Then: ".join(said or ["nothing"])
 
 
 def guess_text(guess: dict) -> str:

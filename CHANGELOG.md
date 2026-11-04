@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **The conversation model, in shadow** (`CONVERSATION_MODEL=shadow`, and the
+  `conversation-model` service: llama.cpp's server with a model file you supply). After
+  each visit, the model is asked what it would have said at each turn, told what Gatekeeper
+  knew then. Its answers are checked against the house rules (`house_rules.py`: nobody's
+  home, someone's coming, open the door, the back gate, codes, "I've called the police"),
+  shown on the Visits page under each visit, and counted in the daily report. Nothing at the
+  door depends on it yet.
 - **A witch's cackle on Halloween** (`HALLOWEEN_PRESS_SOUND`, `witch` by default). It's
   the owner's pick of the samples, made with Kokoro (`scripts/sounds/halloween_witch.py`)
   and shipped with the package. `theremin` brings back the theremin. A path plays your own

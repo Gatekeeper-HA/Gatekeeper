@@ -636,6 +636,90 @@ def delivery_guess_info(guesses: dict, labels: dict, since: float) -> dict | Non
     return out
 
 
+# Gatekeeper's classifications, and the owner's labels (visits.LABELS), as the conversation
+# model's kinds of visit. "Said why they came" is a guest or unclear; the household and
+# "someone else" aren't compared.
+CLASSIFICATION_KINDS = {
+    "likely_delivery": ("delivery",),
+    "solicitor": ("solicitor",),
+    "service_visit": ("service",),
+    "civic": ("civic",),
+    "law_enforcement": ("law_enforcement",),
+    "emergency": ("emergency",),
+    "trick_or_treat": ("trick_or_treat",),
+    "no_response": ("nothing",),
+    "cooperative_other": ("guest", "unclear"),
+}
+LABEL_KINDS = {
+    **{label: ("delivery",) for label in DELIVERY_LABELS},
+    "guest": ("guest",),
+    "neighbor": ("guest",),
+    "service": ("service",),
+    "solicitor": ("solicitor", "civic"),
+    "official": ("law_enforcement", "civic"),
+    "nobody": ("nothing",),
+}
+
+
+def conversation_model_info(answers: dict, visits: list[dict], labels: dict) -> dict:
+    """The conversation model in shadow (conversation_model.py) on the window's visits: how
+    many it answered; how often its kind of visit, at the turn Gatekeeper classified (the
+    first the visitor spoke in), agrees with Gatekeeper's and with the owner's labels; how
+    often it would have warned, by threat.py's level for the same visit; the house rules its
+    lines would have broken; how long it took. Counts only: what it said stays on the
+    Visits page."""
+    out = {
+        "visits": 0,
+        "errors": 0,
+        "turns": 0,
+        "unusable": 0,
+        "models": collections.Counter(),
+        "agrees": {"right": 0, "of": 0},
+        "labels_agree": {"right": 0, "of": 0},
+        "would_warn": collections.Counter(),  # by threat level
+        "suspicious_not_warned": 0,
+        "broken": collections.Counter(),  # lines, by rule
+    }
+    seconds = []
+    for v in visits:
+        eid = str(v.get("event_id", ""))
+        if not (answer := answers.get(eid)):
+            continue
+        out["visits"] += 1
+        if answer.get("error"):
+            out["errors"] += 1
+            continue
+        out["models"][answer.get("model") or "?"] += 1
+        turns = answer.get("turns") or []
+        usable = [t for t in turns if "kind" in t]
+        out["turns"] += len(turns)
+        out["unusable"] += len(turns) - len(usable)
+        for t in usable:
+            for rule in sorted({b.split(":")[0] for b in t.get("broken") or []}):
+                out["broken"][rule] += 1
+            seconds.append(t.get("seconds") or 0.0)
+        dialogue = v.get("dialogue") or []
+        n = next((n for n, d in enumerate(dialogue) if d.get("heard")), 0)
+        if n < len(turns) and "kind" in (main := turns[n]):
+            if kinds := CLASSIFICATION_KINDS.get(str(v.get("classification"))):
+                out["agrees"]["of"] += 1
+                out["agrees"]["right"] += main["kind"] in kinds
+            if kinds := LABEL_KINDS.get(str((labels.get(eid) or {}).get("label"))):
+                out["labels_agree"]["of"] += 1
+                out["labels_agree"]["right"] += main["kind"] in kinds
+        level = ((v.get("details") or {}).get("threat") or {}).get("level", 0)
+        if any(t["action"] == "warn" for t in usable):
+            out["would_warn"][level] += 1
+        elif level >= 2:
+            out["suspicious_not_warned"] += 1
+    seconds.sort()
+    out["median_seconds"] = seconds[len(seconds) // 2] if seconds else None
+    out["max_seconds"] = seconds[-1] if seconds else None
+    for key in ("models", "would_warn", "broken"):
+        out[key] = dict(out[key])
+    return out
+
+
 def threat_info(visits: list[dict]) -> dict:
     """The visits threat.py found signs in (THREAT_LEVELS): how many at each level, which
     signs, and how many Gatekeeper acted on (the rest were in shadow, or an emergency or
@@ -1019,6 +1103,8 @@ class Inputs:
     knocks: list[dict] | None = None
     # Gatekeeper's delivery guesses (visitor_type.py) against the owner's labels.
     delivery_guess: dict | None = None
+    # The conversation model in shadow (conversation_model_info), or None when it's off.
+    conversation_model: dict | None = None
     # Visits the owner labelled in the window (Visits page): each record with its "label".
     labelled: list[dict] = field(default_factory=list)
     own_perception: str = "off"  # the OWN_PERCEPTION setting
@@ -1270,6 +1356,7 @@ def build(i: Inputs) -> dict:
         "own_perception": own,
         "recording": recording,
         "delivery_guess": i.delivery_guess,
+        "conversation_model": i.conversation_model,
         "threats": threat_info(visits),
         "knocks": None
         if i.knocks is None
@@ -1428,6 +1515,8 @@ def summary_lines(report: dict) -> list[str]:
             f"deliveries {d['right']} of {d['of']} "
             f"right, others {o['right']} of {o['of']}"
         )
+    if (cm := report.get("conversation_model")) is not None:
+        lines.append(conversation_model_line(cm))
     if counts.get("labels"):
         from gatekeeper.visits import LABEL_NAMES
 
@@ -1616,6 +1705,41 @@ def summary_lines(report: dict) -> list[str]:
     return lines
 
 
+def conversation_model_line(cm: dict) -> str:
+    """The conversation model's day (conversation_model_info), in one line."""
+    if not cm["visits"]:
+        return "Conversation model (shadow): no visits answered"
+    # JSON keys are strings once the report is saved and read back.
+    warns = sorted((int(level), n) for level, n in cm["would_warn"].items())
+    warned = sum(n for _, n in warns)
+    parts = [
+        f"{cm['visits']} visit(s), {cm['turns']} turn(s)",
+        f"its kind of visit agrees with Gatekeeper's {cm['agrees']['right']} of "
+        f"{cm['agrees']['of']}, with your labels {cm['labels_agree']['right']} of "
+        f"{cm['labels_agree']['of']}",
+        f"would have warned {warned}"
+        + (
+            " (threat level: " + ", ".join(f"{LEVEL_NAMES[level]} {n}" for level, n in warns) + ")"
+            if warned
+            else ""
+        ),
+    ]
+    if cm["suspicious_not_warned"]:
+        parts.append(f"{cm['suspicious_not_warned']} suspicious visit(s) it wouldn't have warned")
+    broken = sum(cm["broken"].values())
+    parts.append(
+        f"{broken} line(s) break a house rule"
+        + (f" ({', '.join(f'{r} {n}' for r, n in sorted(cm['broken'].items()))})" if broken else "")
+    )
+    if cm["unusable"]:
+        parts.append(f"{cm['unusable']} answer(s) unusable")
+    if cm["errors"]:
+        parts.append(f"{cm['errors']} visit(s) not answered (its server was down)")
+    if cm["median_seconds"] is not None:
+        parts.append(f"{cm['median_seconds']:.1f} s median, {cm['max_seconds']:.1f} s max")
+    return f"Conversation model (shadow, {', '.join(cm['models']) or '?'}): " + "; ".join(parts)
+
+
 def render_text(report: dict) -> str:
     return "\n".join([title(report), *summary_lines(report)])
 
@@ -1704,9 +1828,10 @@ def collect(
     query = f"cameras={settings.camera_name}&labels=person&after={since:.0f}&limit=500"
     if settings.trigger_zone_list:
         query += "&zones=" + ",".join(settings.trigger_zone_list)
+    visits = read_log(settings.event_log_file, since)
     return Inputs(
         now=now,
-        visits=read_log(settings.event_log_file, since),
+        visits=visits,
         window_visits=read_log(settings.event_log_file, since - 3600),
         notifications=read_log(settings.notification_log_file, since - 600),
         tracked_since=min(
@@ -1722,6 +1847,7 @@ def collect(
         trigger_zones=tuple(settings.trigger_zone_list),
         labelled=labelled_visits(settings, since),
         delivery_guess=delivery_guesses(settings, since),
+        conversation_model=conversation_model_answers(settings, visits),
         knocks=knocks_heard(settings, since),
         line_texts={**settings.greeting_texts(), **settings.no_answer_texts()},
         own_perception=settings.own_perception,
@@ -1745,6 +1871,19 @@ def delivery_guesses(settings, since: float) -> dict | None:
 
     return delivery_guess_info(
         Guesses(settings.visit_guesses_file).all(), Labels(settings.visit_labels_file).all(), since
+    )
+
+
+def conversation_model_answers(settings, visits: list[dict]) -> dict | None:
+    if settings.conversation_model == "off":
+        return None
+    from gatekeeper.conversation_model import Answers
+    from gatekeeper.visits import Labels
+
+    return conversation_model_info(
+        Answers(settings.conversation_model_file).all(),
+        visits,
+        Labels(settings.visit_labels_file).all(),
     )
 
 

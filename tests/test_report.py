@@ -1273,6 +1273,86 @@ def test_the_delivery_guess_is_held_to_the_owners_labels():
     assert delivery_guess_info({}, labels, 0) is None
 
 
+def test_the_conversation_model_is_held_to_gatekeeper_and_the_labels():
+    from gatekeeper.report import conversation_model_info
+
+    def said(*turns):
+        return [{"asked": "greeting_1", "heard": heard} for heard in turns]
+
+    visits = [
+        visit(NOW - 900, NOW - 880, "a", classification="likely_delivery", dialogue=said("UPS")),
+        # The classified turn is the first the visitor spoke in.
+        visit(
+            NOW - 800,
+            NOW - 770,
+            "b",
+            classification="cooperative_other",
+            dialogue=said("", "is anyone home?"),
+            details={"threat": {"level": 1}},
+        ),
+        visit(
+            NOW - 700,
+            NOW - 690,
+            "c",
+            classification="no_response",
+            dialogue=said("open up", "now"),
+            details={"threat": {"level": 3}},
+        ),
+        visit(NOW - 600, NOW - 590, "d", classification="solicitor", dialogue=said("solar")),
+        visit(NOW - 500, NOW - 490, "e", classification="likely_delivery", dialogue=said("hi")),
+        visit(NOW - 400, NOW - 390, "f", classification="likely_delivery"),  # not asked
+    ]
+
+    def turn(kind, action="reply", broken=(), seconds=1.0):
+        return {"kind": kind, "action": action, "broken": list(broken), "seconds": seconds}
+
+    answers = {
+        "a": {"model": "m.gguf", "turns": [turn("delivery")]},
+        "b": {
+            "model": "m.gguf",
+            "turns": [
+                turn("nothing", "ask"),
+                turn("guest", "warn", ["occupancy: nobody's home", "occupancy: 's home"], 2.5),
+            ],
+        },
+        "c": {"model": "m.gguf", "turns": [turn("unclear", "ask_to_leave"), {"unusable": "x"}]},
+        "d": {"model": "m.gguf", "turns": [turn("service")]},
+        "e": {"at": NOW, "error": "URLError: down"},
+    }
+    labels = {"a": {"label": "ups"}, "d": {"label": "solicitor"}, "b": {"label": "household"}}
+    info = conversation_model_info(answers, visits, labels)
+    assert info == {
+        "visits": 5,
+        "errors": 1,
+        "turns": 6,
+        "unusable": 1,
+        "models": {"m.gguf": 4},
+        "agrees": {"right": 2, "of": 4},  # a and b right; c (nothing) and d (solicitor) wrong
+        "labels_agree": {"right": 1, "of": 2},
+        "would_warn": {1: 1},
+        "suspicious_not_warned": 1,
+        "broken": {"occupancy": 1},
+        "median_seconds": 1.0,
+        "max_seconds": 2.5,
+    }
+    r = build(inputs(conversation_model=info))
+    line = (
+        "Conversation model (shadow, m.gguf): 5 visit(s), 6 turn(s); its kind of visit agrees "
+        "with Gatekeeper's 2 of 4, with your labels 1 of 2; would have warned 1 (threat level: "
+        "watch 1); 1 suspicious visit(s) it wouldn't have warned; 1 line(s) break a house rule "
+        "(occupancy 1); 1 answer(s) unusable; 1 visit(s) not answered (its server was down); "
+        "1.0 s median, 2.5 s max"
+    )
+    assert line in render_text(r)
+    # As saved and read back: the levels are strings.
+    assert line in render_text(json.loads(json.dumps(r)))
+    empty = conversation_model_info({}, visits, labels)
+    assert "Conversation model (shadow): no visits answered" in render_text(
+        build(inputs(conversation_model=empty))
+    )
+    assert "Conversation model" not in render_text(build(inputs()))
+
+
 def test_knocks_are_counted():
     knocks = [
         {"at": NOW - 3600, "score": 0.9, "on_camera": False, "in_visit": False},
