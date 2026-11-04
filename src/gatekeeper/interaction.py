@@ -315,6 +315,10 @@ class Interaction:
         # Visits to stop, and why (went_inside, recognized; from SessionTracker).
         self._stops: dict[str, tuple[str, dict]] = {}
         self._stops_lock = threading.Lock()
+        # Visits running now (by event id), and those whose doorbell was pressed while
+        # they ran: the visitor rang, so they get the bell's lines too (``_line``).
+        self._in_progress: set[str] = set()
+        self._pressed: set[str] = set()
         # Blocking work (ffmpeg, Whisper, Kokoro) runs here rather than in
         # asyncio's default executor, which asyncio.run waits for on exit: a
         # stuck thread must not stop a timed-out visit from returning.
@@ -341,6 +345,8 @@ class Interaction:
         """Handle the visit for Frigate event ``event_id`` (blocking) and log it."""
         token = event_id_var.set(event_id)
         visit = Visit(event_id, self.settings.camera_name, trigger=trigger)
+        with self._stops_lock:
+            self._in_progress.add(event_id)
         try:
             log.info("interaction started")
             if self.owner_talking():
@@ -374,7 +380,17 @@ class Interaction:
         finally:
             with self._stops_lock:
                 self._stops.pop(event_id, None)
+                self._in_progress.discard(event_id)
+                self._pressed.discard(event_id)
             event_id_var.reset(token)
+
+    def pressed_during(self, event_id: str) -> None:
+        """The doorbell pressed while visit ``event_id`` runs (``SessionTracker`` merged
+        the press into it): from now on the visit picks its lines as one started by the
+        doorbell, so someone who rang hears the bell's lines too."""
+        with self._stops_lock:
+            if event_id in self._in_progress:
+                self._pressed.add(event_id)
 
     def went_inside(self, event_id: str) -> None:
         """``SessionTracker``: the person visit ``event_id`` is for went in by the front
@@ -629,12 +645,15 @@ class Interaction:
     def _line(self, kind: str, visit: Visit) -> tuple[str, str]:
         """What to say for ``kind`` ("greeting" or "no_answer"): (phrase key, text). One of
         Gatekeeper's lines at random, not the one said last time; those that mention the
-        bell only after a doorbell press; only lines synthesized already (the rest come in
-        the background after startup). On Halloween, the Halloween ones."""
+        bell only after a doorbell press (one that started the visit, or came during it);
+        only lines synthesized already (the rest come in the background after startup). On
+        Halloween, the Halloween ones."""
         if visit.details.get("occasion") == "halloween" and kind in HALLOWEEN_KINDS:
             kind = f"halloween_{kind}"
         texts = getattr(self.settings, f"{kind}_texts")
-        lines = texts(pressed=visit.trigger == "button")
+        with self._stops_lock:
+            pressed = visit.trigger == "button" or visit.event_id in self._pressed
+        lines = texts(pressed=pressed)
         lines = {k: t for k, t in lines.items() if k in self._presynth} or lines
         keys = [k for k in lines if k != self._last.get(kind)] or list(lines)
         key = self._random.choice(keys)

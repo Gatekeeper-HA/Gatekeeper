@@ -700,6 +700,8 @@ def main() -> None:
     def on_press(trigger: str = "button") -> None:
         """The doorbell pressed (or, ``trigger`` "knock", a knock heard)."""
         action, visit_id = tracker.press(trigger)
+        if action == "merged" and trigger == "button":
+            interaction.pressed_during(visit_id)  # its next line knows they rang
         if action == "merged":
             # Not on the doorbell listener's event loop: the reply plays audio.
             start_thread(

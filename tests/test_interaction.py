@@ -653,6 +653,39 @@ def test_the_no_answer_line_is_one_of_many_never_twice_in_a_row(settings):
     assert set(said) == {"no_answer_1", "no_answer_2", "no_answer_3"}  # never the bell's
 
 
+def test_a_press_during_the_visit_gets_the_bells_lines(settings):
+    # Someone the camera saw first who then rings during the greeting: the no-answer
+    # line is picked as for a visit the doorbell started (not "ignoring a camera").
+    settings.reply_no_answer = ""  # the pool
+    settings.no_answer_lines = []  # only the bell's line, after a press
+    settings.no_answer_pressed_lines = ["You rang the bell."]
+    keys = ("greeting", "no_answer", "no_answer_pressed_1")
+
+    def run(press: bool) -> str:
+        rig = Rig(settings, answer="", answer2="", presynth_keys=keys)
+        capture = rig.capture
+
+        def ringing_capture(url, path, seconds):
+            if press and path.name == f"{EID}.wav":
+                rig.interaction.pressed_during(EID)  # app.on_press, the press merged
+            return capture(url, path, seconds)
+
+        rig.capture = ringing_capture
+        rig.interaction._capture = ringing_capture
+        visit = rig.interaction.run(EID)
+        assert not rig.interaction._pressed  # forgotten once the visit ends
+        return visit.dialogue[-1]["asked"]
+
+    assert run(press=False) == "no_answer"
+    assert run(press=True) == "no_answer_pressed_1"
+
+
+def test_a_press_after_the_visit_isnt_kept(settings):
+    rig = Rig(settings)
+    rig.interaction.pressed_during(EID)  # a press in the cooldown: no visit running
+    assert not rig.interaction._pressed
+
+
 def test_the_greeting_is_one_of_many_and_says_its_monitored(settings):
     from gatekeeper.config import GREETING_LINES, GREETING_PRESSED_LINES
 
