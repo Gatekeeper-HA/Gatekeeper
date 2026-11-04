@@ -19,7 +19,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from gatekeeper import dialogue, talkback, threat
+from gatekeeper import dialogue, occasions, talkback, threat
 from gatekeeper.audio import Synthesizer, Transcriber, capture_audio_clip
 from gatekeeper.camera import go2rtc_frame, photo_sharpness
 from gatekeeper.classify import CONVERSATIONS, classify_response
@@ -73,6 +73,10 @@ ConnectFn = Callable[[], Awaitable[Any]]
 CaptureFn = Callable[[str, Path, int], Path | None]
 # Threat levels never cut these short: they have conversations of their own, as careful.
 THREAT_EXEMPT = ("emergency", "law_enforcement")
+
+
+# The kinds of line Halloween has its own of (config.HALLOWEEN_*).
+HALLOWEEN_KINDS = ("greeting", "no_answer", "goodbye")
 
 
 @dataclass
@@ -325,6 +329,10 @@ class Interaction:
         # Visits to stop, and why (went_inside, recognized; from SessionTracker).
         self._stops: dict[str, tuple[str, dict]] = {}
         self._stops_lock = threading.Lock()
+        # Visits running now (by event id), and those whose doorbell was pressed while
+        # they ran: the visitor rang, so they get the bell's lines too (``_line``).
+        self._in_progress: set[str] = set()
+        self._pressed: set[str] = set()
         # Blocking work (ffmpeg, Whisper, Kokoro) runs here rather than in
         # asyncio's default executor, which asyncio.run waits for on exit: a
         # stuck thread must not stop a timed-out visit from returning.
@@ -351,6 +359,8 @@ class Interaction:
         """Handle the visit for Frigate event ``event_id`` (blocking) and log it."""
         token = event_id_var.set(event_id)
         visit = Visit(event_id, self.settings.camera_name, trigger=trigger)
+        with self._stops_lock:
+            self._in_progress.add(event_id)
         try:
             log.info("interaction started")
             if self.owner_talking():
@@ -384,7 +394,17 @@ class Interaction:
         finally:
             with self._stops_lock:
                 self._stops.pop(event_id, None)
+                self._in_progress.discard(event_id)
+                self._pressed.discard(event_id)
             event_id_var.reset(token)
+
+    def pressed_during(self, event_id: str) -> None:
+        """The doorbell pressed while visit ``event_id`` runs (``SessionTracker`` merged
+        the press into it): from now on the visit picks its lines as one started by the
+        doorbell, so someone who rang hears the bell's lines too."""
+        with self._stops_lock:
+            if event_id in self._in_progress:
+                self._pressed.add(event_id)
 
     def went_inside(self, event_id: str) -> None:
         """``SessionTracker``: the person visit ``event_id`` is for went in by the front
@@ -645,10 +665,15 @@ class Interaction:
     def _line(self, kind: str, visit: Visit) -> tuple[str, str]:
         """What to say for ``kind`` ("greeting" or "no_answer"): (phrase key, text). One of
         Gatekeeper's lines at random, not the one said last time; those that mention the
-        bell only after a doorbell press; only lines synthesized already (the rest come in
-        the background after startup)."""
+        bell only after a doorbell press (one that started the visit, or came during it);
+        only lines synthesized already (the rest come in the background after startup). On
+        Halloween, the Halloween ones."""
+        if visit.details.get("occasion") == "halloween" and kind in HALLOWEEN_KINDS:
+            kind = f"halloween_{kind}"
         texts = getattr(self.settings, f"{kind}_texts")
-        lines = texts(pressed=visit.trigger == "button")
+        with self._stops_lock:
+            pressed = visit.trigger == "button" or visit.event_id in self._pressed
+        lines = texts(pressed=pressed)
         lines = {k: t for k, t in lines.items() if k in self._presynth} or lines
         keys = [k for k in lines if k != self._last.get(kind)] or list(lines)
         key = self._random.choice(keys)
@@ -661,7 +686,9 @@ class Interaction:
         if not visit.transcript:
             visit.classification = "no_response"
             return "no_answer"
-        visit.classification, reply_key = classify_response(visit.transcript)
+        visit.classification, reply_key = classify_response(
+            visit.transcript, halloween=visit.details.get("occasion") == "halloween"
+        )
         return reply_key
 
     async def _answer_from_window(
@@ -807,6 +834,11 @@ class Interaction:
 
     async def _converse(self, visit: Visit, talk: _Talk) -> None:
         s = self.settings
+        if occasions.is_halloween(s, datetime.datetime.fromtimestamp(self._clock())):
+            visit.details["occasion"] = "halloween"
+            if visit.trigger != "person" and occasions.SPOOKY_KEY in self._presynth:
+                # A press or a knock: the spooky sound first, then the greeting.
+                await self._say(talk, visit, occasions.SPOOKY_KEY, "")
         greeting_key, greeting_text = self._line("greeting", visit)
         greeting = await self._say(talk, visit, greeting_key, greeting_text)
         if greeting is None:
@@ -854,7 +886,10 @@ class Interaction:
             await dialogue.run(visit.classification, visit, _Turns(self, talk, visit), s)
             return
 
-        visit.response = s.replies[reply_key]
+        if reply_key == "halloween":
+            reply_key, visit.response = self._line("halloween_reply", visit)
+        else:
+            visit.response = s.replies[reply_key]
         self._notify(visit)
 
         reply = await self._say(talk, visit, reply_key, visit.response)

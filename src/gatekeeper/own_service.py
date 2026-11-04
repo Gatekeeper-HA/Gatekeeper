@@ -23,6 +23,7 @@ from collections import OrderedDict
 from collections.abc import Callable
 from pathlib import Path
 
+from gatekeeper.own_perception import to_array
 from gatekeeper.perception import PersonEvent, Shot
 from gatekeeper.recording import Clips
 
@@ -111,7 +112,7 @@ class OwnService:
             return None
         from gatekeeper.face_admin import jpeg_bytes
 
-        rgb = newest[1].to_ndarray(format="rgb24")
+        rgb = to_array(newest[1], format="rgb24")  # the look thread may be converting it too
         return Shot(rgb, jpeg_bytes(rgb[:, :, ::-1]))
 
     def snapshot(self, event_id: str) -> bytes | None:

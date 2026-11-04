@@ -188,6 +188,9 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `PHRASE_THREAT_URGENT` | *You need to leave now. The resident has been alerted, and you are being recorded.* | The first line to a threat (level 3), then the rest of `THREAT_LINES` |
 | `EMERGENCY_BUTTONS` | `false` | Opt-in: *Text 911* and *Call 911* buttons on the notification of a suspicious visitor or an emergency. *Text 911* opens your phone's messages to 911 with `HOME_ADDRESS` and what happened filled in; you still tap send. The compose stack reads both from `.env` |
 | `HOME_ADDRESS` | *(none)* | Your street address, for *Text 911*. Without it, only *Call 911* |
+| `HALLOWEEN` | `auto` | [Halloween](#halloween): `auto` is October 31 from `HALLOWEEN_START_HOUR` (`16`) to `HALLOWEEN_END_HOUR` (`22`), local time; `on` or `off` force it. The compose stack reads it from `.env` |
+| `HALLOWEEN_TREATS` | `unset` | The answer to "trick or treat": `bowl` (help yourselves from the bowl by the door), `none` (no treats this year), or `unset` (compliments the costumes and promises nothing). The compose stack reads it from `.env` |
+| `HALLOWEEN_GREETING_LINES`, `HALLOWEEN_NO_ANSWER_LINES`, `HALLOWEEN_GOODBYE_LINES`, `HALLOWEEN_REPLY_LINES` | 5, 4, 3 and 3 lines | Halloween's own lines, each a JSON list; `HALLOWEEN_REPLY_LINES` replaces the ones `HALLOWEEN_TREATS` picks |
 | `PHRASE_EMERGENCY_WAIT` | *I have alerted the resident. Please wait.* | To someone reporting an emergency |
 | `PHRASE_POLICE_ASK_REASON` | *This is an automated assistant, and this conversation is recorded. What is the reason for your visit, and do you have a warrant?* | First question to law enforcement, unless their first sentence already said why they came or whether they have a warrant |
 | `PHRASE_POLICE_DISCLOSURE` | *This is an automated assistant, and this conversation is recorded.* | Said instead, right before the next question, when the reason question is skipped |
@@ -367,6 +370,32 @@ on). What someone looks like, how they talk or what language they speak never co
 daily report shows each level and sign. This first version reads the visitor's words (English); signs from the
 camera (a package taken, a hidden face, faces not allowed at the property) come next.
 
+## Halloween
+
+On Halloween evening (October 31, 4 pm to 10 pm by default: `HALLOWEEN`), the doorbell
+plays along:
+
+- **A doorbell press or a knock** plays a short spooky sound outside before the greeting: a
+  theremin-like *"ooo-EEE-ooo"*, generated in code. The chime indoors is the doorbell's own
+  and doesn't change.
+- **The greeting** is a Halloween one, and still says the door is watched or recorded:
+  *"Boo! Did I scare you? Happy Halloween! This haunted doorbell sees and records all. What
+  do you say?"*
+- **A shy trick-or-treater** who doesn't answer gets a gentle nudge instead of the usual
+  teasing: *"Too spooked to speak? That's okay! Just say trick or treat, if you dare."*
+- **"Trick or treat"** is classified `trick_or_treat`. So are the ways kids say it: "tricker
+  treat", "can I have candy?", "treats!", "boo!". So is any other answer to the greeting's
+  *"Trick or treat?"* that evening, even "Yes!" or "I'm a dinosaur!", unless it's an
+  emergency, an officer, a delivery, a salesperson, a service visit or a canvasser. The
+  answer follows `HALLOWEEN_TREATS`: *"Help yourselves to a treat from the bowl, one each. The
+  ghosts are counting!"* with `bowl`, a friendly *"no treats this year"* with `none`, and
+  only compliments with `unset`. No line says or hints that anyone will come to the door.
+- **The notification** is *Trick-or-treaters at the front door*, at normal priority.
+
+Other visitors that evening get the usual replies, and an emergency is still an emergency
+(a kid dressed as a police officer is a trick-or-treater, though). Outside the evening,
+"trick or treat" means nothing special.
+
 ## Visitor classification
 
 Gatekeeper records from the start of the greeting, cuts the greeting's own echo out of the
@@ -382,6 +411,7 @@ Categories are checked top to bottom; the first match wins.
 | `solicitor` | selling, sales, survey, donations, charity, solar, church… | `REPLY_SALES` |
 | `likely_delivery` | delivery, package, parcel, FedEx, UPS, USPS, Amazon, DoorDash, Uber Eats, groceries… | `REPLY_DELIVERY` |
 | `service_visit` | repair, maintenance, technician, plumber, electrician, meter, appointment, install… | `REPLY_MAINTENANCE` |
+| `trick_or_treat` | trick or treat, candy, treats, boo, Halloween; and any answer not matched below (on [Halloween](#halloween) evening only, right after `emergency`) | A Halloween treat line |
 | `cooperative_other` | Any other answer of two or more words | `REPLY_GENERIC` |
 | `no_response` | Silence or a single word | `REPLY_NO_ANSWER` |
 

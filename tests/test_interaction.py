@@ -653,6 +653,39 @@ def test_the_no_answer_line_is_one_of_many_never_twice_in_a_row(settings):
     assert set(said) == {"no_answer_1", "no_answer_2", "no_answer_3"}  # never the bell's
 
 
+def test_a_press_during_the_visit_gets_the_bells_lines(settings):
+    # Someone the camera saw first who then rings during the greeting: the no-answer
+    # line is picked as for a visit the doorbell started (not "ignoring a camera").
+    settings.reply_no_answer = ""  # the pool
+    settings.no_answer_lines = []  # only the bell's line, after a press
+    settings.no_answer_pressed_lines = ["You rang the bell."]
+    keys = ("greeting", "no_answer", "no_answer_pressed_1")
+
+    def run(press: bool) -> str:
+        rig = Rig(settings, answer="", answer2="", presynth_keys=keys)
+        capture = rig.capture
+
+        def ringing_capture(url, path, seconds):
+            if press and path.name == f"{EID}.wav":
+                rig.interaction.pressed_during(EID)  # app.on_press, the press merged
+            return capture(url, path, seconds)
+
+        rig.capture = ringing_capture
+        rig.interaction._capture = ringing_capture
+        visit = rig.interaction.run(EID)
+        assert not rig.interaction._pressed  # forgotten once the visit ends
+        return visit.dialogue[-1]["asked"]
+
+    assert run(press=False) == "no_answer"
+    assert run(press=True) == "no_answer_pressed_1"
+
+
+def test_a_press_after_the_visit_isnt_kept(settings):
+    rig = Rig(settings)
+    rig.interaction.pressed_during(EID)  # a press in the cooldown: no visit running
+    assert not rig.interaction._pressed
+
+
 def test_the_greeting_is_one_of_many_and_says_its_monitored(settings):
     from gatekeeper.config import GREETING_LINES, GREETING_PRESSED_LINES
 
@@ -1055,3 +1088,62 @@ def test_visits_since_lists_the_visits_logged_lately(settings):
         "press-1727712100.0"
     ]
     assert visit_started({"event_id": "package-12.5", "ts": 99.0}) == 99.0
+
+
+# Halloween evening (occasions.py).
+
+
+def halloween_rig(settings, answer, **kw):
+    settings.halloween = "on"
+    # The fake transcriber hears the greeting and the no-answer line back (and strips them).
+    settings.halloween_greeting_lines = [settings.greeting]
+    settings.halloween_no_answer_lines = [settings.reply_no_answer]
+    keys = ("greeting", *ALL_REPLY_KEYS, "halloween_sound", *settings.halloween_texts())
+    return Rig(settings, answer=answer, presynth_keys=keys, **kw)
+
+
+def played(rig):
+    return [
+        c[1].removeprefix("_presynth_").removesuffix(".wav") for c in rig.calls if c[0] == "play"
+    ]
+
+
+def test_halloween_a_press_gets_the_spooky_sound_then_a_treat(settings):
+    settings.halloween_treats = "bowl"
+    rig = halloween_rig(settings, "Trick or treat!")
+    visit = rig.interaction.run(EID, trigger="button")
+    assert played(rig)[:2] == ["halloween_sound", "halloween_greeting_1"]
+    assert played(rig)[2].startswith("halloween_reply_")
+    assert (visit.classification, visit.details["occasion"]) == ("trick_or_treat", "halloween")
+    assert visit.response in settings.halloween_reply_texts().values()
+    assert "bowl" in visit.response
+    assert visit.outcome == "completed"
+
+
+def test_halloween_someone_walking_up_isnt_spooked_first(settings):
+    rig = halloween_rig(settings, "Happy Halloween!")
+    visit = rig.interaction.run(EID)
+    assert played(rig)[0] == "halloween_greeting_1"
+    assert visit.classification == "trick_or_treat"
+
+
+def test_halloween_a_shy_kid_gets_a_gentle_line(settings):
+    rig = halloween_rig(settings, "", answer2="")
+    visit = rig.interaction.run(EID)
+    assert played(rig) == ["halloween_greeting_1", "halloween_no_answer_1"]
+    assert visit.response == settings.reply_no_answer
+
+
+def test_halloween_other_visitors_get_the_usual_replies(settings):
+    rig = halloween_rig(settings, "I have a package for you")
+    visit = rig.interaction.run(EID)
+    assert played(rig)[-1] == "delivery"
+    assert visit.classification == "likely_delivery"
+
+
+def test_outside_halloween_nothing_changes(settings):
+    rig = Rig(settings, answer="Trick or treat!")  # the rig's clock is in 1970
+    visit = rig.interaction.run(EID, trigger="button")
+    assert played(rig) == ["greeting", "generic"]
+    assert visit.classification == "cooperative_other"
+    assert "occasion" not in visit.details

@@ -38,6 +38,7 @@ STYLES = {
     "emergency": ("Emergency at the {place}", ["rotating_light"], 5),
     "law_enforcement": ("Law enforcement at the {place}", ["police_car"], 5),
     "civic": ("Political visitor at the {place}", ["ballot_box"], 3),
+    "trick_or_treat": ("Trick-or-treaters at the {place}", ["jack_o_lantern"], 3),
 }
 
 # How a conversation with law enforcement ended (dialogue.py) -> title.

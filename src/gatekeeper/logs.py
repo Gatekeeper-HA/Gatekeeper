@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextvars
+import faulthandler
 import json
 import logging
 import sys
@@ -45,6 +46,12 @@ def setup_logging(level: str = "INFO", fmt: str = "text") -> None:
     root = logging.getLogger()
     root.handlers[:] = [handler]
     root.setLevel(level.upper())
+
+    # A native crash (a segfault or abort in PyAV, ONNX Runtime or CUDA) kills the process
+    # before anything is logged; this writes the error and every thread's stack to the
+    # process's own stderr (not a replaced sys.stderr: it needs a file descriptor),
+    # the container's log, where the daily report counts it.
+    faulthandler.enable(sys.__stderr__, all_threads=True)
 
     # These log every HTTP request (model downloads and update checks) at INFO.
     for name in NOISY_LOGGERS:

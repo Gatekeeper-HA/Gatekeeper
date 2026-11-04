@@ -26,6 +26,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - **Records:** the visit record has `details.threat`, and the daily report counts levels
     and signs.
   - **Never counted:** appearance, accent or language.
+- **Halloween** (`HALLOWEEN`, `auto`: October 31, 4-10 pm). A doorbell press or a knock
+  plays a spooky sound outside before the greeting (generated in code, nothing to license).
+  The greetings, no-answer lines and send-offs are Halloween ones, gentle with a shy kid
+  rather than teasing. "Trick or treat" is classified `trick_or_treat`, as are candy,
+  treats, boo and the ways kids say it, and any other answer to "Trick or treat?" that
+  isn't an emergency, an officer, a delivery, a salesperson, a service visit or a
+  canvasser. It's answered by `HALLOWEEN_TREATS`: treats in a bowl, none this year, or compliments only (the
+  default), never a promise that anyone will come to the door. It's notified as
+  *Trick-or-treaters*. Emergencies still come first.
+- **A crash leaves a trace.** If Gatekeeper dies from a native crash (a segfault or abort in
+  PyAV, ONNX Runtime or CUDA), it writes the error and every thread's stack to its log. The
+  daily report counts the crash as an error and shows where the crashing thread was.
 - **Tapping a notification opens the Live page**, to see who it is and talk to them at once.
   Its address (`WEB_PUBLIC_URL`) defaults to the web page at the server's address, https
   with `WEB_TLS`.
@@ -236,6 +248,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **Daily report: a watchdog exit is one hang.** The exit and the container restart it
+  causes were added up, so one stall read *2 hang/restart(s)*. Restarts beyond the exits
+  (a crash) still count.
+- **Daily report: a stall says where it's stuck.** The stack logged after *own perception
+  stalled … it's at:* and *internal hang … the threads:* was dropped, so the report showed
+  nothing after the colon. Its innermost frame (each thread's, for the hang) is now the
+  log kind's `where`, shown in the *Logs* list.
+- **Own perception's look loop no longer stalls** (#110, #122). It hung inside PyAV's
+  frame conversion when a snapshot (a press, the package check, the web page) converted
+  the newest frame while the look thread was scaling it: PyAV keeps one scaler per
+  frame, and two threads in it at once deadlock (reproduced on the rig's PyAV, both
+  stuck after one conversion each). Each thread now has a scaler of its own. The
+  watchdog stays as the safety net.
 - **A stalled own perception restarts Gatekeeper.** With `PERCEPTION=own`, own perception's
   look loop beats on every pass. No beat for `OWN_PERCEPTION_STALL_SECONDS` (60) is an
   internal hang, *own perception stalled*: `/healthz` turns unhealthy, and after
@@ -256,6 +281,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   sounds went to the classifier and the top score, and the *Knocks heard* line adds them
   up (or says no checks were logged). Before, 0 knocks read the same on a quiet day as
   with a listener that wasn't checking anything.
+- **Daily report: when the top knock score happened.** The *Knocks heard* line adds the
+  hour of the day's top score (*top score 0.39 in the hour to …*), so the sound behind a
+  score creeping toward the threshold can be found and listened to.
 - **A stall says where it's stuck.** Own perception's look loop not passing for 60 s is
   logged (in shadow too) with the stack of its thread, once, and again when it's looking
   again. The hang watchdog logs every thread's stack before it exits. Own perception

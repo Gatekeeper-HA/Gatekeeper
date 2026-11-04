@@ -104,6 +104,75 @@ def test_a_traceback_belongs_to_the_error_line_before_it():
     assert "health.py" in traceback["where"]
 
 
+def test_a_watchdog_exit_and_the_restart_it_causes_are_one_hang():
+    r = build(inputs(host={**HOST, "hang_exits": 1, "restarts": 1}))
+    assert failing(r)["no_hangs"] == "1 hang/restart(s)"
+
+    r = build(inputs(host={**HOST, "hang_exits": 1, "restarts": 2}))  # and a crash
+    assert failing(r)["no_hangs"] == "2 hang/restart(s)"
+
+
+def test_a_stall_says_where_its_stuck():
+    lines = [
+        "2026-10-30 12:22:29,001 CRITICAL gatekeeper.own_perception [-] own perception "
+        "stalled: its look loop hasn't passed for 60 s; it's at:",
+        '  File "/usr/lib/python3.12/threading.py", line 1030, in _bootstrap',
+        "    self._bootstrap_inner()",
+        '  File "/app/src/gatekeeper/own_perception.py", line 560, in look_forever',
+        "    boxes = self._detector(image)",
+        "2026-10-30 12:23:29,001 CRITICAL gatekeeper.health [-] internal hang for 60 s: "
+        "['own perception stalled']; exiting; the threads:",
+        "-- MainThread",
+        '  File "/app/src/gatekeeper/app.py", line 300, in run',
+        "    stop.wait()",
+        "-- own-perception",
+        '  File "/app/src/gatekeeper/own_perception.py", line 560, in look_forever',
+        "    boxes = self._detector(image)",
+        "2026-10-30 12:23:30,001 INFO    gatekeeper.app [-] stopping",
+    ]
+    r = build(inputs(log_text="### gatekeeper\n" + "\n".join(lines) + "\n"))
+
+    stall, hang = r["logs"]["sources"]["gatekeeper"]["top"]
+    assert stall["where"] == (
+        'File "/app/src/gatekeeper/own_perception.py", line 560, in look_forever'
+    )
+    assert hang["where"] == (
+        'MainThread: File "/app/src/gatekeeper/app.py", line 300, in run; '
+        'own-perception: File "/app/src/gatekeeper/own_perception.py", line 560, '
+        "in look_forever"
+    )
+    assert 'it\'s at: → File "/app/src/gatekeeper/own_perception.py"' in render_markdown(r)
+
+
+FATAL_LOG = """\
+2026-10-01 10:00:00,000 INFO    gatekeeper.app [-] own perception reading the sub stream
+Fatal Python error: Segmentation fault
+
+Thread 0x00007f0a1c7fe640 (most recent call first):
+  File "/usr/local/lib/python3.11/threading.py", line 324 in wait
+  File "/app/src/gatekeeper/own_service.py", line 88 in latest_frame
+
+Current thread 0x00007f0a2d1ff640 (most recent call first):
+  File "/app/src/gatekeeper/own_perception.py", line 547 in look_forever
+  File "/usr/local/lib/python3.11/threading.py", line 975 in run
+  ...
+
+Extension modules: numpy.core._multiarray_umath, av._core (total: 2)
+2026-10-01 10:00:09,000 INFO    gatekeeper.app [-] Gatekeeper 0.3.0 starting: camera=front_door
+"""
+
+
+def test_a_native_crash_is_a_critical_error_where_the_current_thread_was():
+    events = report.log_events(FATAL_LOG.splitlines())
+
+    assert len(events) == 1
+    crash = events[0]
+    assert crash["level"] == "CRITICAL"
+    assert crash["message"] == "Fatal Python error: Segmentation fault"
+    assert crash["where"].endswith('own_perception.py", line 547 in look_forever')
+    assert crash["level"] in report.ERROR_LEVELS
+
+
 def test_whisper_model_device_and_transcription_times():
     info = report.whisper_info(GATEKEEPER_LOG.splitlines())
 
@@ -1234,8 +1303,23 @@ def test_the_knock_listeners_checks_show_it_listening():
         "stats_hours": 3,
         "checks": 37,
         "top_score": 0.31,
+        "top_at": report.local(report.log_time("2026-10-28 12:00:00")),
     }
-    assert "Knocks heard (shadow): 0; 37 sound(s) checked, top score 0.31" in render_text(r)
+    assert (
+        "Knocks heard (shadow): 0; 37 sound(s) checked, top score 0.31 in the hour to "
+        f"{report.local(report.log_time('2026-10-28 12:00:00'))}" in render_text(r)
+    )
+
+
+def test_a_quiet_knock_listener_has_no_top_score_time():
+    log = (
+        "### gatekeeper\n2026-10-28 10:00:00,000 INFO     gatekeeper.knock [-] knock listener "
+        "stats: 0 check(s) in 3600 s, top score 0.00\n"
+    )
+    r = build(inputs(knocks=[], log_text=log))
+    assert r["knocks"]["top_score"] == 0.0 and r["knocks"]["top_at"] is None
+    assert "0 sound(s) checked, top score 0.00\n" in render_text(r) + "\n"
+    assert "in the hour to" not in render_text(r)
 
 
 def test_the_owners_labels_are_compared_with_what_gatekeeper_did():

@@ -220,6 +220,10 @@ services:
       # text gives: off unless EMERGENCY_BUTTONS=1 and HOME_ADDRESS="..." in .env.
       EMERGENCY_BUTTONS: "${EMERGENCY_BUTTONS:-0}"
       HOME_ADDRESS: "${HOME_ADDRESS:-}"
+      # Halloween evening's spooky sound, greetings and treat lines (auto: October 31,
+      # 4-10 pm), and what to say about treats: bowl, none, or unset (compliments only).
+      HALLOWEEN: "${HALLOWEEN:-auto}"
+      HALLOWEEN_TREATS: "${HALLOWEEN_TREATS:-unset}"
       # Gatekeeper's own clips while someone's at the door (needs OWN_PERCEPTION): off
       # unless RECORDING=1 in .env. About 4 Mbit/s from the Reolink, kept 7 days.
       RECORDING: "${RECORDING:-0}"

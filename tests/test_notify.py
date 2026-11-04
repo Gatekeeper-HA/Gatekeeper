@@ -21,6 +21,7 @@ def visit(**kw):
         ("service_visit", "Service visit at the front door", 4),
         ("cooperative_other", "Visitor at the front door", 4),
         ("no_response", "Someone at the front door", 3),
+        ("trick_or_treat", "Trick-or-treaters at the front door", 3),
     ],
 )
 def test_compose_answered(classification, title, priority):
