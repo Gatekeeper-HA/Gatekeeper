@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Halloween** (`HALLOWEEN`, `auto`: October 31, 4-10 pm). A doorbell press or a knock
+  plays a spooky sound outside before the greeting (generated in code, nothing to license).
+  The greetings, no-answer lines and send-offs are Halloween ones, gentle with a shy kid
+  rather than teasing. "Trick or treat" is classified `trick_or_treat`, as are candy,
+  treats, boo and the ways kids say it, and any other answer to "Trick or treat?" that
+  isn't an emergency, an officer, a delivery, a salesperson, a service visit or a
+  canvasser. It's answered by `HALLOWEEN_TREATS`: treats in a bowl, none this year, or compliments only (the
+  default), never a promise that anyone will come to the door. It's notified as
+  *Trick-or-treaters*. Emergencies still come first.
 - **A crash leaves a trace.** If Gatekeeper dies from a native crash (a segfault or abort in
   PyAV, ONNX Runtime or CUDA), it writes the error and every thread's stack to its log. The
   daily report counts the crash as an error and shows where the crashing thread was.

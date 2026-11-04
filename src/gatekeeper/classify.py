@@ -67,6 +67,17 @@ SERVICE_PHRASES = [
 ]  # fmt: skip
 
 
+# On Halloween evening only (occasions.py): outside it, "trick or treat" is no reason to
+# think a visitor is a trick-or-treater.
+TRICK_OR_TREAT_PHRASES = [
+    "trick or treat", "trick or treating", "trick or treats", "trick or treaters",
+    # How little kids say it, as speech recognition hears it.
+    "tricker treat", "trick a treat", "trick r treat", "trick or tree", "trick treat",
+    "halloween", "candy", "candies", "treat", "treats", "sweets", "chocolate",
+    "lollipop", "boo", "smell my feet", "costume", "costumes",
+]  # fmt: skip
+
+
 def phrase_pattern(phrases: list[str]) -> re.Pattern[str]:
     """Whole-word match of any of ``phrases``; multi-word phrases match across any
     run of spaces or hyphens."""
@@ -87,23 +98,36 @@ CATEGORIES = [
 ]
 # Classifications handled by a conversation of their own rather than one reply.
 CONVERSATIONS = {"emergency", "law_enforcement", "civic"}
+TRICK_OR_TREAT = phrase_pattern(TRICK_OR_TREAT_PHRASES)
 
 
-def classify_response(text: str) -> tuple[str, str]:
+def classify_response(text: str, halloween: bool = False) -> tuple[str, str]:
     """Return ``(classification, reply_key)`` for a transcript.
 
     Classifications: ``emergency``, ``law_enforcement``, ``civic``,
     ``likely_delivery``, ``solicitor``, ``service_visit``, ``cooperative_other``
-    and ``no_response``.
+    and ``no_response``; on Halloween evening, ``trick_or_treat`` too (reply key
+    "halloween"): it comes right after an emergency, so a kid dressed as a police officer
+    is a trick-or-treater, and it's also any answer that isn't one of the others (a "yes!",
+    "I'm a dinosaur!"), since the greeting asked "Trick or treat?".
     """
     normalized = text.lower().strip()
     if not normalized:
         return "no_response", "no_answer"
 
-    for classification, reply_key, pattern in CATEGORIES:
+    emergency, *others = CATEGORIES
+    if emergency[2].search(normalized):
+        return emergency[0], emergency[1]
+    if halloween and TRICK_OR_TREAT.search(normalized):
+        return "trick_or_treat", "halloween"
+    for classification, reply_key, pattern in others:
         if pattern.search(normalized):
             return classification, reply_key
 
+    if halloween:
+        # Any other answer to "Trick or treat?" that evening, a "yes!" or an "I'm a
+        # dinosaur!", is most likely a trick-or-treater.
+        return "trick_or_treat", "halloween"
     if len(re.findall(r"\w+", normalized)) <= 1:
         return "no_response", "no_answer"
 

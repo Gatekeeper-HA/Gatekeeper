@@ -70,6 +70,7 @@ CLASSIFICATIONS = {
     "solicitor": "a solicitor",
     "service_visit": "a service visit",
     "cooperative_other": "said why they came",
+    "trick_or_treat": "trick-or-treaters",
 }
 FLOWS = {
     "law_enforcement": "Talked with an officer",

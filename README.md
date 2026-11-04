@@ -183,6 +183,9 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `NO_ANSWER_PRESSED_LINES` | 2 lines | Said too after a doorbell press: they mention the bell |
 | `GOODBYE_LINES` | 7 send-offs | Said instead of a no-answer line to someone already walking away when the greeting gets no answer (a courier who dropped something off, mostly). A JSON list replaces them; `REPLY_GOODBYE` sets a single one |
 | `REPLY_PRESSED` | *The resident has already been notified.* | Said when the doorbell is pressed during a visit's cooldown |
+| `HALLOWEEN` | `auto` | [Halloween](#halloween): `auto` is October 31 from `HALLOWEEN_START_HOUR` (`16`) to `HALLOWEEN_END_HOUR` (`22`), local time; `on` or `off` force it. The compose stack reads it from `.env` |
+| `HALLOWEEN_TREATS` | `unset` | The answer to "trick or treat": `bowl` (help yourselves from the bowl by the door), `none` (no treats this year), or `unset` (compliments the costumes and promises nothing). The compose stack reads it from `.env` |
+| `HALLOWEEN_GREETING_LINES`, `HALLOWEEN_NO_ANSWER_LINES`, `HALLOWEEN_GOODBYE_LINES`, `HALLOWEEN_REPLY_LINES` | 5, 4, 3 and 3 lines | Halloween's own lines, each a JSON list; `HALLOWEEN_REPLY_LINES` replaces the ones `HALLOWEEN_TREATS` picks |
 | `PHRASE_EMERGENCY_WAIT` | *I have alerted the resident. Please wait.* | To someone reporting an emergency |
 | `PHRASE_POLICE_ASK_REASON` | *This is an automated assistant, and this conversation is recorded. What is the reason for your visit, and do you have a warrant?* | First question to law enforcement, unless their first sentence already said why they came or whether they have a warrant |
 | `PHRASE_POLICE_DISCLOSURE` | *This is an automated assistant, and this conversation is recorded.* | Said instead, right before the next question, when the reason question is skipped |
@@ -311,6 +314,32 @@ for a single line. Greetings take 4-7 s to say, no-answer lines 4-8 s. A few of 
 synthesized at startup and the rest in the background (about 10 s each on a CPU, once;
 they're cached). The daily report shows how often each line got the visitor talking.
 
+## Halloween
+
+On Halloween evening (October 31, 4 pm to 10 pm by default: `HALLOWEEN`), the doorbell
+plays along:
+
+- **A doorbell press or a knock** plays a short spooky sound outside before the greeting: a
+  theremin-like *"ooo-EEE-ooo"*, generated in code. The chime indoors is the doorbell's own
+  and doesn't change.
+- **The greeting** is a Halloween one, and still says the door is watched or recorded:
+  *"Boo! Did I scare you? Happy Halloween! This haunted doorbell sees and records all. What
+  do you say?"*
+- **A shy trick-or-treater** who doesn't answer gets a gentle nudge instead of the usual
+  teasing: *"Too spooked to speak? That's okay! Just say trick or treat, if you dare."*
+- **"Trick or treat"** is classified `trick_or_treat`. So are the ways kids say it: "tricker
+  treat", "can I have candy?", "treats!", "boo!". So is any other answer to the greeting's
+  *"Trick or treat?"* that evening, even "Yes!" or "I'm a dinosaur!", unless it's an
+  emergency, an officer, a delivery, a salesperson, a service visit or a canvasser. The
+  answer follows `HALLOWEEN_TREATS`: *"Help yourselves to a treat from the bowl, one each. The
+  ghosts are counting!"* with `bowl`, a friendly *"no treats this year"* with `none`, and
+  only compliments with `unset`. No line says or hints that anyone will come to the door.
+- **The notification** is *Trick-or-treaters at the front door*, at normal priority.
+
+Other visitors that evening get the usual replies, and an emergency is still an emergency
+(a kid dressed as a police officer is a trick-or-treater, though). Outside the evening,
+"trick or treat" means nothing special.
+
 ## Visitor classification
 
 Gatekeeper records from the start of the greeting, cuts the greeting's own echo out of the
@@ -326,6 +355,7 @@ Categories are checked top to bottom; the first match wins.
 | `solicitor` | selling, sales, survey, donations, charity, solar, church… | `REPLY_SALES` |
 | `likely_delivery` | delivery, package, parcel, FedEx, UPS, USPS, Amazon, DoorDash, Uber Eats, groceries… | `REPLY_DELIVERY` |
 | `service_visit` | repair, maintenance, technician, plumber, electrician, meter, appointment, install… | `REPLY_MAINTENANCE` |
+| `trick_or_treat` | trick or treat, candy, treats, boo, Halloween; and any answer not matched below (on [Halloween](#halloween) evening only, right after `emergency`) | A Halloween treat line |
 | `cooperative_other` | Any other answer of two or more words | `REPLY_GENERIC` |
 | `no_response` | Silence or a single word | `REPLY_NO_ANSWER` |
 
