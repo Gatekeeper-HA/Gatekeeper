@@ -114,6 +114,17 @@ TRICK_OR_TREAT = ("trick_or_treat", "halloween")
         # ...but an emergency is still an emergency.
         ("Trick or treat, um, there's smoke coming out of your garage", EMERGENCY),
         ("I have a package for you", DELIVERY),
+        # Kids who don't say the words, or say them their own way.
+        ("Can I have some candy please?", TRICK_OR_TREAT),
+        ("treats!", TRICK_OR_TREAT),
+        ("Boo!", TRICK_OR_TREAT),
+        ("Tricker treat!", TRICK_OR_TREAT),
+        # Any other answer to "Trick or treat?" that evening, even one word.
+        ("Yes!", TRICK_OR_TREAT),
+        ("I'm a dinosaur! Rawr!", TRICK_OR_TREAT),
+        # Officers and canvassers still get their own conversations.
+        ("Police, we're looking for a missing child", POLICE),
+        ("Hi, I'm running for city council", CIVIC),
     ],
 )
 def test_on_halloween_evening(text, expected):
@@ -122,3 +133,5 @@ def test_on_halloween_evening(text, expected):
 
 def test_trick_or_treat_means_nothing_outside_halloween():
     assert classify_response("Trick or treat!") == OTHER
+    assert classify_response("Can I have some candy please?") == OTHER
+    assert classify_response("Yes!") == NONE

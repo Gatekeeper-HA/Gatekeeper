@@ -71,7 +71,10 @@ SERVICE_PHRASES = [
 # think a visitor is a trick-or-treater.
 TRICK_OR_TREAT_PHRASES = [
     "trick or treat", "trick or treating", "trick or treats", "trick or treaters",
-    "happy halloween",
+    # How little kids say it, as speech recognition hears it.
+    "tricker treat", "trick a treat", "trick r treat", "trick or tree", "trick treat",
+    "halloween", "candy", "candies", "treat", "treats", "sweets", "chocolate",
+    "lollipop", "boo", "smell my feet", "costume", "costumes",
 ]  # fmt: skip
 
 
@@ -105,7 +108,8 @@ def classify_response(text: str, halloween: bool = False) -> tuple[str, str]:
     ``likely_delivery``, ``solicitor``, ``service_visit``, ``cooperative_other``
     and ``no_response``; on Halloween evening, ``trick_or_treat`` too (reply key
     "halloween"): it comes right after an emergency, so a kid dressed as a police officer
-    is a trick-or-treater.
+    is a trick-or-treater, and it's also any answer that isn't one of the others (a "yes!",
+    "I'm a dinosaur!"), since the greeting asked "Trick or treat?".
     """
     normalized = text.lower().strip()
     if not normalized:
@@ -120,6 +124,10 @@ def classify_response(text: str, halloween: bool = False) -> tuple[str, str]:
         if pattern.search(normalized):
             return classification, reply_key
 
+    if halloween:
+        # Any other answer to "Trick or treat?" that evening, a "yes!" or an "I'm a
+        # dinosaur!", is most likely a trick-or-treater.
+        return "trick_or_treat", "halloween"
     if len(re.findall(r"\w+", normalized)) <= 1:
         return "no_response", "no_answer"
 

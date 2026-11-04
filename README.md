@@ -327,8 +327,11 @@ plays along:
   do you say?"*
 - **A shy trick-or-treater** who doesn't answer gets a gentle nudge instead of the usual
   teasing: *"Too spooked to speak? That's okay! Just say trick or treat, if you dare."*
-- **"Trick or treat"** (or "happy Halloween") is classified `trick_or_treat`, and the answer
-  follows `HALLOWEEN_TREATS`: *"Help yourselves to a treat from the bowl, one each. The
+- **"Trick or treat"** is classified `trick_or_treat`. So are the ways kids say it: "tricker
+  treat", "can I have candy?", "treats!", "boo!". So is any other answer to the greeting's
+  *"Trick or treat?"* that evening, even "Yes!" or "I'm a dinosaur!", unless it's an
+  emergency, an officer, a delivery, a salesperson, a service visit or a canvasser. The
+  answer follows `HALLOWEEN_TREATS`: *"Help yourselves to a treat from the bowl, one each. The
   ghosts are counting!"* with `bowl`, a friendly *"no treats this year"* with `none`, and
   only compliments with `unset`. No line says or hints that anyone will come to the door.
 - **The notification** is *Trick-or-treaters at the front door*, at normal priority.
@@ -352,7 +355,7 @@ Categories are checked top to bottom; the first match wins.
 | `solicitor` | selling, sales, survey, donations, charity, solar, church… | `REPLY_SALES` |
 | `likely_delivery` | delivery, package, parcel, FedEx, UPS, USPS, Amazon, DoorDash, Uber Eats, groceries… | `REPLY_DELIVERY` |
 | `service_visit` | repair, maintenance, technician, plumber, electrician, meter, appointment, install… | `REPLY_MAINTENANCE` |
-| `trick_or_treat` | trick or treat, happy Halloween (on [Halloween](#halloween) evening only, right after `emergency`) | A Halloween treat line |
+| `trick_or_treat` | trick or treat, candy, treats, boo, Halloween; and any answer not matched below (on [Halloween](#halloween) evening only, right after `emergency`) | A Halloween treat line |
 | `cooperative_other` | Any other answer of two or more words | `REPLY_GENERIC` |
 | `no_response` | Silence or a single word | `REPLY_NO_ANSWER` |
 
