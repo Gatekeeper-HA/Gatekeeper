@@ -303,6 +303,12 @@ class Settings(BaseSettings):
     knock_listener: Literal["off", "shadow", "on"] = "off"
     # The classifier's "Knock" score (0-1) that counts as one.
     knock_threshold: float = 0.5
+    # The conversation model (conversation_model.py): "shadow" asks it, after each visit,
+    # what it would have said at each turn; its answers are kept for the Visits page and
+    # the daily report, nothing at the door yet. It runs in llama.cpp's server at
+    # CONVERSATION_MODEL_URL (the conversation-model service in docker-compose.yml).
+    conversation_model: Literal["off", "shadow"] = "off"
+    conversation_model_url: str = "http://conversation-model:8080"
     model_dir: Path = Path.home() / ".cache" / "gatekeeper" / "models"
 
     # Listening. With the audio tap, Gatekeeper reads the camera's audio all the
@@ -690,6 +696,23 @@ class Settings(BaseSettings):
     def visit_guesses_file(self) -> Path:
         """Gatekeeper's guesses at visitors (visitor_type.py)."""
         return self.log_dir / "visit-guesses.json"
+
+    @property
+    def conversation_model_file(self) -> Path:
+        """The conversation model's answers, in shadow (conversation_model.py)."""
+        return self.log_dir / "conversation-model.json"
+
+    def lines(self) -> dict[str, str]:
+        """Every line Gatekeeper may say, by phrase key (a visit's dialogue names them)."""
+        return {
+            **self.greeting_texts(),
+            **self.no_answer_texts(),
+            **self.goodbye_texts(),
+            **self.halloween_texts(),
+            **self.threat_texts(),
+            **self.phrases,
+            **self.replies,
+        }
 
     @property
     def zones_file(self) -> Path:

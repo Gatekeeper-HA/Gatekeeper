@@ -8,6 +8,8 @@
 #   CPU (see config.gpu.yml).
 # - Gatekeeper runs Whisper on the GPU, so a bigger, more accurate model answers in a
 #   fraction of the time base.en takes on a CPU.
+# - The conversation model (when its profile is on) runs on the GPU: a trained Qwen3-1.7B
+#   takes ~1.6 GB of its memory.
 
 services:
   frigate:
@@ -39,6 +41,18 @@ services:
       # Our own person detector on the GPU too (own_perception.py), at Frigate's 5 fps.
       OWN_PERCEPTION_DEVICE: "cuda"
       OWN_PERCEPTION_FPS: "5"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  conversation-model:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda-b11058
+    environment:
+      LLAMA_ARG_N_GPU_LAYERS: "99"
     deploy:
       resources:
         reservations:

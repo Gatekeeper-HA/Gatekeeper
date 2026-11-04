@@ -51,6 +51,19 @@ def test_replies_cover_all_keys():
     assert set(Settings().replies) == set(REPLY_KEYS) - {"no_answer"}
 
 
+def test_every_line_by_its_key():
+    lines = Settings().lines()
+    s = Settings()
+    for key, text in {
+        **s.greeting_texts(),
+        **s.no_answer_texts(),
+        **s.threat_texts(),
+        **s.phrases,
+        **s.replies,
+    }.items():
+        assert lines[key] == text
+
+
 def test_no_answer_lines(monkeypatch):
     from gatekeeper.config import NO_ANSWER_LINES, NO_ANSWER_PRESSED_LINES
 
