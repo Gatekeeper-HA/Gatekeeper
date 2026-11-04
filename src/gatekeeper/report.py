@@ -81,6 +81,11 @@ GATEKEEPER_LINE = re.compile(
 FRIGATE_LINE = re.compile(
     r"^\S+ \S+\s+\[(?P<time>[^\]]+)\]\s+(?P<logger>\S+)\s+(?P<level>[A-Z]+)\s+: (?P<message>.*)$"
 )
+# faulthandler's report of a native crash (logs.setup_logging enables it): a segfault or
+# abort kills the process before Python can log anything else.
+FATAL_ERROR = re.compile(r"^Fatal Python error: (?P<message>.*)$")
+FATAL_FRAME = re.compile(r'^\s+File "(?P<file>[^"]+)", line (?P<line>\d+) in (?P<func>\S+)')
+FATAL_BLOCK = ("Thread 0x", "Current thread 0x", "Extension modules:", "Python runtime state:")
 PYTHON_WARNING = re.compile(r"^(?P<file>/\S+\.py):\d+: (?P<category>\w*Warning): (?P<message>.*)$")
 WHISPER_LOAD = re.compile(
     r"loading Whisper model: (?P<model>\S+) on (?P<device>\w+) \((?P<compute_type>\w+)\)"
@@ -711,6 +716,22 @@ def log_events(lines: list[str]) -> list[dict]:
                 events[-1]["where"] = where
             else:
                 events.append(_event("TRACEBACK", "python", exception, "", exception, where))
+            continue
+        if m := FATAL_ERROR.match(line):
+            # Then each thread's stack, most recent call first; the crashing one is the
+            # "Current thread". The block ends at a line that isn't part of it.
+            i += 1
+            where, current = "", False
+            while i < len(lines) and (
+                not lines[i].strip() or lines[i][:1] == " " or lines[i].startswith(FATAL_BLOCK)
+            ):
+                if lines[i].startswith("Current thread"):
+                    current = True
+                elif current and not where and (f := FATAL_FRAME.match(lines[i])):
+                    where = f'File "{f["file"]}", line {f["line"]} in {f["func"]}'
+                i += 1
+            message = f"Fatal Python error: {m['message'].strip()}"
+            events.append(_event("CRITICAL", "python", message, "", None, where))
             continue
         if m := GATEKEEPER_LINE.match(line) or FRIGATE_LINE.match(line):
             level, logger, message, time_ = m["level"], m["logger"], m["message"], m["time"]
