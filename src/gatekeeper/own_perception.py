@@ -65,6 +65,26 @@ STALL_SECONDS = 60.0  # the look loop not passing this long: logged, with where 
 STATS_SECONDS = 3600.0  # how often it logs how much it looked (the daily report reads it)
 
 
+_scalers = threading.local()
+
+
+def to_array(frame, **kwargs) -> np.ndarray:
+    """``frame.to_ndarray(**kwargs)``, safe while another thread converts the same frame.
+
+    PyAV keeps one scaler per frame (``VideoFrame.reformat``). The newest frame is shared:
+    the look thread scales it for the detector while ``newest()``'s readers (snapshots,
+    the package check, the web page) convert it at full size. Two threads converting the
+    same frame at once deadlocked in that scaler: both stuck after one conversion each in
+    a test on the rig's PyAV, and the look loop's stalls (#110, #122) were all inside
+    ``to_ndarray``. Each thread gets a scaler of its own instead."""
+    from av.video.reformatter import VideoReformatter
+
+    scaler = getattr(_scalers, "scaler", None)
+    if scaler is None:
+        scaler = _scalers.scaler = VideoReformatter()
+    return scaler.reformat(frame, **kwargs).to_ndarray()
+
+
 def fetch_model(model: tuple[str, str], cache: Path) -> Path:
     """The model file (URL, SHA-256), downloaded into ``cache`` the first time and checked."""
     url, sha256 = model
@@ -544,8 +564,8 @@ class OwnPerception:
             try:
                 # Scaled by the decoder's scaler to what the detector takes.
                 width, height = self.detector.fit(frame.width, frame.height)
-                bgr = frame.to_ndarray(
-                    width=width, height=height, format="bgr24", interpolation="BILINEAR"
+                bgr = to_array(
+                    frame, width=width, height=height, format="bgr24", interpolation="BILINEAR"
                 )
                 self.look(bgr, at, frame)
             except Exception:
@@ -578,7 +598,7 @@ class OwnPerception:
         from gatekeeper.face_admin import jpeg_bytes
 
         try:
-            jpeg = jpeg_bytes(frame.to_ndarray(format="bgr24") if frame is not None else bgr)
+            jpeg = jpeg_bytes(to_array(frame, format="bgr24") if frame is not None else bgr)
         except Exception as e:
             log.debug("own perception: no picture: %s", e)
             return

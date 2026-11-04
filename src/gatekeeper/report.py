@@ -81,6 +81,11 @@ GATEKEEPER_LINE = re.compile(
 FRIGATE_LINE = re.compile(
     r"^\S+ \S+\s+\[(?P<time>[^\]]+)\]\s+(?P<logger>\S+)\s+(?P<level>[A-Z]+)\s+: (?P<message>.*)$"
 )
+# faulthandler's report of a native crash (logs.setup_logging enables it): a segfault or
+# abort kills the process before Python can log anything else.
+FATAL_ERROR = re.compile(r"^Fatal Python error: (?P<message>.*)$")
+FATAL_FRAME = re.compile(r'^\s+File "(?P<file>[^"]+)", line (?P<line>\d+) in (?P<func>\S+)')
+FATAL_BLOCK = ("Thread 0x", "Current thread 0x", "Extension modules:", "Python runtime state:")
 PYTHON_WARNING = re.compile(r"^(?P<file>/\S+\.py):\d+: (?P<category>\w*Warning): (?P<message>.*)$")
 WHISPER_LOAD = re.compile(
     r"loading Whisper model: (?P<model>\S+) on (?P<device>\w+) \((?P<compute_type>\w+)\)"
@@ -712,6 +717,22 @@ def log_events(lines: list[str]) -> list[dict]:
             else:
                 events.append(_event("TRACEBACK", "python", exception, "", exception, where))
             continue
+        if m := FATAL_ERROR.match(line):
+            # Then each thread's stack, most recent call first; the crashing one is the
+            # "Current thread". The block ends at a line that isn't part of it.
+            i += 1
+            where, current = "", False
+            while i < len(lines) and (
+                not lines[i].strip() or lines[i][:1] == " " or lines[i].startswith(FATAL_BLOCK)
+            ):
+                if lines[i].startswith("Current thread"):
+                    current = True
+                elif current and not where and (f := FATAL_FRAME.match(lines[i])):
+                    where = f'File "{f["file"]}", line {f["line"]} in {f["func"]}'
+                i += 1
+            message = f"Fatal Python error: {m['message'].strip()}"
+            events.append(_event("CRITICAL", "python", message, "", None, where))
+            continue
         if m := GATEKEEPER_LINE.match(line) or FRIGATE_LINE.match(line):
             level, logger, message, time_ = m["level"], m["logger"], m["message"], m["time"]
         elif m := PYTHON_WARNING.match(line):
@@ -722,9 +743,27 @@ def log_events(lines: list[str]) -> list[dict]:
             continue
         if level in LEVELS:
             events.append(_event(level, logger, message, time_))
-            last_line = i
+            i, events[-1]["where"] = stack_after(lines, i + 1)
+            last_line = i - 1
+            continue
         i += 1
     return events
+
+
+def stack_after(lines: list[str], i: int) -> tuple[int, str]:
+    """A stack logged after a message (``traceback.format_stack``: a stall saying where
+    it's stuck; ``health.thread_stacks``: ``-- <thread>`` before each): its innermost
+    frame, or each thread's, and the line after it."""
+    threads: list[list[str]] = []
+    while i < len(lines) and (lines[i][:1] in (" ", "\t") or lines[i].startswith("-- ")):
+        if lines[i].startswith("-- "):
+            threads.append([lines[i][3:].strip(), ""])
+        elif lines[i].lstrip().startswith("File "):
+            if not threads:
+                threads.append(["", ""])
+            threads[-1][1] = lines[i].strip()
+        i += 1
+    return i, "; ".join(f"{name}: {frame}" if name else frame for name, frame in threads if frame)
 
 
 def _event(level, logger, message, time_, exception=None, where="") -> dict:
@@ -1586,6 +1625,8 @@ def render_markdown(report: dict) -> str:
             line = f"- **{g['level']}** ×{g['count']} `{g['logger']}`: {g['message']}"
             if g["exception"]:
                 line += f" → `{g['exception']}` {g['where']}"
+            elif g["where"]:
+                line += f" → {g['where']}"
             out.append(line + f" ({g['first']} – {g['last']})")
         out.append("")
     out.append(f"Known harmless lines ignored: {report['logs']['ignored']}.")
