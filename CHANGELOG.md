@@ -219,6 +219,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **Daily report: a watchdog exit is one hang.** The exit and the container restart it
+  causes were added up, so one stall read *2 hang/restart(s)*. Restarts beyond the exits
+  (a crash) still count.
 - **Daily report: a stall says where it's stuck.** The stack logged after *own perception
   stalled … it's at:* and *internal hang … the threads:* was dropped, so the report showed
   nothing after the colon. Its innermost frame (each thread's, for the hang) is now the

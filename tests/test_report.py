@@ -104,6 +104,14 @@ def test_a_traceback_belongs_to_the_error_line_before_it():
     assert "health.py" in traceback["where"]
 
 
+def test_a_watchdog_exit_and_the_restart_it_causes_are_one_hang():
+    r = build(inputs(host={**HOST, "hang_exits": 1, "restarts": 1}))
+    assert failing(r)["no_hangs"] == "1 hang/restart(s)"
+
+    r = build(inputs(host={**HOST, "hang_exits": 1, "restarts": 2}))  # and a crash
+    assert failing(r)["no_hangs"] == "2 hang/restart(s)"
+
+
 def test_a_stall_says_where_its_stuck():
     lines = [
         "2026-10-30 12:22:29,001 CRITICAL gatekeeper.own_perception [-] own perception "
