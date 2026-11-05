@@ -309,6 +309,10 @@ class Settings(BaseSettings):
     # CONVERSATION_MODEL_URL (the conversation-model service in docker-compose.yml).
     conversation_model: Literal["off", "shadow"] = "off"
     conversation_model_url: str = "http://conversation-model:8080"
+    # The model's vision file (a .gguf beside the model, which the conversation-model
+    # service loads too): set, the model is also asked what it sees in each visit's picture,
+    # kept and shown on the Visits page (not yet told to it at each turn).
+    conversation_model_mmproj: str = ""
     model_dir: Path = Path.home() / ".cache" / "gatekeeper" / "models"
 
     # Listening. With the audio tap, Gatekeeper reads the camera's audio all the

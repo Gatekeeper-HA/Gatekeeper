@@ -695,6 +695,8 @@ def conversation_model_info(answers: dict, visits: list[dict], labels: dict) -> 
         "would_warn": collections.Counter(),  # by threat level
         "suspicious_not_warned": 0,
         "broken": collections.Counter(),  # lines, by rule
+        # With its vision file: pictures it described, and couldn't.
+        "camera": {"described": 0, "not": 0},
     }
     seconds = []
     for v in visits:
@@ -705,6 +707,10 @@ def conversation_model_info(answers: dict, visits: list[dict], labels: dict) -> 
         if answer.get("error"):
             out["errors"] += 1
             continue
+        if answer.get("camera"):
+            out["camera"]["described"] += 1
+        elif "camera" in answer or answer.get("camera_error"):
+            out["camera"]["not"] += 1
         out["models"][answer.get("model") or "?"] += 1
         turns = answer.get("turns") or []
         usable = [t for t in turns if "kind" in t]
@@ -1764,6 +1770,12 @@ def conversation_model_line(cm: dict) -> str:
     )
     if cm["unusable"]:
         parts.append(f"{cm['unusable']} answer(s) unusable")
+    camera = cm.get("camera") or {}  # reports from before it had none
+    if camera.get("described") or camera.get("not"):
+        parts.append(
+            f"described the picture of {camera['described']}"
+            + (f" (couldn't for {camera['not']})" if camera["not"] else "")
+        )
     if cm["errors"]:
         parts.append(f"{cm['errors']} visit(s) not answered (its server was down)")
     if cm["median_seconds"] is not None:

@@ -179,6 +179,85 @@ def test_visits_are_answered_on_the_models_thread(tmp_path):
     assert len(asked) == 1
 
 
+def test_the_camera_line_keeps_only_what_the_model_saw():
+    assert cm.camera_line(
+        " 1 man, middle-aged, carrying a cardboard box, wearing a dark shirt and a face mask, "
+        "no uniform visible, no vehicle in view, face is visible."
+    ) == (
+        "Camera: 1 man, middle-aged, carrying a cardboard box, wearing a dark shirt and a "
+        "face mask, face is visible."
+    )
+    assert (
+        cm.camera_line(
+            "Camera: 5 people, adults, carrying nothing visible, wearing safety vests, no visible "
+            "company or vehicle, faces are visible."
+        )
+        == "Camera: 5 people, adults, wearing safety vests, faces are visible."
+    )
+    assert cm.camera_line(
+        "1 person, adult, carrying a bag, not in a uniform, face is not visible."
+    ) == ("Camera: 1 person, adult, carrying a bag.")
+    # Only its first sentence: the rest wanders off the form.
+    assert cm.camera_line("one man, in uniform. He is standing in a hallway.") == (
+        "Camera: one man, in uniform."
+    )
+    assert cm.camera_line("nothing, no vehicle") is None
+    assert cm.camera_line("") is None
+
+
+def test_the_picture_is_described_after_the_turns(tmp_path):
+    described = []
+
+    def describe(url, picture):
+        described.append((url, picture))
+        return " one person, carrying a pizza box, no uniform visible, face is visible."
+
+    s, asked = shadow(tmp_path, [answer()])
+    s._picture = {f"{TS:.6f}-abc": b"jpeg"}.get
+    s._describe = describe
+    result = s.answer(visit(("greeting_1", "Pizza!")))
+    assert described == [("http://model:8080", b"jpeg")]
+    assert result["camera"] == "Camera: one person, carrying a pizza box, face is visible."
+    # The turns are still told the camera gives no details.
+    assert cm.CAMERA in asked[0]
+    # No picture: nothing about the camera.
+    s, _ = shadow(tmp_path, [answer()])
+    s._picture = lambda event_id: None
+    assert "camera" not in s.answer(visit(("greeting_1", "hi")))
+
+
+def test_a_picture_it_cant_describe_keeps_the_answers(tmp_path):
+    def describe(url, picture):
+        raise urllib.error.HTTPError(url, 500, "image input is not supported", {}, None)
+
+    s, _ = shadow(tmp_path, [answer()])
+    s._picture = lambda event_id: b"jpeg"
+    s._describe = describe
+    result = s.answer(visit(("greeting_1", "hi")))
+    assert result["turns"][0]["kind"] == "delivery"
+    assert result["camera_error"].startswith("HTTPError: HTTP Error 500")
+    # Without the vision file it isn't asked at all.
+    s, _ = shadow(tmp_path, [answer()])
+    assert set(s.answer(visit(("greeting_1", "hi")))) == {"at", "model", "turns"}
+
+
+def test_the_picture_is_asked_about_in_the_camera_lines_form(monkeypatch):
+    sent = {}
+
+    def chat(url, body, timeout):
+        sent.update(body)
+        return " one person.", "test.gguf"
+
+    monkeypatch.setattr(cm, "_chat", chat)
+    assert cm.describe("http://model:8080", b"\xff\xd8jpeg") == " one person."
+    image, text = sent["messages"][0]["content"]
+    assert image["image_url"]["url"] == "data:image/jpeg;base64,/9hqcGVn"
+    assert text["text"] == cm.DESCRIBE and "Camera: <how many people" in cm.DESCRIBE
+    # The answer begun with the form keeps the trained model to it.
+    assert sent["messages"][1] == {"role": "assistant", "content": "Camera:"}
+    assert sent["chat_template_kwargs"] == {"enable_thinking": False}
+
+
 def test_only_the_newest_answers_are_kept(tmp_path, monkeypatch):
     monkeypatch.setattr(cm, "KEEP", 2)
     answers = Answers(tmp_path / "conversation-model.json")

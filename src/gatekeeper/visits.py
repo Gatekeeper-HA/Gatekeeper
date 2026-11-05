@@ -352,7 +352,8 @@ class VisitsPage:
 
 
 def answer_text(answer: dict) -> str:
-    """What the conversation model would have said (in shadow), turn by turn, in words."""
+    """What the conversation model would have said (in shadow), turn by turn, in words, and
+    what it saw in the visit's picture (with its vision file)."""
     if answer.get("error"):
         return "Conversation model: couldn't be asked."
     said = []
@@ -366,7 +367,12 @@ def answer_text(answer: dict) -> str:
             f"{turn['action'].replace('_', ' ')}"
             f"{', breaks a rule: ' + ', '.join(broke) if broke else ''})"
         )
-    return "Conversation model would have said: " + " Then: ".join(said or ["nothing"])
+    text = "Conversation model would have said: " + " Then: ".join(said or ["nothing"])
+    if answer.get("camera"):
+        text += f". It saw: {answer['camera'].removeprefix('Camera: ')}"
+    elif "camera" in answer or answer.get("camera_error"):
+        text += ". It couldn't describe the picture."
+    return text
 
 
 def guess_text(guess: dict) -> str:

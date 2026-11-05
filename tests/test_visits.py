@@ -313,6 +313,15 @@ def test_the_conversation_models_answers_are_shown_under_the_visit(log, tmp_path
     assert answer_text({"turns": [{"unusable": "Hmm."}]}) == (
         "Conversation model would have said: (no usable answer)"
     )
+    # With its vision file: what it saw in the picture.
+    turn = {"kind": "delivery", "action": "reply", "say": "Thanks!", "broken": []}
+    assert answer_text({"turns": [turn], "camera": "Camera: one person, carrying a box."}) == (
+        "Conversation model would have said: “Thanks!” (delivery, reply). "
+        "It saw: one person, carrying a box."
+    )
+    assert answer_text({"turns": [turn], "camera": None}).endswith(
+        "(delivery, reply). It couldn't describe the picture."
+    )
 
 
 def test_a_knock_is_a_row_of_its_own_with_no_picture_or_label(log, tmp_path):

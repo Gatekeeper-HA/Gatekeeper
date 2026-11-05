@@ -1307,7 +1307,7 @@ def test_the_conversation_model_is_held_to_gatekeeper_and_the_labels():
         return {"kind": kind, "action": action, "broken": list(broken), "seconds": seconds}
 
     answers = {
-        "a": {"model": "m.gguf", "turns": [turn("delivery")]},
+        "a": {"model": "m.gguf", "turns": [turn("delivery")], "camera": "Camera: one person."},
         "b": {
             "model": "m.gguf",
             "turns": [
@@ -1315,7 +1315,11 @@ def test_the_conversation_model_is_held_to_gatekeeper_and_the_labels():
                 turn("guest", "warn", ["occupancy: nobody's home", "occupancy: 's home"], 2.5),
             ],
         },
-        "c": {"model": "m.gguf", "turns": [turn("unclear", "ask_to_leave"), {"unusable": "x"}]},
+        "c": {
+            "model": "m.gguf",
+            "turns": [turn("unclear", "ask_to_leave"), {"unusable": "x"}],
+            "camera": None,  # it said nothing usable about the picture
+        },
         "d": {"model": "m.gguf", "turns": [turn("service")]},
         "e": {"at": NOW, "error": "URLError: down"},
     }
@@ -1332,6 +1336,7 @@ def test_the_conversation_model_is_held_to_gatekeeper_and_the_labels():
         "would_warn": {1: 1},
         "suspicious_not_warned": 1,
         "broken": {"occupancy": 1},
+        "camera": {"described": 1, "not": 1},
         "median_seconds": 1.0,
         "max_seconds": 2.5,
     }
@@ -1340,7 +1345,8 @@ def test_the_conversation_model_is_held_to_gatekeeper_and_the_labels():
         "Conversation model (shadow, m.gguf): 5 visit(s), 6 turn(s); its kind of visit agrees "
         "with Gatekeeper's 2 of 4, with your labels 1 of 2; would have warned 1 (threat level: "
         "watch 1); 1 suspicious visit(s) it wouldn't have warned; 1 line(s) break a house rule "
-        "(occupancy 1); 1 answer(s) unusable; 1 visit(s) not answered (its server was down); "
+        "(occupancy 1); 1 answer(s) unusable; described the picture of 1 (couldn't for 1); "
+        "1 visit(s) not answered (its server was down); "
         "1.0 s median, 2.5 s max"
     )
     assert line in render_text(r)

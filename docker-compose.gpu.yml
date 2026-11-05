@@ -9,7 +9,8 @@
 # - Gatekeeper runs Whisper on the GPU, so a bigger, more accurate model answers in a
 #   fraction of the time base.en takes on a CPU.
 # - The conversation model (when its profile is on) runs on the GPU: a trained Qwen3-1.7B
-#   takes ~1.6 GB of its memory.
+#   or Gemma 4 E2B takes ~1.6 GB of its memory (Gemma's vision file, when set, ~0.7 GB
+#   more).
 
 services:
   frigate:

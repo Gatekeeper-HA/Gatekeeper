@@ -13,6 +13,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   home, someone's coming, open the door, the back gate, codes, "I've called the police"),
   shown on the Visits page under each visit, and counted in the daily report. Nothing at the
   door depends on it yet.
+- **What the conversation model saw** (`CONVERSATION_MODEL_MMPROJ`: the model's vision file,
+  for Gemma 4 the base model's `mmproj`). After the turns, the model is shown the visit's
+  picture and asked for the camera line its training visits had. The Visits page shows it,
+  and the daily report counts the pictures it described.
+  - Only what it saw is kept: "no uniform" and the like are dropped, since it misses
+    company uniforms.
+  - It isn't told to the model at each turn yet. The model was trained on camera lines that
+    say everything.
 - **A witch's cackle on Halloween** (`HALLOWEEN_PRESS_SOUND`, `witch` by default). It's
   the owner's pick of the samples, made with Kokoro (`scripts/sounds/halloween_witch.py`)
   and shipped with the package. `theremin` brings back the theremin. A path plays your own
