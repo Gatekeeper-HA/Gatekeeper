@@ -2,7 +2,8 @@
 
 Each visit shows what Gatekeeper did, in words, what it heard, and the camera's picture.
 The owner can say what it was (Amazon, UPS, a pizza delivery, groceries, the household,
-a guest, ...). Those labels are kept in ``visit-labels.json`` next to the visit log. They
+a guest, ...), and more about it if they like (what they were doing, what they carried and
+wore). Those labels are kept in ``visit-labels.json`` next to the visit log. They
 show where Gatekeeper got it wrong (the daily report compares them with what it
 decided), and they're the examples for teaching it to tell visitors apart by sight.
 """
@@ -41,6 +42,41 @@ LABELS = [
     ("nobody", "Nobody there (a false alarm)"),
 ]
 LABEL_NAMES = dict(LABELS)
+# More about a visit, all optional (a label's "More about it"): what they were doing, how
+# many came, what they carried and wore, and a note. The household's comings and goings
+# are what a delivery looks like to the camera (bags, a backpack, a lunch bag), and what
+# they carried and wore is what the conversation model's camera line says: these check it.
+DOING = [
+    ("coming_home", "Coming home (from work, errands)"),
+    ("leaving", "Leaving"),
+    ("dog", "Taking the dog out or in"),
+    ("mail", "Getting a package or the mail"),
+    ("trash", "Taking out the trash or recycling"),
+    ("outside", "Out to the yard or the car for a moment"),
+    ("visiting", "Visiting or dropping by"),
+    ("other", "Something else"),
+]
+PEOPLE = [("1", "1"), ("2", "2"), ("3+", "3 or more")]
+CARRYING = [
+    ("nothing", "Nothing"),
+    ("box", "A box or package"),
+    ("shopping_bags", "Grocery or shopping bags"),
+    ("food", "Food (a pizza box, takeout)"),
+    ("backpack", "A backpack"),
+    ("purse", "A purse or handbag"),
+    ("lunch_bag", "A lunch bag or cooler"),
+    ("drink", "A drink or water bottle"),
+    ("dog", "A dog on a leash"),
+    ("other", "Something else"),
+]
+WEARING = [
+    ("uniform", "A uniform or work clothes"),
+    ("vest", "A safety vest"),
+    ("hood", "A hood or hat"),
+    ("face_covered", "A covered face (a mask, a scarf)"),
+]
+DETAILS = ("doing", "people", "carrying", "wearing", "note")  # in a label, after "label"
+NOTE_LENGTH = 200
 EVENT_ID = re.compile(r"^[\w.:-]{1,80}$")
 DAYS = 3  # shown by default; ?days= up to MAX_DAYS
 MAX_DAYS = 30
@@ -79,8 +115,86 @@ FLOWS = {
 }
 
 
+def checked_details(details: dict) -> dict:
+    """The parts of a label's "More about it" that say something, checked: ``doing`` and
+    ``people`` (one of DOING, PEOPLE), ``carrying`` and ``wearing`` (some of CARRYING,
+    WEARING, in their order) and ``note`` (a line of text)."""
+    out: dict = {}
+    for key, choices in (("doing", DOING), ("people", PEOPLE)):
+        if value := details.get(key):
+            if value not in dict(choices):
+                raise ValueError("Pick from the lists.")
+            out[key] = value
+    for key, choices in (("carrying", CARRYING), ("wearing", WEARING)):
+        values = {v for v in details.get(key) or [] if v}
+        if not values <= set(dict(choices)):
+            raise ValueError("Pick from the lists.")
+        if values:
+            out[key] = [code for code, _ in choices if code in values]
+    if note := " ".join(str(details.get("note") or "").split())[:NOTE_LENGTH]:
+        out["note"] = note
+    return out
+
+
+def label_details(label: dict) -> dict:
+    """A kept label's "More about it" (``checked_details``)."""
+    return {k: label[k] for k in DETAILS if k in label}
+
+
+def form_details(form: dict[str, list[str]], event_id: str) -> dict:
+    """A visit's "More about it" from the page's form (``parse_qs``: each field a list)."""
+
+    def one(key: str) -> str:
+        return (form.get(f"{key}:{event_id}") or [""])[0]
+
+    return {
+        "doing": one("doing"),
+        "people": one("people"),
+        "carrying": form.get(f"carrying:{event_id}", []),
+        "wearing": form.get(f"wearing:{event_id}", []),
+        "note": one("note"),
+    }
+
+
+def details_form(event_id: str, details: dict) -> str:
+    """A visit's "More about it" (``checked_details``), folded away unless filled in."""
+    e = html.escape
+    eid = e(event_id)
+
+    def select(key: str, choices: list, prompt: str) -> str:
+        options = [f'<option value="">{e(prompt)}</option>'] + [
+            f'<option value="{code}"{" selected" if details.get(key) == code else ""}>'
+            f"{e(name)}</option>"
+            for code, name in choices
+        ]
+        return f'<select name="{key}:{eid}" aria-label="{e(prompt)}">{"".join(options)}</select>'
+
+    def boxes(key: str, choices: list, legend: str) -> str:
+        ticked = set(details.get(key) or [])
+        return (
+            f"<fieldset><legend>{legend}</legend>"
+            + "".join(
+                f'<label><input type=checkbox name="{key}:{eid}" value="{code}"'
+                f"{' checked' if code in ticked else ''}> {e(name)}</label>"
+                for code, name in choices
+            )
+            + "</fieldset>"
+        )
+
+    return (
+        f"<details class=more{' open' if details else ''}><summary>More about it</summary>"
+        + select("doing", DOING, "Doing what?")
+        + select("people", PEOPLE, "How many people?")
+        + boxes("carrying", CARRYING, "Carrying")
+        + boxes("wearing", WEARING, "Wearing")
+        + f'<label>Note <input type=text name="note:{eid}" maxlength={NOTE_LENGTH} '
+        f'value="{e(details.get("note", ""))}"></label></details>'
+    )
+
+
 class Labels:
-    """The owner's labels, by visit (event id): ``{"label": code, "at": time}``."""
+    """The owner's labels, by visit (event id): ``{"label": code, "at": time}``, with
+    more about the visit (``checked_details``) when the owner said it."""
 
     def __init__(self, path: Path, clock: Callable[[], float] = time.time) -> None:
         self.path = path
@@ -93,16 +207,18 @@ class Labels:
         except (FileNotFoundError, ValueError):
             return {}
 
-    def set(self, event_id: str, label: str) -> None:
-        """Label a visit; an empty label clears it."""
+    def set(self, event_id: str, label: str, details: dict | None = None) -> None:
+        """Label a visit, with more about it (``checked_details``) if given; an empty label
+        clears it all."""
         if not EVENT_ID.match(event_id):
             raise ValueError("That isn't a visit.")
         if label and label not in LABEL_NAMES:
             raise ValueError("Pick what the visit was from the list.")
+        more = checked_details(details or {})
         with self._lock:
             labels = self.all()
             if label:
-                labels[event_id] = {"label": label, "at": round(self._clock(), 3)}
+                labels[event_id] = {"label": label, **more, "at": round(self._clock(), 3)}
             else:
                 labels.pop(event_id, None)
             self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -222,19 +338,25 @@ class VisitsPage:
                 }
             )
         for r in rows:
-            r["label"] = (labels.get(str(r.get("event_id"))) or {}).get("label", "")
+            label = labels.get(str(r.get("event_id"))) or {}
+            r["label"] = label.get("label", "")
+            r["label_details"] = label_details(label)  # not "details": the visit's own
         return sorted(rows, key=started, reverse=True)
 
-    def save(self, chosen: dict[str, str]) -> str:
-        """Save the page's labels at once (``{event id: label}``, "" for none): only those
-        that changed."""
-        current = {eid: x.get("label", "") for eid, x in self.labels.all().items()}
-        changed = {eid: label for eid, label in chosen.items() if current.get(eid, "") != label}
-        for eid, label in changed.items():
-            self.labels.set(eid, label)
+    def save(self, chosen: dict[str, str], details: dict[str, dict] | None = None) -> str:
+        """Save the page's labels at once (``{event id: label}``, "" for none, and more
+        about each, ``{event id: details}``): only those that changed."""
+        current = self.labels.all()
+        changed = 0
+        for eid, label in chosen.items():
+            more = checked_details((details or {}).get(eid) or {}) if label else {}
+            kept = current.get(eid) or {}
+            if kept.get("label", "") != label or label_details(kept) != more:
+                self.labels.set(eid, label, more)
+                changed += 1
         if not changed:
             return "Nothing changed."
-        return f"Saved {len(changed)} label(s)."
+        return f"Saved {changed} label(s)."
 
     def clips_of(self, record: dict) -> list[tuple[str, float]]:
         """A visit's clips: (their path on the page, seconds), oldest first."""
@@ -341,6 +463,7 @@ class VisitsPage:
                     f'<div><select name="label:{e(eid)}" aria-label="What was it?">'
                     f"{''.join(options)}</select></div>"
                 )
+                out.append(details_form(eid, r["label_details"]))
             out.append("</div></div>")
         if rows:
             out.append(

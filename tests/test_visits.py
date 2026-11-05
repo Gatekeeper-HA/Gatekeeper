@@ -9,7 +9,17 @@ import urllib.request
 import pytest
 
 from gatekeeper import web
-from gatekeeper.visits import LABELS, Labels, VisitsPage, describe, labelable, read_visits
+from gatekeeper.visits import (
+    LABELS,
+    NOTE_LENGTH,
+    Labels,
+    VisitsPage,
+    checked_details,
+    describe,
+    form_details,
+    labelable,
+    read_visits,
+)
 
 PASSWORD = "porch-light"
 NOW = 1_800_000_000.0
@@ -119,6 +129,51 @@ def test_labels_are_kept_and_cleared(tmp_path):
     with pytest.raises(ValueError):
         labels.set("../../etc/passwd", "food")
     assert {code for code, _ in LABELS} >= {"amazon", "ups", "fedex", "food", "groceries"}
+
+
+def test_labels_keep_more_about_the_visit(tmp_path):
+    labels = Labels(tmp_path / "visit-labels.json", clock=lambda: NOW)
+    eid = "1799990000.000000-ccc333"
+    labels.set(
+        eid,
+        "household",
+        {
+            "doing": "coming_home",
+            "people": "2",
+            "carrying": ["lunch_bag", "backpack", ""],
+            "wearing": [],
+            "note": "  back from   work ",
+        },
+    )
+    assert labels.all()[eid] == {
+        "label": "household",
+        "doing": "coming_home",
+        "people": "2",
+        "carrying": ["backpack", "lunch_bag"],  # in the list's order
+        "note": "back from work",
+        "at": NOW,
+    }
+    for wrong in ({"doing": "jogging"}, {"carrying": ["a sofa"]}, {"people": "12"}):
+        with pytest.raises(ValueError, match="Pick from the lists"):
+            labels.set(eid, "household", wrong)
+    assert checked_details({"note": "x" * 300})["note"] == "x" * NOTE_LENGTH
+    assert form_details(
+        {"doing:e1": ["dog"], "carrying:e1": ["dog", "drink"], "note:e2": ["not e1's"]}, "e1"
+    ) == {"doing": "dog", "people": "", "carrying": ["dog", "drink"], "wearing": [], "note": ""}
+
+
+def test_more_about_a_visit_is_folded_away_until_filled_in(log, tmp_path):
+    page = page_for(log, tmp_path)
+    page.token = "T"
+    page.labels.set("1799999600.000000-aaa111", "household", {"doing": "dog", "carrying": ["dog"]})
+    text = page.render(days=3)
+    assert text.count("<summary>More about it</summary>") == 3  # each labelable visit
+    assert text.count("<details class=more open>") == 1
+    assert '<option value="dog" selected>Taking the dog out or in</option>' in text
+    assert (
+        '<input type=checkbox name="carrying:1799999600.000000-aaa111" value="dog" checked>' in text
+    )
+    assert 'name="wearing:1799999720.000000-bbb222" value="vest">' in text
 
 
 def test_pictures_come_from_the_package_photo_or_the_camera(log, tmp_path):
@@ -239,6 +294,42 @@ def test_the_pages_labels_are_saved_at_once(client):
         "labels", {"token": token, "label:1799999600.000000-aaa111": "pizza"}
     )
     assert status == 400 and "Pick what the visit was" in body
+
+
+def test_more_about_a_visit_is_saved_with_its_label(client):
+    token = re.search(r'name=token value="([^"]+)"', client.get()[1].decode())[1]
+    eid = "1799999600.000000-aaa111"
+    fields = [
+        ("token", token),
+        (f"label:{eid}", "household"),
+        (f"doing:{eid}", "coming_home"),
+        (f"people:{eid}", "1"),
+        (f"carrying:{eid}", "shopping_bags"),
+        (f"carrying:{eid}", "purse"),
+        (f"note:{eid}", "groceries for the week"),
+        ("label:1799999720.000000-bbb222", ""),
+        ("people:1799999720.000000-bbb222", "2"),  # no label: not kept
+    ]
+    status, _, headers = client.post("labels", fields)
+    assert status == 303 and "Saved+1" in headers["Location"]
+    assert client.visits.labels.all() == {
+        eid: {
+            "label": "household",
+            "doing": "coming_home",
+            "people": "1",
+            "carrying": ["shopping_bags", "purse"],
+            "note": "groceries for the week",
+            "at": client.visits.labels.all()[eid]["at"],
+        }
+    }
+    # The same again changes nothing; one box unticked is a change.
+    assert "Nothing+changed" in client.post("labels", fields)[2]["Location"]
+    fields.remove((f"carrying:{eid}", "purse"))
+    assert "Saved+1" in client.post("labels", fields)[2]["Location"]
+    assert client.visits.labels.all()[eid]["carrying"] == ["shopping_bags"]
+    fields.append((f"wearing:{eid}", "a cape"))
+    status, body, _ = client.post("labels", fields)
+    assert status == 400 and "Pick from the lists" in body
 
 
 def test_without_the_visits_page_the_faces_stay_at_the_top(tmp_path):

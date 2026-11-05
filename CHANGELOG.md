@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **More about a visit, on the Visits page** (optional, under each label):
+  - what they were doing (coming home, leaving, the dog out or in, the mail, the trash...);
+  - how many people came;
+  - what they carried and wore;
+  - a note.
+
+  The household's comings and goings are what a delivery looks like to the camera, and
+  these are the examples that tell them apart. What they carried and wore checks the
+  conversation model's camera line.
 - **The conversation model, in shadow** (`CONVERSATION_MODEL=shadow`, and the
   `conversation-model` service: llama.cpp's server with a model file you supply). After
   each visit, the model is asked what it would have said at each turn, told what Gatekeeper
