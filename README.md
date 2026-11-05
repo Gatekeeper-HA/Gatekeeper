@@ -151,6 +151,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `DELIVERY_GUESS` | `false` | Gatekeeper's guess at each greeted visitor, a delivery or not: [delivery guess](#delivery-guess-shadow). Shadow only; the compose stack reads it from `.env` |
 | `CONVERSATION_MODEL` | `off` | `shadow`: after each visit, the conversation model is asked what it would have said, for the Visits page and the daily report: [conversation model](#conversation-model-shadow). The compose stack reads it from `.env`, with `CONVERSATION_MODEL_FILE` for the `conversation-model` service |
 | `CONVERSATION_MODEL_URL` | `http://conversation-model:8080` | Where the conversation model's llama.cpp server listens |
+| `CONVERSATION_MODEL_MMPROJ` | *(empty)* | The conversation model's vision file (a `.gguf` beside the model; the compose stack gives it to the `conversation-model` service too). Set, the model is also asked what it sees in each visit's picture: [conversation model](#conversation-model-shadow) |
 | `KNOCK_LISTENER` | `off` | `shadow`: Gatekeeper listens for knocks at the door and logs them; `on`: a knock is also a doorbell press: [knocks](#knocks). Needs the audio tap and an NVIDIA GPU to be quick. The compose stack reads it from `.env` |
 | `KNOCK_THRESHOLD` | `0.5` | The sound classifier's *Knock* score (0–1) that counts as a knock |
 | `MODEL_DIR` | `~/.cache/gatekeeper/models` | Where the detector's model is downloaded (once) |
@@ -821,8 +822,32 @@ CONVERSATION_MODEL_FILE=<the file's name>
 ```
 
 With `docker-compose.gpu.yml` it runs on the GPU: a trained Qwen3-1.7B (1.1 GB) took 1.6 GB
-of a GTX 1660 Ti's memory and answered in under a second. On a CPU it's slower, which is fine
-in shadow. The trained models aren't published yet.
+of a GTX 1660 Ti's memory and answered in under a second. A trained Gemma 4 E2B (3.2 GB) took
+about as much, since llama.cpp keeps its per-layer embeddings in CPU memory, and answered in
+about a second. On a CPU it's slower, which is fine in shadow. The trained models aren't
+published yet.
+
+**What the camera saw.** Gemma 4 can see. Training only changed its language layers, so the
+base model's vision file (its `mmproj` `.gguf`, from the same place as the base model) works
+with the trained model too. Put it beside the model and set `CONVERSATION_MODEL_MMPROJ=<its
+name>` in `.env`. After the turns, the model is then shown the visit's picture and asked to
+describe the visitor the way its training visits did: how many people, what they carry, a
+uniform, a vehicle, the face. The Visits page shows the line under its answers, and the daily
+report counts the pictures it described.
+
+- **Only what it saw is kept.** On public test photos, Gemma 4 E2B saw the boxes, bags,
+  high-visibility vests, a police uniform and a face mask. It missed company uniforms (a UPS
+  driver's brown, a USPS sweater) and said "no uniform" instead. So the parts that say
+  something isn't there are dropped.
+- **What it says it saw needs checking too.** On a week of a test home's pictures, it
+  described every one, in about 2 s each (0.7 GB more GPU memory, on a GTX 1660 Ti). It
+  never gave the household a uniform or a vest. But it had them carrying a box or package
+  in two of every three pictures, so what someone carries isn't a sign of a delivery yet.
+  The Visits page is where to judge it.
+- **It isn't told to the model at each turn yet.** The model was trained on camera lines that
+  say everything. A line without a uniform would read as "no uniform", and an honest courier
+  as a story the camera contradicts. The turns keep the "no other details" line until the
+  model is trained on a camera that misses things.
 
 ## Own perception (shadow)
 

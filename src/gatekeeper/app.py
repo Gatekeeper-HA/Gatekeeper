@@ -256,17 +256,33 @@ def start_delivery_guess(settings: Settings, perception):
     )
 
 
-def start_conversation_model(settings: Settings):
+def start_conversation_model(settings: Settings, perception):
     """The conversation model in shadow (conversation_model.py): asked about each visit
-    once it's logged, at CONVERSATION_MODEL_URL."""
-    from gatekeeper.conversation_model import Answers, Shadow
+    once it's logged, at CONVERSATION_MODEL_URL. With its vision file, about the visit's
+    picture too."""
+    from gatekeeper.conversation_model import PICTURE_HEIGHT, Answers, Shadow
 
-    log.info("conversation model on (shadow), at %s", settings.conversation_model_url)
+    def picture(event_id: str) -> bytes | None:
+        """The visit's picture, as on the Visits page: a press before anyone was seen has
+        the frame its notification sent; a knock has none."""
+        if event_id.startswith("press-"):
+            path = settings.snapshot_dir / f"{event_id}.jpg"
+            return path.read_bytes() if path.is_file() else None
+        if event_id.startswith("knock-"):
+            return None
+        return perception.event_snapshot(event_id, PICTURE_HEIGHT)
+
+    log.info(
+        "conversation model on (shadow), at %s%s",
+        settings.conversation_model_url,
+        ", with the camera" if settings.conversation_model_mmproj else "",
+    )
     return Shadow(
         Answers(settings.conversation_model_file),
         settings.conversation_model_url,
         settings.lines,
         treats=settings.halloween_treats,
+        picture=picture if settings.conversation_model_mmproj else None,
     )
 
 
@@ -571,7 +587,11 @@ def main() -> None:
         health.tap_ok = tap.healthy
         start_thread("audio-tap", tap.run_forever)
     guesser = start_delivery_guess(settings, perception) if settings.delivery_guess else None
-    shadow = start_conversation_model(settings) if settings.conversation_model == "shadow" else None
+    shadow = (
+        start_conversation_model(settings, perception)
+        if settings.conversation_model == "shadow"
+        else None
+    )
     interaction = Interaction(
         settings,
         synth=synth,

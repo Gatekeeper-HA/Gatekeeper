@@ -18,10 +18,19 @@ What it's told, in the form it was trained on:
 
 Gatekeeper doesn't describe the visitor yet, so the camera line says so; the model was
 trained on visits like that too, to judge by the words alone.
+
+With the model's vision file (CONVERSATION_MODEL_MMPROJ: Gemma 4's, from the base model),
+it's also shown the visit's picture and asked for the camera line (``describe``). That
+line is kept and shown, not yet told to the model at each turn. The model was trained on
+camera lines that say everything, and on public test photos Gemma 4 E2B missed company
+uniforms (a UPS driver's brown, a USPS sweater): a line without one would read as "no
+uniform", and an honest courier as a story the camera contradicts. So the line keeps only
+what it saw (``camera_line``), and the owner can judge it on the Visits page first.
 """
 
 from __future__ import annotations
 
+import base64
 import datetime
 import json
 import logging
@@ -78,6 +87,25 @@ KEEP = 2000  # visits whose answers are kept
 # The first answer after the server starts can take minutes (loading, CUDA warm-up).
 TIMEOUT_SECONDS = 600.0
 RETRY_SECONDS = (30.0, 120.0)  # waits before asking again when the server isn't up
+# What the model is asked about the visit's picture (``describe``), in the camera line's
+# form. The answer is begun with "Camera:", which keeps the trained model to the form.
+DESCRIBE = (
+    "This is a picture from a home's video doorbell camera. Describe the visitor in one "
+    "line, in exactly this form:\n"
+    "Camera: <how many people, roughly how old, what they carry, a uniform or not (and the "
+    "company, if the uniform, vest or vehicle shows one), a vehicle if one is in view, "
+    "whether the face is visible>.\n"
+    "Say only what you can see. Never say that something is missing, absent or not there "
+    '(no "no uniform", "nothing in hand", "no vehicle"): the camera often misses things.'
+)
+PICTURE_HEIGHT = 720  # rows of the picture shown (the model scales it down itself)
+# The parts of its camera line that say something isn't there: the model says them anyway,
+# and they're the parts it gets wrong ("no uniform visible" for a UPS driver in brown).
+ABSENT = re.compile(
+    r"^(no|not|nothing|none|without)\b|\b(not|n't) (visible|in (a )?uniform|wearing)\b"
+    r"|\bno visible\b|\bcarrying nothing\b",
+    re.IGNORECASE,
+)
 
 
 def when_line(ts: float, halloween: bool = False) -> str:
@@ -120,6 +148,18 @@ def inputs(record: dict, lines: dict[str, str], treats: str = "unset") -> list[s
     return out
 
 
+def _chat(url: str, body: dict, timeout: float) -> tuple[str, str]:
+    """POST a chat to llama.cpp's server at ``url``: (its answer, the model's name)."""
+    request = urllib.request.Request(
+        f"{url.rstrip('/')}/v1/chat/completions",
+        json.dumps(body).encode(),
+        {"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        reply = json.load(response)
+    return reply["choices"][0]["message"].get("content") or "", str(reply.get("model") or "")
+
+
 def ask(url: str, text: str, timeout: float = TIMEOUT_SECONDS) -> tuple[str, str]:
     """Ask llama.cpp's server at ``url``: (its answer, the model's name)."""
     body = {
@@ -130,14 +170,39 @@ def ask(url: str, text: str, timeout: float = TIMEOUT_SECONDS) -> tuple[str, str
         # Gemma 4 wander into its thinking and never answer (docs/09); parse() checks instead.
         "chat_template_kwargs": {"enable_thinking": False},
     }
-    request = urllib.request.Request(
-        f"{url.rstrip('/')}/v1/chat/completions",
-        json.dumps(body).encode(),
-        {"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        reply = json.load(response)
-    return reply["choices"][0]["message"].get("content") or "", str(reply.get("model") or "")
+    return _chat(url, body, timeout)
+
+
+def describe(url: str, picture: bytes, timeout: float = TIMEOUT_SECONDS) -> str:
+    """What the model at ``url`` sees in ``picture`` (a JPEG), as it wrote it. Its server
+    needs the vision file (CONVERSATION_MODEL_MMPROJ), or this is an HTTP error."""
+    image = "data:image/jpeg;base64," + base64.b64encode(picture).decode()
+    body = {
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": image}},
+                    {"type": "text", "text": DESCRIBE},
+                ],
+            },
+            {"role": "assistant", "content": "Camera:"},
+        ],
+        "temperature": 0,
+        "max_tokens": 120,
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+    return _chat(url, body, timeout)[0]
+
+
+def camera_line(text: str) -> str | None:
+    """The camera line from what the model saw (``describe``): its first sentence, without
+    the parts that say something isn't there. None if nothing's left."""
+    text = re.sub(r"^\s*camera:\s*", "", text, flags=re.IGNORECASE)
+    first = re.split(r"(?<=[.!?])\s|\n", text.strip(), maxsplit=1)[0].strip().rstrip(".")
+    parts = [p.strip() for p in first.split(",")]
+    parts = [p for p in parts if p and not ABSENT.search(p)]
+    return "Camera: " + ", ".join(parts)[:200] + "." if parts else None
 
 
 def parse(text: str) -> dict | None:
@@ -168,7 +233,9 @@ class Answers:
     """The model's answers, by visit (event id), in ``conversation-model.json`` next to the
     visit log: ``{"at", "model", "turns": [...]}``, each turn an answer (``parse``) with the
     house rules it breaks (``broken``) and how long it took, or ``{"unusable": what it
-    wrote}``; or ``{"at", "error"}`` when the model couldn't be asked."""
+    wrote}``; or ``{"at", "error"}`` when the model couldn't be asked. With the vision
+    file, also ``"camera"``: what it saw in the visit's picture (``camera_line``, None if
+    nothing usable), or ``"camera_error"``."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -195,7 +262,9 @@ class Answers:
 
 class Shadow:
     """Asks the model about each visit logged, one visit at a time, on its own thread.
-    ``lines()`` is Gatekeeper's lines by phrase key; ``treats`` is HALLOWEEN_TREATS."""
+    ``lines()`` is Gatekeeper's lines by phrase key; ``treats`` is HALLOWEEN_TREATS.
+    ``picture(event_id)``, when given (the vision file is on), is the visit's picture: the
+    model is asked what it sees in it too."""
 
     def __init__(
         self,
@@ -204,13 +273,16 @@ class Shadow:
         lines: Callable[[], dict[str, str]],
         *,
         treats: str = "unset",
+        picture: Callable[[str], bytes | None] | None = None,
         ask: Callable[[str, str], tuple[str, str]] = ask,
+        describe: Callable[[str, bytes], str] = describe,
         clock: Callable[[], float] = time.time,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.answers = answers
         self.url = url
         self._lines, self._treats = lines, treats
+        self._picture, self._describe = picture, describe
         self._ask, self._clock, self._sleep = ask, clock, sleep
         self._queue: queue.Queue[dict] = queue.Queue()
         self._thread: threading.Thread | None = None
@@ -258,6 +330,8 @@ class Shadow:
             answer["seconds"] = seconds
             turns.append(answer)
         result = {"at": round(self._clock(), 3), "model": model, "turns": turns}
+        if self._picture is not None:
+            result.update(self._seen(event_id))  # after the turns: the server is up
         self.answers.add(event_id, result)
         log.info(
             "conversation model (shadow): %s",
@@ -269,6 +343,18 @@ class Shadow:
             ),
         )
         return result
+
+    def _seen(self, event_id: str) -> dict:
+        """What the model saw in the visit's picture: ``{"camera": line}``, ``{}`` when
+        there's no picture, or ``{"camera_error": why}``."""
+        try:
+            picture = self._picture(event_id) if self._picture else None
+            if not picture:
+                return {}
+            return {"camera": camera_line(self._describe(self.url, picture))}
+        except (OSError, ValueError, KeyError, IndexError) as e:
+            log.warning("conversation model (shadow) couldn't describe the picture: %s", e)
+            return {"camera_error": f"{type(e).__name__}: {e}"[:200]}
 
     def _asked(self, text: str) -> tuple[str, str]:
         """The model's answer, asking again a couple of times while its server is down
