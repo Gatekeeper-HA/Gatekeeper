@@ -40,6 +40,7 @@ TRANSCRIBE_P90_SECONDS = {"cuda": 3.0, "cpu": 8.0}  # per answer, by Whisper's d
 # reply_latency): end-of-speech silence, Whisper, and queueing the reply.
 REPLY_P90_SECONDS = {"cuda": 3.5, "cpu": 7.0}
 MIN_CAMERA_FPS = 1.0
+BLIND_MIN_SECONDS = 600  # a stats line over less than this (a restart) isn't judged
 FRIGATE_ERRORS = 50  # outside dropouts: an outage logs the record watchdog every ~20 s
 # A camera dropout or restart is a burst of Frigate errors (ffmpeg crashing, the watchdog
 # retrying): lines less than DROPOUT_GAP_SECONDS apart, over within DROPOUT_SECONDS. One
@@ -541,7 +542,22 @@ def own_perception_info(
         "detected": sum(st["detected"] for st in stats),
         "devices": [device_stats(name, hours) for name, hours in devices.items()],
         "device": (stats[-1].get("device") or "cpu") if stats else None,
+        "blind": blind_hours(stats, window_start),
     }
+
+
+def blind_hours(stats: list[dict], window_start: float = 0.0) -> list[str]:
+    """The ends of own perception's stats hours in which it read under ``MIN_CAMERA_FPS``
+    on average: the camera's stream was down (or never came), so nobody at the door could
+    be seen. Stats lines keep coming while the stream is down, so the day's hours look
+    full; only the frames show it. An outage shorter than a stats hour isn't caught."""
+    out = []
+    for st in stats:
+        if "from" not in st or st["from"] + st["seconds"] <= window_start:
+            continue
+        if st["seconds"] >= BLIND_MIN_SECONDS and st["frames"] < MIN_CAMERA_FPS * st["seconds"]:
+            out.append(local(st["from"] + st["seconds"]))
+    return out
 
 
 def own_arrivals(lines: list[str], zones: list[str], since: float) -> tuple[list[dict], float]:
@@ -1284,6 +1300,16 @@ def build(i: Inputs) -> dict:
         )
     elif i.own_perception != "off":
         check("own_perception", own is not None, "own perception is on but logged nothing")
+    if own and own_visits:
+        # Starting the visits on a dark camera: arrivals can't be missed, so arrivals_greeted
+        # and own_perception stay green while nothing at the door is seen.
+        blind = own["blind"]
+        check(
+            "camera_watched",
+            not blind,
+            f"the camera was blind for {len(blind)} hour(s) (to {', '.join(blind[:6])}"
+            f"{', …' if len(blind) > 6 else ''}): nobody at the door could be seen",
+        )
     recording = recording_info(sources.get("gatekeeper", []))
     if recording:
         check("recording", not recording["failed"], f"{recording['failed']} recording(s) failed")
@@ -1654,6 +1680,11 @@ def summary_lines(report: dict) -> list[str]:
                     for d in own["devices"]
                 )
                 if own.get("devices")
+                else ""
+            )
+            + (
+                f"; blind {len(own['blind'])} h (under {MIN_CAMERA_FPS:g} fps)"
+                if own.get("blind")
                 else ""
             )
         )

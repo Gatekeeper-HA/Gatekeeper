@@ -972,6 +972,8 @@ from cron, as a user in the `docker` group:
   - there were no hangs, restarts or errors in Gatekeeper's log;
   - recordings had audio;
   - Frigate got camera frames and detected in time;
+  - with own perception starting the visits, no hour went by with the camera blind (its
+    stream under 1 fps for a whole stats hour): nobody at the door could have been seen;
   - Whisper ran on the device it should and answered fast enough;
   - every deploy went through.
 

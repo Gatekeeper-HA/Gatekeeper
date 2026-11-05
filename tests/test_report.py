@@ -1553,6 +1553,65 @@ def test_own_perception_starting_the_visits_fails_a_check_for_frigates_arrivals_
     assert "own_perception" not in failing(shadow)
 
 
+def own_stats(end, frames, seconds=3600):
+    return (
+        end,
+        "own_perception",
+        f"own perception stats: {frames} frames in {seconds} s, 0 through the detector "
+        "(median 0 ms on cuda), 0 track(s) now",
+    )
+
+
+def test_hours_with_the_camera_down_fail_a_check_when_own_perception_starts_the_visits():
+    # The camera went dark for two hours: the stats lines kept coming, with almost no
+    # frames, and with nothing seen there was nothing to miss.
+    log = own_log(
+        (NOW - 5 * 3600, "app", "own perception on (visits): go2rtc:8554/front_door_sub"),
+        own_stats(NOW - 4 * 3600, 18000),  # 5 fps
+        own_stats(NOW - 3 * 3600, 40),  # the stream down
+        own_stats(NOW - 2 * 3600, 0),
+        own_stats(NOW - 3600, 9000),  # back half-way through: 2.5 fps, not blind
+        own_stats(NOW - 3000, 0, seconds=300),  # a restart's short line isn't judged
+    )
+    r = build(
+        inputs(arrivals=[], log_text=log, trigger_zones=("porch",), perception="own", visits=[])
+    )
+    blind = [report.local(NOW - 3 * 3600), report.local(NOW - 2 * 3600)]
+    assert r["own_perception"]["blind"] == blind
+    assert "arrivals_greeted" not in failing(r) and "own_perception" not in failing(r)
+    assert failing(r)["camera_watched"] == (
+        f"the camera was blind for 2 hour(s) (to {', '.join(blind)}): "
+        "nobody at the door could be seen"
+    )
+    assert "; blind 2 h (under 1 fps)" in render_text(r)
+    # With Frigate starting the visits, they're shown but don't fail.
+    shadow = build(
+        inputs(
+            arrivals=[],
+            log_text=log.replace("(visits)", "(shadow)"),
+            trigger_zones=("porch",),
+            own_perception="shadow",
+            visits=[],
+        )
+    )
+    assert shadow["own_perception"]["blind"] == blind
+    assert "camera_watched" not in failing(shadow)
+    # A healthy day: the check passes.
+    healthy = build(
+        inputs(
+            arrivals=[],
+            log_text=own_log(
+                (NOW - 5 * 3600, "app", "own perception on (visits): go2rtc:8554/front_door_sub"),
+                own_stats(NOW - 3600, 18000),
+            ),
+            trigger_zones=("porch",),
+            perception="own",
+            visits=[],
+        )
+    )
+    assert [c["ok"] for c in healthy["checks"] if c["name"] == "camera_watched"] == [True]
+
+
 def test_own_perceptions_arrivals_count_from_the_switch():
     # Frigate started the visits until a restart in the evening; own perception's tracks
     # before then were shadow tracks, not arrivals it had to greet.

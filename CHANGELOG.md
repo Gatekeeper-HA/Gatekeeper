@@ -260,6 +260,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **Daily report: hours with the camera down.** With own perception starting the visits, a
+  dark camera can't miss anyone, so the report read *not greeted 0* through a long outage.
+  Hours in which own perception read under 1 fps are now listed (`own_perception.blind`,
+  *blind N h*), and the `camera_watched` check fails on them.
 - **Daily report: a watchdog exit is one hang.** The exit and the container restart it
   causes were added up, so one stall read *2 hang/restart(s)*. Restarts beyond the exits
   (a crash) still count.
