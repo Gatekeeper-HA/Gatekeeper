@@ -81,6 +81,11 @@ nav { margin: 12px 0 0; } nav a, nav strong { margin-right: 12px; }
   border: 1px solid #ddd; border-radius: 8px; padding: 8px; margin: 8px 0; }
 .visit img { width: 160px; max-width: 40%; border-radius: 6px; }
 .visit select { margin-top: 6px; } select { font-size: 1em; padding: 4px; max-width: 100%; }
+.more { margin-top: 6px; } .more summary { cursor: pointer; }
+.more select, .more input[type=text] { margin: 6px 8px 0 0; }
+.more fieldset { border: 0; padding: 0; margin: 6px 0 0; }
+.more legend { font-weight: 600; padding: 0; }
+.more fieldset label { display: inline-block; margin: 2px 12px 2px 0; }
 .savebar { position: sticky; bottom: 0; background: #fafafa; border-top: 1px solid #ddd;
   padding: 8px 0; }
 @media (prefers-color-scheme: dark) {
@@ -628,9 +633,10 @@ def handler(
             one = lambda key: form.get(key, [""])[0]  # noqa: E731
             try:
                 if which is visits:
-                    done = visits.save(
-                        {k[6:]: v[0] for k, v in form.items() if k.startswith("label:")}
-                    )
+                    from gatekeeper.visits import form_details
+
+                    chosen = {k[6:]: v[0] for k, v in form.items() if k.startswith("label:")}
+                    done = visits.save(chosen, {eid: form_details(form, eid) for eid in chosen})
                 elif which is zones:
                     done = zones.save({k: v[0] for k, v in form.items() if k.startswith("zone:")})
                 elif action == "enroll":

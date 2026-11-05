@@ -591,6 +591,19 @@ at the bottom: one save for the whole page. The labels are kept in
 Gatekeeper made of the visit, so its mistakes show. They're also the examples for
 teaching it to tell visitors apart by sight.
 
+**More about it** (optional, under each label) says the rest:
+- what they were doing: coming home, leaving, the dog out or in, the mail, the trash;
+- how many people came;
+- what they carried: a box, shopping bags, food, a backpack, a purse, a lunch bag, a drink,
+  a dog on a leash;
+- what they wore: a uniform or work clothes, a safety vest, a hood, a covered face;
+- a note.
+
+These details matter most for the household. Someone coming home from work with a backpack
+and a lunch bag looks like a delivery to the camera, and these are the examples that teach
+the difference. What they carried and wore also checks what the conversation model says it
+saw.
+
 With [recordings](#recordings) on, each visit links to its clips: tap one to watch it,
 with sound, in the phone's or browser's own player.
 
