@@ -234,6 +234,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     someone the camera hasn't caught going inside.
 
 ### Changed
+- **The house rule check catches what a conversation test found.** In made-up
+  conversations, models gave the house away by being kind:
+  - *"I'll let Delphine know you stopped by"*: a household name, a new rule (`names`);
+  - *"they're on their way to help you"*, *"please wait while they check"*,
+    *"the grown-ups here"*, *"no one's opening the door"*;
+  - *"the police are being called now"*, *"I've alerted your family"*.
+
+  The check now catches 10 of the 13 breaks a judge found in Claude Haiku's conversations
+  (it caught 2), with no false alarms there. Of 5,185 lines written to keep the rules, it
+  flags 6 more, all of them real breaks. Rule 11's *"the police will be called if you don't
+  leave"* still passes, and so do *"nobody's coming in"* and *"tell your mom thank you"*.
 - **A send-off for someone already walking away.** When the greeting gets no answer and
   the visitor is walking back down the walk (on a doorbell camera, back up the frame from
   the closest they came), Gatekeeper says one of 7 friendly send-offs (*"Leaving so soon?
