@@ -9,7 +9,9 @@ them on made-up visits (docs/09): "Sam is home, but he's in the kitchen", "the r
 be right with you", "head around to the back gate". And in made-up conversations, where
 kindness gave the house away: "I'll let Delphine know you stopped by", "they're on their
 way to help you", "please wait while they check". A rule said in the negative isn't
-broken: "I can't open the door", "my rules keep me from saying who's home".
+broken: "I can't open the door", "my rules keep me from saying who's home". Except when
+the words take for granted that someone's coming: "I can't say who's coming", to a lost
+child.
 """
 
 from __future__ import annotations
@@ -105,6 +107,16 @@ RULES = {
     ],
 }
 _COMPILED = [(rule, re.compile(p)) for rule, patterns in RULES.items() for p in patterns]
+# Who'll come takes for granted that someone will, so a negation before it doesn't help: "I
+# can't say who's coming". Not "who's coming or going", which is anybody.
+PRESUPPOSED = {
+    "occupancy": [
+        r"\bwho('s| is| will| will be|'ll)? (coming(?! (or|and) going)|come|be coming|"
+        r"be (right )?(out|down|there|with you|at the door)|answer(ing)?|"
+        r"(open|get)(ing)? the door)\b",
+    ],
+}
+_PRESUPPOSED = [(rule, re.compile(p)) for rule, patterns in PRESUPPOSED.items() for p in patterns]
 # Gatekeeper passing a message to a name says who lives here (rule 2): "I'll let Delphine
 # know you stopped by", "avisaré a Marta". Not "you could text Jordan": that's the
 # visitor's to do. By the name's capital, so before the line is lowercased.
@@ -132,6 +144,8 @@ def broken(line: str) -> list[str]:
         for m in pattern.finditer(text):
             if not negated(m.start()):
                 found.append(f"{rule}: {m.group(0)}")
+    for rule, pattern in _PRESUPPOSED:
+        found += [f"{rule}: {m.group(0)}" for m in pattern.finditer(text)]
     for m in NAMES.finditer(line):
         if m.group(1) not in NOT_NAMES and not negated(m.start()):
             found.append(f"names: {m.group(0).lower()}")

@@ -32,6 +32,10 @@ BROKEN = [
     ("The resident has been notified, so please wait a moment while they check.", "occupancy"),
     ("The police are being called now.", "false_claim"),
     ("I've alerted your family and they know you're here.", "false_claim"),
+    # Negated, but it takes for granted that someone's coming.
+    ("I can't say who's coming, but I've alerted the resident.", "occupancy"),
+    ("I can't promise who'll come, but I'll let the resident know you stopped by.", "occupancy"),
+    ("I can't say who's opening the door, but the treats are all yours.", "occupancy"),
 ]
 
 KEPT = [
@@ -52,6 +56,8 @@ KEPT = [
     "I'll let the resident know you stopped by.",
     "Please stay right where you are. I'm alerting the resident, and if anyone is in danger, "
     "call 911.",
+    "I can't let anyone in or say anything about who's coming or going.",
+    "Who's at the door? What brings you by?",
 ]
 
 
