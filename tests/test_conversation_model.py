@@ -169,6 +169,38 @@ def test_a_server_that_comes_up_is_asked_again(tmp_path):
     assert sleeps == [cm.RETRY_SECONDS[0]]
 
 
+def test_the_wait_for_its_server_is_kept_apart_from_its_time(tmp_path):
+    now = [1000.0]
+
+    def ask(url, text):
+        if len(asked) < 2:  # loading: refused twice
+            asked.append(text)
+            raise ConnectionRefusedError()
+        asked.append(text)
+        now[0] += 0.9  # the answer itself
+        return answer(), "gatekeeper-test.gguf"
+
+    def sleep(seconds):
+        now[0] += seconds
+
+    asked = []
+    s = Shadow(
+        Answers(tmp_path / "conversation-model.json"),
+        "http://model:8080",
+        lambda: LINES,
+        ask=ask,
+        clock=lambda: TS + 100,
+        sleep=sleep,
+        monotonic=lambda: now[0],
+    )
+    first = s.answer(visit(("greeting_1", "hi")))["turns"][0]
+    assert first["seconds"] == 0.9
+    assert first["waited"] == sum(cm.RETRY_SECONDS)
+    # Asked with its server up: no wait recorded.
+    second = s.answer(visit(("greeting_1", "hi")))["turns"][0]
+    assert second["seconds"] == 0.9 and "waited" not in second
+
+
 def test_visits_are_answered_on_the_models_thread(tmp_path):
     done = threading.Event()
     s, asked = shadow(tmp_path, [answer()])

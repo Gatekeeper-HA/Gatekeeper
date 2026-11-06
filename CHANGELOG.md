@@ -292,6 +292,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **The conversation model's time leaves out waiting for its server.** A turn asked while
+  its server was starting or loading (after a deploy or a model change) counted the retry
+  waits as the model's time: one such turn read *247.8 s max* on a day whose median was
+  1.0 s. Each turn now keeps the wait apart (`waited`), and the daily report's line says
+  *N turn(s) waited for its server (up to X s, not in the times)*.
 - **Daily report: hours with the camera down.** With own perception starting the visits, a
   dark camera can't miss anyone, so the report read *not greeted 0* through a long outage.
   Hours in which own perception read under 1 fps are now listed (`own_perception.blind`,
