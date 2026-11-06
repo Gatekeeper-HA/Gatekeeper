@@ -245,6 +245,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   (it caught 2), with no false alarms there. Of 5,185 lines written to keep the rules, it
   flags 6 more, all of them real breaks. Rule 11's *"the police will be called if you don't
   leave"* still passes, and so do *"nobody's coming in"* and *"tell your mom thank you"*.
+
+  It also catches *"I can't say who's coming"* (to a lost child): the "can't" doesn't
+  help when the words take for granted that someone is. *"Who's coming or going"* still
+  passes.
 - **A send-off for someone already walking away.** When the greeting gets no answer and
   the visitor is walking back down the walk (on a doorbell camera, back up the frame from
   the closest they came), Gatekeeper says one of 7 friendly send-offs (*"Leaving so soon?
