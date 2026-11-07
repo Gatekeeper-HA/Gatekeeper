@@ -287,6 +287,34 @@ The default image stays CPU-only.
    `libnvidia-decode-<version>` to add it). Without it, Frigate gets no frames at all: check
    that the camera shows about 5 fps on the *System* page after restarting Frigate.
 
+## Host memory
+
+Frigate records around the clock, and Linux keeps what it writes in memory as cache. With
+the default setting, the kernel swaps out what sits idle between visits rather than drop
+that cache: Whisper's buffers, own perception and the conversation model's tables. The next
+visit then waits while they're read back from disk.
+- On the project's rig (6.7 GB of RAM, swap on a spinning disk, the conversation model on),
+  3 of its 4 GB of swap were in use.
+- The first visit after a long quiet stretch took 5.5 s to transcribe an answer instead of
+  1.1–1.5 s, and the conversation model took 73 s for a turn instead of 1–2 s.
+
+On a Docker host you run yourself, tell the kernel to drop cache first:
+
+```
+sudo sysctl vm.swappiness=10
+echo vm.swappiness=10 | sudo tee /etc/sysctl.d/99-gatekeeper.conf
+```
+
+The first line applies it now; the second keeps it after a reboot. It applies to the whole
+machine, which is what you want on a box that runs only Gatekeeper and its stack. Swap on an
+SSD rather than a spinning disk, and RAM to spare, help too. (Home Assistant OS manages its
+own host.)
+
+The daily report shows whether it's working:
+- its *Host memory* line gives the memory and swap in use when the report ran;
+- the Whisper and conversation model lines say how often the slowest answer waited on the
+  disk.
+
 ## Personality
 
 Visitors talk to a doorbell that talks like a person, not like an automated announcement.
@@ -840,7 +868,8 @@ With `docker-compose.gpu.yml` it runs on the GPU: a trained Qwen3-1.7B (1.1 GB) 
 of a GTX 1660 Ti's memory and answered in under a second. A trained Gemma 4 E2B (3.2 GB) took
 about as much, since llama.cpp keeps its per-layer embeddings in CPU memory, and answered in
 about a second. On a CPU it's slower, which is fine in shadow. The trained models aren't
-published yet.
+published yet. With Gemma 4 E2B those embeddings take about 1.5 GB of the host's memory:
+see [Host memory](#host-memory).
 
 **What the camera saw.** Gemma 4 can see. Training only changed its language layers, so the
 base model's vision file (its `mmproj` `.gguf`, from the same place as the base model) works
@@ -1016,6 +1045,9 @@ from cron, as a user in the `docker` group:
     stream under 1 fps for a whole stats hour): nobody at the door could have been seen;
   - Whisper ran on the device it should and answered fast enough;
   - every deploy went through.
+
+  It also gives the host's memory and swap in use, and how often the slowest answer waited
+  on the disk ([Host memory](#host-memory)).
 
   It lists every visit with what was heard and the reply, and the log's warnings and
   errors grouped by kind. A deploy that recreates a container keeps its old log first
