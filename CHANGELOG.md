@@ -12,6 +12,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   turn now counts the host's waits on the disk and the pages read back from swap
   (`/proc/vmstat`). The Whisper and conversation model lines give the slowest one's counts,
   and a new line gives the host's memory and swap in use when the report ran.
+- **README: Host memory** (#142). Frigate's round-the-clock recording fills Linux's cache,
+  and with the default `vm.swappiness` the kernel swaps out what idles between visits
+  instead. Set `vm.swappiness=10` on a Docker host you run yourself (the commands are in the
+  README).
 - **More about a visit, on the Visits page** (optional, under each label):
   - what they were doing (coming home, leaving, the dog out or in, the mail, the trash...);
   - how many people came;
