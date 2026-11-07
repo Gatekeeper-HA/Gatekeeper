@@ -1374,6 +1374,31 @@ def test_knocks_are_counted():
     assert "Knocks heard" not in render_text(build(inputs()))  # the listener is off
 
 
+def test_a_knock_listener_that_starts_visits_says_so():
+    knocked = visit(NOW - 1800, NOW - 1770, trigger="knock", classification="no_response")
+    knocks = [{"at": NOW - 1801, "score": 0.6, "on_camera": True, "in_visit": False}]
+    r = build(
+        inputs(
+            visits=[knocked],
+            window_visits=[knocked],
+            notifications=[
+                {"ts": NOW - 1770, "event_id": knocked["event_id"], "ok": True, "seconds": 0.8}
+            ],
+            knocks=knocks,
+            knock_listener="on",
+        )
+    )
+    assert r["knocks"]["listener"] == "on"
+    text = render_text(r)
+    assert "Knocks heard (a knock starts a visit): 1 (0 with nobody on camera" in text
+    assert "(shadow)" not in text
+    assert "Visits: 1 (person 0, button 0, knock 1)" in text
+    # Shadow, as before; and no "knock" in the breakdown without a knock-started visit.
+    text = render_text(build(inputs(knocks=knocks)))
+    assert "Knocks heard (shadow): 1" in text and "knock 0" not in text
+    assert "Visits: 1 (person 1, button 0):" in text
+
+
 def test_the_knock_listeners_checks_show_it_listening():
     log = "### gatekeeper\n" + "".join(
         f"2026-10-28 {h}:00:00,000 INFO     gatekeeper.knock [-] knock listener stats: "
@@ -1386,6 +1411,7 @@ def test_the_knock_listeners_checks_show_it_listening():
         "nobody_on_camera": 0,
         "during_visit": 0,
         "at": [],
+        "listener": "shadow",
         "stats_hours": 3,
         "checks": 37,
         "top_score": 0.31,
