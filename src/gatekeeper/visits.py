@@ -395,7 +395,7 @@ class VisitsPage:
     # -- the page ----------------------------------------------------------------
 
     def render(self, message: str = "", error: str = "", days: int = DAYS) -> str:
-        from gatekeeper.web import STYLE, nav
+        from gatekeeper.web import STYLE, app_head, nav
 
         e = html.escape
         rows = self.visits(days)
@@ -405,7 +405,8 @@ class VisitsPage:
         out = [
             "<!doctype html><html lang=en><head><meta charset=utf-8>",
             '<meta name=viewport content="width=device-width, initial-scale=1">',
-            f"<title>Visits</title><style>{STYLE}</style></head><body>",
+            f"<title>Visits</title><style>{STYLE}</style>{app_head('visits')}",
+            "</head><body>",
             nav("visits"),
             "<h1>Visits</h1>",
         ]
