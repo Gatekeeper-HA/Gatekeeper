@@ -15,6 +15,7 @@ import wave
 from collections.abc import Callable
 from pathlib import Path
 
+from gatekeeper import paging
 from gatekeeper.listen import Word
 
 log = logging.getLogger(__name__)
@@ -184,6 +185,7 @@ class Transcriber:
         Whisper's no-speech/log-prob thresholds still suppress text on silence.
         """
         self.load()
+        paged = paging.counters()
         started = time.monotonic()
         try:
             segments, info = self._model.transcribe(
@@ -206,14 +208,18 @@ class Transcriber:
                 Word(w.word, w.start, w.end) for seg in segments for w in (seg.words or [])
             ]
             done = time.monotonic()
+            # Whether it waited on the disk for memory swapped out while idle (Gatekeeper#142).
+            disk = paging.between(paged, paging.counters())
             # The daily report reads this line (gatekeeper.report).
             log.info(
-                "transcribed %.1f s of audio in %.2f s (features %.2f s, model %.2f s; load %.1f)",
+                "transcribed %.1f s of audio in %.2f s "
+                "(features %.2f s, model %.2f s; load %.1f%s)",
                 getattr(info, "duration", 0.0),
                 done - started,
                 prepared - started,
                 done - prepared,
                 load_average(),
+                f"; disk waits {disk['disk_waits']}, swap-ins {disk['swap_ins']}" if disk else "",
             )
             return words
         except Exception:

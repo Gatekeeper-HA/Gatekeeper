@@ -196,3 +196,18 @@ def test_transcription_time_is_logged_as_the_report_reads_it(fake_whisper, tmp_p
     (line,) = [r.getMessage() for r in caplog.records if r.getMessage().startswith("transcribed")]
     m = TRANSCRIBED.search(line)
     assert m and m["model"] is not None and m["features"] is not None and m["load"] is not None
+
+
+def test_a_transcription_counts_its_waits_on_the_disk(fake_whisper, tmp_path, caplog, monkeypatch):
+    from gatekeeper import paging
+    from gatekeeper.audio import Transcriber
+    from gatekeeper.report import TRANSCRIBED
+
+    reads = iter([{"pswpin": 100, "pgmajfault": 50}, {"pswpin": 3204, "pgmajfault": 862}])
+    monkeypatch.setattr(paging, "counters", lambda: next(reads))
+    caplog.set_level("INFO", logger="gatekeeper.audio")
+    Transcriber("large-v3-turbo", device="cpu").transcribe(write_wav(tmp_path / "a.wav"))
+    (line,) = [r.getMessage() for r in caplog.records if r.getMessage().startswith("transcribed")]
+    assert line.endswith("; disk waits 812, swap-ins 3104)")
+    m = TRANSCRIBED.search(line)
+    assert m["model"] is not None and (m["disk_waits"], m["swap_ins"]) == ("812", "3104")

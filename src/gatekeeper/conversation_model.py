@@ -44,7 +44,7 @@ from collections.abc import Callable
 from importlib import resources
 from pathlib import Path
 
-from gatekeeper import house_rules
+from gatekeeper import house_rules, paging
 from gatekeeper.visits import started
 
 log = logging.getLogger(__name__)
@@ -279,13 +279,14 @@ class Shadow:
         clock: Callable[[], float] = time.time,
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
+        counters: Callable[[], dict[str, int]] = paging.counters,
     ) -> None:
         self.answers = answers
         self.url = url
         self._lines, self._treats = lines, treats
         self._picture, self._describe = picture, describe
         self._ask, self._clock, self._sleep = ask, clock, sleep
-        self._monotonic = monotonic
+        self._monotonic, self._counters = monotonic, counters
         self._queue: queue.Queue[dict] = queue.Queue()
         self._thread: threading.Thread | None = None
         self._start_lock = threading.Lock()
@@ -317,7 +318,7 @@ class Shadow:
         for text in inputs(record, self._lines(), self._treats):
             began = self._monotonic()
             try:
-                raw, model, answered_from = self._asked(text)
+                raw, model, answered_from, paged = self._asked(text)
             except (OSError, ValueError, KeyError, IndexError) as e:
                 result = {"at": round(self._clock(), 3), "error": f"{type(e).__name__}: {e}"[:200]}
                 self.answers.add(event_id, result)
@@ -328,6 +329,9 @@ class Shadow:
             timing = {"seconds": round(self._monotonic() - answered_from, 2)}
             if (waited := round(answered_from - began, 2)) > 0:
                 timing["waited"] = waited
+            # Whether it waited on the disk for its tables, swapped out or dropped while idle
+            # (Gatekeeper#142): the host's count, so other programs' waits are in it too.
+            timing.update(paging.between(paged, self._counters()))
             answer = parse(raw)
             if answer is None:
                 turns.append({"unusable": raw[:300], **timing})
@@ -362,15 +366,15 @@ class Shadow:
             log.warning("conversation model (shadow) couldn't describe the picture: %s", e)
             return {"camera_error": f"{type(e).__name__}: {e}"[:200]}
 
-    def _asked(self, text: str) -> tuple[str, str, float]:
-        """The model's answer and name, and when the ask that was answered began, asking
-        again a couple of times while its server is down (starting, or restarted by a
-        deploy)."""
+    def _asked(self, text: str) -> tuple[str, str, float, dict[str, int]]:
+        """The model's answer and name, and when the ask that was answered began (its time
+        and the host's paging counters), asking again a couple of times while its server is
+        down (starting, or restarted by a deploy)."""
         for wait in RETRY_SECONDS:
-            began = self._monotonic()
+            began, paged = self._monotonic(), self._counters()
             try:
-                return (*self._ask(self.url, text), began)
+                return (*self._ask(self.url, text), began, paged)
             except OSError:
                 self._sleep(wait)
-        began = self._monotonic()
-        return (*self._ask(self.url, text), began)
+        began, paged = self._monotonic(), self._counters()
+        return (*self._ask(self.url, text), began, paged)

@@ -29,6 +29,8 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from gatekeeper import paging
+
 SCHEMA = 2
 HOURS = 24
 
@@ -94,7 +96,8 @@ WHISPER_LOAD = re.compile(
 WHISPER_FALLBACK = "Whisper couldn't run on the GPU"
 TRANSCRIBED = re.compile(
     r"transcribed (?P<audio>[\d.]+) s of audio in (?P<seconds>[\d.]+) s"
-    r"(?: \(features (?P<features>[\d.]+) s, model (?P<model>[\d.]+) s; load (?P<load>-?[\d.]+)\))?"
+    r"(?: \(features (?P<features>[\d.]+) s, model (?P<model>[\d.]+) s; load (?P<load>-?[\d.]+)"
+    r"(?:; disk waits (?P<disk_waits>\d+), swap-ins (?P<swap_ins>\d+))?\))?"
 )
 MADE_UP = "no speech where Whisper heard it"  # interaction: an answer Whisper made up
 NOT_TRANSCRIBED = "no speech: not transcribed"  # interaction: a silent turn
@@ -701,7 +704,7 @@ def conversation_model_info(answers: dict, visits: list[dict], labels: dict) -> 
         # Their ``seconds`` leave the wait out.
         "waited": {"turns": 0, "max_seconds": 0.0},
     }
-    seconds = []
+    seconds, slowest = [], 0.0
     for v in visits:
         eid = str(v.get("event_id", ""))
         if not (answer := answers.get(eid)):
@@ -727,6 +730,10 @@ def conversation_model_info(answers: dict, visits: list[dict], labels: dict) -> 
             for rule in sorted({b.split(":")[0] for b in t.get("broken") or []}):
                 out["broken"][rule] += 1
             seconds.append(t.get("seconds") or 0.0)
+            # The slowest turn's waits on the disk (Gatekeeper#142), when it counted them.
+            if "disk_waits" in t and seconds[-1] >= slowest:
+                slowest = seconds[-1]
+                out["slowest_disk"] = {k: t[k] for k in ("disk_waits", "swap_ins")}
         dialogue = v.get("dialogue") or []
         n = next((n for n, d in enumerate(dialogue) if d.get("heard")), 0)
         if n < len(turns) and "kind" in (main := turns[n]):
@@ -996,6 +1003,7 @@ def whisper_info(lines: Iterable[str]) -> dict:
     turns = []
     split: dict[str, list[float]] = {"features": [], "model": [], "load": []}
     made_up = silent = 0
+    slowest = 0.0  # the slowest transcription with its disk counts (Gatekeeper#142)
     for line in lines:
         if m := WHISPER_LOAD.search(line):
             info.update(m.groupdict(), fallback=False)
@@ -1003,6 +1011,12 @@ def whisper_info(lines: Iterable[str]) -> dict:
             info["fallback"] = True
         elif m := TRANSCRIBED.search(line):
             turns.append((float(m["audio"]), float(m["seconds"])))
+            if m["disk_waits"] is not None and float(m["seconds"]) >= slowest:
+                slowest = float(m["seconds"])
+                info["slowest_disk"] = {
+                    "disk_waits": int(m["disk_waits"]),
+                    "swap_ins": int(m["swap_ins"]),
+                }
             if m["model"]:
                 for key in split:
                     split[key].append(float(m[key]))
@@ -1138,6 +1152,8 @@ class Inputs:
     labelled: list[dict] = field(default_factory=list)
     own_perception: str = "off"  # the OWN_PERCEPTION setting
     perception: str = "frigate"  # the PERCEPTION setting: what starts the visits
+    # The host's memory and swap when the report ran (paging.memory), or None.
+    memory: dict | None = None
     version: str = "?"
     hours: int = HOURS
 
@@ -1342,6 +1358,7 @@ def build(i: Inputs) -> dict:
             "health": host.get("health"),
             "up_since_utc": host.get("started"),
         },
+        "host_memory": i.memory,
         "checks": checks,
         "visits": [
             {"start": local(visit_start(v)), **{k: val for k, val in v.items() if k != "ts"}}
@@ -1605,6 +1622,7 @@ def summary_lines(report: dict) -> list[str]:
                 if "median_model_seconds" in w
                 else ""
             )
+            + (f"; the slowest {paging.describe(d)}" if (d := w.get("slowest_disk")) else "")
             + f"){made_up}"
         )
     elif w["model"]:
@@ -1742,6 +1760,13 @@ def summary_lines(report: dict) -> list[str]:
         if done := [d for d in done if d]:
             audio += "; audio check " + ", ".join(done)
     lines.append("Recording audio: " + audio)
+    if mem := report.get("host_memory"):
+        # A host short of memory swaps out what idles between visits (Gatekeeper#142).
+        lines.append(
+            f"Host memory, when the report ran: {mem['available'] / 1024:.1f} of "
+            f"{mem['total'] / 1024:.1f} GB available; swap {mem['swap_used'] / 1024:.1f} of "
+            f"{mem['swap_total'] / 1024:.1f} GB in use"
+        )
     lines.append(
         f"Gatekeeper {gk['version']} ({(gk['commit'] or '?')[:7]}), "
         f"{gk['health']}, up since {gk['up_since_utc']} UTC"
@@ -1786,7 +1811,10 @@ def conversation_model_line(cm: dict) -> str:
     if cm["errors"]:
         parts.append(f"{cm['errors']} visit(s) not answered (its server was down)")
     if cm["median_seconds"] is not None:
-        parts.append(f"{cm['median_seconds']:.1f} s median, {cm['max_seconds']:.1f} s max")
+        parts.append(
+            f"{cm['median_seconds']:.1f} s median, {cm['max_seconds']:.1f} s max"
+            + (f" (the slowest {paging.describe(d)})" if (d := cm.get("slowest_disk")) else "")
+        )
     waited = cm.get("waited") or {}  # reports from before it had none
     if waited.get("turns"):
         parts.append(
@@ -1897,6 +1925,7 @@ def collect(
         stats=fetch(f"{settings.frigate_api}/api/stats"),
         log_text=log_text,
         host=host,
+        memory=paging.memory(),
         camera=settings.camera_name,
         cooldown=settings.cooldown_seconds,
         whisper_device=settings.whisper_device,
