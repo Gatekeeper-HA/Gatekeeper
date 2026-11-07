@@ -241,13 +241,14 @@ class ZonesPage:
         return f"Saved {len(changes)} zone(s)." if changes else "Nothing changed."
 
     def render(self, message: str = "", error: str = "") -> str:
-        from gatekeeper.web import STYLE, nav
+        from gatekeeper.web import STYLE, app_head, nav
 
         e = html.escape
         out = [
             "<!doctype html><html lang=en><head><meta charset=utf-8>",
             '<meta name=viewport content="width=device-width, initial-scale=1">',
-            f"<title>Zones</title><style>{STYLE}{ZONE_STYLE}</style></head><body>",
+            f"<title>Zones</title><style>{STYLE}{ZONE_STYLE}</style>{app_head('zones')}",
+            "</head><body>",
             nav("zones"),
             "<h1>Zones</h1>",
         ]

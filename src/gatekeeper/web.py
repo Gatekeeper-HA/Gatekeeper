@@ -17,8 +17,9 @@ Faces are biometric data:
 - nothing is cached.
 
 It's plain HTML with relative links, so it works on a phone and behind a proxy that adds
-a path prefix (Home Assistant's ingress). Only the Zones page has a script (to draw by
-clicking), and works without it.
+a path prefix (Home Assistant's ingress). Only the Zones page has a script of its own (to
+draw by clicking), and works without it. Every page also registers the app's service worker
+(``app_head``): with it the pages install as an app on a phone's home screen.
 """
 
 from __future__ import annotations
@@ -59,6 +60,18 @@ MAX_BODY = 64 * 1024
 # more; the two wrong guesses, on groups of one or two faces, scored 0.30.
 SUGGEST_SCORE = 0.40
 SUGGEST_MARGIN = 0.05
+# The installable web app (README "The app"): its manifest, service worker and icons. They
+# hold nothing private, so they're served without logging in, at the pages' top level.
+APP_DIR = Path(__file__).parent / "webapp"
+APP_FILES = {
+    "manifest.webmanifest": "application/manifest+json",
+    "sw.js": "text/javascript; charset=utf-8",
+    "icon-192.png": "image/png",
+    "icon-512.png": "image/png",
+    "icon-maskable-512.png": "image/png",
+}
+# The app's icon opens ``./?from=app``; this line says so, and the daily report counts it.
+OPENED_FROM_APP = "web: opened from the home screen"
 
 STYLE = """
 body { font: 16px/1.4 system-ui, sans-serif; margin: 0 auto; max-width: 960px;
@@ -238,7 +251,8 @@ class FacesPage:
         out = [
             "<!doctype html><html lang=en><head><meta charset=utf-8>",
             '<meta name=viewport content="width=device-width, initial-scale=1">',
-            f"<title>Household faces</title><style>{STYLE}</style></head><body>",
+            f"<title>Household faces</title><style>{STYLE}</style>{app_head('faces')}",
+            "</head><body>",
             nav("faces"),
             "<h1>Household faces</h1>",
         ]
@@ -356,6 +370,20 @@ def nav(current: str) -> str:
             for key, text, href in links
         )
         + f' <a href="{up}logout" class=note>Log out</a></nav>'
+    )
+
+
+def app_head(current: str) -> str:
+    """What makes the pages an installable app, for each page's head: the manifest, the
+    icon an iPhone uses, the bar colours and the service worker. Relative, like ``nav``."""
+    up = "" if current == "visits" else "../"
+    return (
+        f'<link rel=manifest href="{up}manifest.webmanifest">'
+        f'<link rel=apple-touch-icon href="{up}icon-192.png">'
+        '<meta name=theme-color content="#fafafa" media="(prefers-color-scheme: light)">'
+        '<meta name=theme-color content="#17171a" media="(prefers-color-scheme: dark)">'
+        '<script>if ("serviceWorker" in navigator) '
+        f'navigator.serviceWorker.register("{up}sw.js").catch(() => {{}});</script>'
     )
 
 
@@ -554,6 +582,9 @@ def handler(
                 up = "../" * (url_path.count("/") - 1)
                 self._redirect(f"{up}login", self._cookie("", 0))
                 return
+            if (name := url_path.rsplit("/", 1)[-1]) in APP_FILES:
+                self._send(200, (APP_DIR / name).read_bytes(), APP_FILES[name])
+                return
             if not self._authorized():
                 return
             path = urllib.parse.urlsplit(self.path).path
@@ -580,6 +611,8 @@ def handler(
                 return
             elif path.endswith("/"):
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                if query.get("from") == ["app"]:
+                    log.info(OPENED_FROM_APP)
                 message = query.get("done", [""])[0][:200]
                 if visits and not path.endswith("/faces/"):
                     days = query.get("days", [""])[0]
