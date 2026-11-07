@@ -697,6 +697,9 @@ def conversation_model_info(answers: dict, visits: list[dict], labels: dict) -> 
         "broken": collections.Counter(),  # lines, by rule
         # With its vision file: pictures it described, and couldn't.
         "camera": {"described": 0, "not": 0},
+        # Turns asked while its server was down or loading: how many, and the longest wait.
+        # Their ``seconds`` leave the wait out.
+        "waited": {"turns": 0, "max_seconds": 0.0},
     }
     seconds = []
     for v in visits:
@@ -716,6 +719,10 @@ def conversation_model_info(answers: dict, visits: list[dict], labels: dict) -> 
         usable = [t for t in turns if "kind" in t]
         out["turns"] += len(turns)
         out["unusable"] += len(turns) - len(usable)
+        for t in turns:
+            if waited := t.get("waited"):
+                out["waited"]["turns"] += 1
+                out["waited"]["max_seconds"] = max(out["waited"]["max_seconds"], waited)
         for t in usable:
             for rule in sorted({b.split(":")[0] for b in t.get("broken") or []}):
                 out["broken"][rule] += 1
@@ -1786,6 +1793,12 @@ def conversation_model_line(cm: dict) -> str:
         parts.append(f"{cm['errors']} visit(s) not answered (its server was down)")
     if cm["median_seconds"] is not None:
         parts.append(f"{cm['median_seconds']:.1f} s median, {cm['max_seconds']:.1f} s max")
+    waited = cm.get("waited") or {}  # reports from before it had none
+    if waited.get("turns"):
+        parts.append(
+            f"{waited['turns']} turn(s) waited for its server (up to {waited['max_seconds']:.0f} s,"
+            " not in the times)"
+        )
     return f"Conversation model (shadow, {', '.join(cm['models']) or '?'}): " + "; ".join(parts)
 
 
