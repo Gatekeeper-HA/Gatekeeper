@@ -297,6 +297,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   waits as the model's time: one such turn read *247.8 s max* on a day whose median was
   1.0 s. Each turn now keeps the wait apart (`waited`), and the daily report's line says
   *N turn(s) waited for its server (up to X s, not in the times)*.
+- **Daily report: a knock that starts visits.** With `KNOCK_LISTENER=on` the knock line
+  said *Knocks heard (shadow)*; it now says *(a knock starts a visit)*, and the Visits line
+  counts the visits a knock started (*knock N*) beside person and button.
 - **Daily report: hours with the camera down.** With own perception starting the visits, a
   dark camera can't miss anyone, so the report read *not greeted 0* through a long outage.
   Hours in which own perception read under 1 fps are now listed (`own_perception.blind`,

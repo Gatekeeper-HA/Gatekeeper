@@ -1130,6 +1130,7 @@ class Inputs:
     line_texts: dict[str, str] = field(default_factory=dict)
     # The knocks heard in the window (knock.py), or None when the listener is off.
     knocks: list[dict] | None = None
+    knock_listener: str = "shadow"  # the KNOCK_LISTENER setting: "on" starts visits
     # Gatekeeper's delivery guesses (visitor_type.py) against the owner's labels.
     delivery_guess: dict | None = None
     # The conversation model in shadow (conversation_model_info), or None when it's off.
@@ -1404,6 +1405,7 @@ def build(i: Inputs) -> dict:
             "nobody_on_camera": sum(1 for k in i.knocks if not k.get("on_camera")),
             "during_visit": sum(1 for k in i.knocks if k.get("in_visit")),
             "at": [local(k["at"]) for k in i.knocks],
+            "listener": i.knock_listener,
             **knock_stats(sources.get("gatekeeper", [])),
         },
         "line_texts": i.line_texts,
@@ -1448,7 +1450,9 @@ def summary_lines(report: dict) -> list[str]:
     lines = [
         f"Last {report['hours']} h, to {report['window'][1]}",
         f"Visits: {counts['visits']} (person {triggers.get('person', 0)}, "
-        f"button {triggers.get('button', 0)}): {labels}",
+        f"button {triggers.get('button', 0)}"
+        + (f", knock {triggers['knock']}" if triggers.get("knock") else "")
+        + f"): {labels}",
         "Porch arrivals"
         + (" (own perception)" if report["arrivals"].get("by") == "own perception" else "")
         + (f" since {report['arrivals']['since']}" if report["arrivals"].get("since") else "")
@@ -1532,7 +1536,9 @@ def summary_lines(report: dict) -> list[str]:
         )
     if (kn := report.get("knocks")) is not None:
         lines.append(
-            f"Knocks heard (shadow): {kn['heard']}"
+            "Knocks heard "
+            + ("(a knock starts a visit)" if kn.get("listener") == "on" else "(shadow)")
+            + f": {kn['heard']}"
             + (
                 f" ({kn['nobody_on_camera']} with nobody on camera, {kn['during_visit']} during "
                 f"a visit): {', '.join(kn['at'][:10])}"
@@ -1905,6 +1911,7 @@ def collect(
         delivery_guess=delivery_guesses(settings, since),
         conversation_model=conversation_model_answers(settings, visits),
         knocks=knocks_heard(settings, since),
+        knock_listener=settings.knock_listener,
         line_texts={**settings.greeting_texts(), **settings.no_answer_texts()},
         own_perception=settings.own_perception,
         perception=settings.perception,
