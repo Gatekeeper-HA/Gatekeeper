@@ -278,12 +278,14 @@ class Shadow:
         describe: Callable[[str, bytes], str] = describe,
         clock: Callable[[], float] = time.time,
         sleep: Callable[[float], None] = time.sleep,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self.answers = answers
         self.url = url
         self._lines, self._treats = lines, treats
         self._picture, self._describe = picture, describe
         self._ask, self._clock, self._sleep = ask, clock, sleep
+        self._monotonic = monotonic
         self._queue: queue.Queue[dict] = queue.Queue()
         self._thread: threading.Thread | None = None
         self._start_lock = threading.Lock()
@@ -313,21 +315,25 @@ class Shadow:
         event_id = str(record.get("event_id", ""))
         turns, model = [], ""
         for text in inputs(record, self._lines(), self._treats):
-            began = time.monotonic()
+            began = self._monotonic()
             try:
-                raw, model = self._asked(text)
+                raw, model, answered_from = self._asked(text)
             except (OSError, ValueError, KeyError, IndexError) as e:
                 result = {"at": round(self._clock(), 3), "error": f"{type(e).__name__}: {e}"[:200]}
                 self.answers.add(event_id, result)
                 log.warning("conversation model (shadow) couldn't be asked: %s", result["error"])
                 return result
-            seconds = round(time.monotonic() - began, 2)
+            # The model's own time: the ask that was answered, not the waits for its server
+            # (starting, loading, restarted by a deploy), which are kept apart.
+            timing = {"seconds": round(self._monotonic() - answered_from, 2)}
+            if (waited := round(answered_from - began, 2)) > 0:
+                timing["waited"] = waited
             answer = parse(raw)
             if answer is None:
-                turns.append({"unusable": raw[:300], "seconds": seconds})
+                turns.append({"unusable": raw[:300], **timing})
                 continue
             answer["broken"] = house_rules.broken(answer["say"])
-            answer["seconds"] = seconds
+            answer.update(timing)
             turns.append(answer)
         result = {"at": round(self._clock(), 3), "model": model, "turns": turns}
         if self._picture is not None:
@@ -356,12 +362,15 @@ class Shadow:
             log.warning("conversation model (shadow) couldn't describe the picture: %s", e)
             return {"camera_error": f"{type(e).__name__}: {e}"[:200]}
 
-    def _asked(self, text: str) -> tuple[str, str]:
-        """The model's answer, asking again a couple of times while its server is down
-        (starting, or restarted by a deploy)."""
+    def _asked(self, text: str) -> tuple[str, str, float]:
+        """The model's answer and name, and when the ask that was answered began, asking
+        again a couple of times while its server is down (starting, or restarted by a
+        deploy)."""
         for wait in RETRY_SECONDS:
+            began = self._monotonic()
             try:
-                return self._ask(self.url, text)
+                return (*self._ask(self.url, text), began)
             except OSError:
                 self._sleep(wait)
-        return self._ask(self.url, text)
+        began = self._monotonic()
+        return (*self._ask(self.url, text), began)

@@ -1337,6 +1337,7 @@ def test_the_conversation_model_is_held_to_gatekeeper_and_the_labels():
         "suspicious_not_warned": 1,
         "broken": {"occupancy": 1},
         "camera": {"described": 1, "not": 1},
+        "waited": {"turns": 0, "max_seconds": 0.0},
         "median_seconds": 1.0,
         "max_seconds": 2.5,
     }
@@ -1357,6 +1358,36 @@ def test_the_conversation_model_is_held_to_gatekeeper_and_the_labels():
         build(inputs(conversation_model=empty))
     )
     assert "Conversation model" not in render_text(build(inputs()))
+
+
+def test_waits_for_the_conversation_models_server_are_shown_apart():
+    from gatekeeper.report import conversation_model_info
+
+    visits = [
+        visit(NOW - 900, NOW - 880, "a", classification="no_response"),
+        visit(NOW - 800, NOW - 780, "b", classification="no_response"),
+    ]
+    answers = {
+        "a": {"model": "m.gguf", "turns": [{"kind": "nothing", "action": "ask", "seconds": 1.2}]},
+        # Asked while its server was loading: the answer's own time, and the wait apart.
+        "b": {
+            "model": "m.gguf",
+            "turns": [{"kind": "nothing", "action": "ask", "seconds": 0.8, "waited": 150.4}],
+        },
+    }
+    info = conversation_model_info(answers, visits, {})
+    assert info["waited"] == {"turns": 1, "max_seconds": 150.4}
+    assert info["max_seconds"] == 1.2
+    text = render_text(build(inputs(conversation_model=info)))
+    assert "1.2 s max; 1 turn(s) waited for its server (up to 150 s, not in the times)" in text
+    # A day with no waits says nothing about them, and older reports have no ``waited``.
+    del answers["b"]["turns"][0]["waited"]
+    assert "waited" not in render_text(
+        build(inputs(conversation_model=conversation_model_info(answers, visits, {})))
+    )
+    old = conversation_model_info(answers, visits, {})
+    del old["waited"]
+    assert "waited" not in render_text(build(inputs(conversation_model=old)))
 
 
 def test_knocks_are_counted():

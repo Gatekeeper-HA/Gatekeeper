@@ -821,7 +821,9 @@ a knock, the earlier exchanges and the visitor's words, but not yet what the cam
 Its answers are checked against the house rules (`house_rules.py`) and kept in
 `LOG_DIR/conversation-model.json`. The Visits page shows them under each visit. The daily
 report counts how often its kind of visit agrees with Gatekeeper's and with your labels,
-how often it would have warned someone off, and any line that breaks a rule. Nothing at the
+how often it would have warned someone off, and any line that breaks a rule. Its time per turn is the model's own: a turn asked while its server
+was starting or loading is timed from the ask that was answered, and the report counts the
+waits apart. Nothing at the
 door depends on it yet.
 
 It runs in llama.cpp's server (the `conversation-model` service), so visitors' words never
