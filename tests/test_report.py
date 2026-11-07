@@ -553,6 +553,41 @@ def test_where_whisper_spends_its_time():
     assert "median 1.1 s (p90 1.8 s; model 1.0 s, features 0.1 s, CPU load 0.6)" in text
 
 
+def test_the_slowest_answers_waits_on_the_disk():
+    log = (
+        "### gatekeeper\n"
+        "2026-11-06 10:00:00,000 INFO    gatekeeper.audio [-] loading Whisper model: "
+        "large-v3-turbo on cuda (int8_float16)\n"
+        "2026-11-06 14:30:35,000 INFO    gatekeeper.audio [a] transcribed 10.5 s of audio in "
+        "5.46 s (features 3.27 s, model 2.19 s; load 1.1; disk waits 812, swap-ins 3104)\n"
+        "2026-11-06 17:50:41,000 INFO    gatekeeper.audio [b] transcribed 6.0 s of audio in "
+        "1.20 s (features 0.12 s, model 1.08 s; load 0.4; disk waits 3, swap-ins 0)\n"
+    )
+    w = build(inputs(log_text=log))["whisper"]
+    assert w["slowest_disk"] == {"disk_waits": 812, "swap_ins": 3104}
+    assert (
+        "; the slowest waited on the disk 812 times, 3104 pages from swap)"
+        in render_text(build(inputs(log_text=log)))
+    )
+    # Lines from before it was counted: nothing said about the disk.
+    old = log.replace("; disk waits 812, swap-ins 3104", "").replace(
+        "; disk waits 3, swap-ins 0", ""
+    )
+    assert "slowest_disk" not in build(inputs(log_text=old))["whisper"]
+    assert "on the disk" not in render_text(build(inputs(log_text=old)))
+
+
+def test_the_hosts_memory_when_the_report_ran():
+    memory = {"total": 6876, "available": 2962, "swap_total": 4095, "swap_used": 2979}
+    r = build(inputs(memory=memory))
+    assert r["host_memory"] == memory
+    assert (
+        "Host memory, when the report ran: 2.9 of 6.7 GB available; swap 2.9 of 4.0 GB in use"
+        in render_text(r)
+    )
+    assert "Host memory" not in render_text(build(inputs()))  # no /proc, or an older report
+
+
 def test_silent_turns_not_transcribed_are_counted():
     log = (
         "### gatekeeper\n"
@@ -1388,6 +1423,33 @@ def test_waits_for_the_conversation_models_server_are_shown_apart():
     old = conversation_model_info(answers, visits, {})
     del old["waited"]
     assert "waited" not in render_text(build(inputs(conversation_model=old)))
+
+
+def test_the_slowest_turns_waits_on_the_disk():
+    from gatekeeper.report import conversation_model_info
+
+    visits = [
+        visit(NOW - 900, NOW - 880, "a", classification="no_response"),
+        visit(NOW - 800, NOW - 780, "b", classification="no_response"),
+    ]
+    turn = {"kind": "nothing", "action": "ask"}
+    slow = {**turn, "seconds": 72.9, "disk_waits": 41000, "swap_ins": 9000}
+    fast = {**turn, "seconds": 1.1, "disk_waits": 2, "swap_ins": 0}
+    answers = {
+        "a": {"model": "m.gguf", "turns": [slow]},
+        "b": {"model": "m.gguf", "turns": [fast]},
+    }
+    info = conversation_model_info(answers, visits, {})
+    assert info["slowest_disk"] == {"disk_waits": 41000, "swap_ins": 9000}
+    text = render_text(build(inputs(conversation_model=info)))
+    assert "72.9 s max (the slowest waited on the disk 41000 times, 9000 pages from swap)" in text
+    # Turns from before it was counted.
+    for a in answers.values():
+        for t in a["turns"]:
+            del t["disk_waits"], t["swap_ins"]
+    info = conversation_model_info(answers, visits, {})
+    assert "slowest_disk" not in info
+    assert "on the disk" not in render_text(build(inputs(conversation_model=info)))
 
 
 def test_knocks_are_counted():

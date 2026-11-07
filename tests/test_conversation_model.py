@@ -201,6 +201,32 @@ def test_the_wait_for_its_server_is_kept_apart_from_its_time(tmp_path):
     assert second["seconds"] == 0.9 and "waited" not in second
 
 
+def test_each_turn_counts_its_waits_on_the_disk(tmp_path):
+    reads = iter(
+        [{"pswpin": 10, "pgmajfault": 5}, {"pswpin": 10, "pgmajfault": 1738}]  # the ask
+    )
+    s = Shadow(
+        Answers(tmp_path / "conversation-model.json"),
+        "http://model:8080",
+        lambda: LINES,
+        ask=lambda url, text: (answer(), "gatekeeper-test.gguf"),
+        clock=lambda: TS + 100,
+        counters=lambda: next(reads),
+    )
+    turn = s.answer(visit(("greeting_1", "hi")))["turns"][0]
+    assert (turn["disk_waits"], turn["swap_ins"]) == (1733, 0)
+    # Where there's no /proc (Windows), nothing is counted.
+    s = Shadow(
+        Answers(tmp_path / "conversation-model.json"),
+        "http://model:8080",
+        lambda: LINES,
+        ask=lambda url, text: (answer(), "gatekeeper-test.gguf"),
+        clock=lambda: TS + 100,
+        counters=dict,
+    )
+    assert "disk_waits" not in s.answer(visit(("greeting_1", "hi")))["turns"][0]
+
+
 def test_visits_are_answered_on_the_models_thread(tmp_path):
     done = threading.Event()
     s, asked = shadow(tmp_path, [answer()])

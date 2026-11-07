@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Daily report: waits on the disk** (#142). On a host short of memory, what sits idle
+  between visits (Whisper's buffers, the conversation model's tables) is swapped out, and
+  the next visit waits while it's read back. Each transcription and each conversation model
+  turn now counts the host's waits on the disk and the pages read back from swap
+  (`/proc/vmstat`). The Whisper and conversation model lines give the slowest one's counts,
+  and a new line gives the host's memory and swap in use when the report ran.
 - **More about a visit, on the Visits page** (optional, under each label):
   - what they were doing (coming home, leaving, the dog out or in, the mail, the trash...);
   - how many people came;
