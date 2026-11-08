@@ -604,6 +604,22 @@ visit (a cookie; only its hash is kept, in `LOG_DIR/web-logins.json`, so a resta
 log you out). *Log out* is at the end of the menu. Scripts can send the password with each
 request instead (HTTP Basic, any user name).
 
+### The app
+
+The web page installs as an app on a phone's home screen. Its icon opens the Visits page
+full screen, without the browser's bars, with Live, Faces and Zones a tap away. Nothing is
+kept on the phone: every page comes from the server. Away from home without a way in, the
+app says it can't reach Gatekeeper instead of showing the browser's error.
+
+A phone installs it only from a page over HTTPS whose certificate it trusts:
+1. Turn on `WEB_TLS` ([Live](#live)). Then either install `web-cert.pem` on the phone as
+   trusted, or reach the page by a name that has a real certificate (Tailscale's HTTPS
+   names, for example).
+2. Open the page and log in. On Android, choose *Install app* (or *Add to home screen*)
+   from Chrome's menu. On an iPhone, choose *Add to Home Screen* from Safari's share menu.
+
+The daily report counts how often the app was opened from the home screen.
+
 ## Visits
 
 `http://<SERVER_IP>:8098/` lists the last

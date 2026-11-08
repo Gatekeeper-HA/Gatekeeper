@@ -131,6 +131,8 @@ FACES_DELETED = re.compile(r"web: deleted (\d+) kept face\(s\)")
 FACES_FORGOT = re.compile(r"web: forgot (.+)$")
 FACES_PURGED = re.compile(r"web: purged every face")
 FACES_CAPTURE = re.compile(r"capturing faces at the door for ")
+# web.py: the installed app opened from the phone's home screen (its start page).
+OPENED_FROM_APP = "web: opened from the home screen"
 # Visit outcomes where the doorbell speaker didn't connect: nobody at the door heard a thing.
 SPEAKER_DOWN = {"talkback_failed", "talkback_unavailable"}
 # packages.py's log lines.
@@ -1360,6 +1362,9 @@ def build(i: Inputs) -> dict:
             "up_since_utc": host.get("started"),
         },
         "host_memory": i.memory,
+        "web_app": {
+            "opened": sum(OPENED_FROM_APP in line for line in sources.get("gatekeeper", []))
+        },
         "checks": checks,
         "visits": [
             {"start": local(visit_start(v)), **{k: val for k, val in v.items() if k != "ts"}}
@@ -1766,6 +1771,8 @@ def summary_lines(report: dict) -> list[str]:
         if done := [d for d in done if d]:
             audio += "; audio check " + ", ".join(done)
     lines.append("Recording audio: " + audio)
+    if opened := (report.get("web_app") or {}).get("opened"):
+        lines.append(f"Web app: opened from the home screen {opened} time(s)")
     if mem := report.get("host_memory"):
         # A host short of memory swaps out what idles between visits (Gatekeeper#142).
         lines.append(

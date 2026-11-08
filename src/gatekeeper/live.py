@@ -184,14 +184,15 @@ class LivePage:
         return answer
 
     def render(self, message: str = "", error: str = "") -> str:
-        from gatekeeper.web import STYLE, nav
+        from gatekeeper.web import STYLE, app_head, nav
 
         e = html.escape
         return "\n".join(
             [
                 "<!doctype html><html lang=en><head><meta charset=utf-8>",
                 '<meta name=viewport content="width=device-width, initial-scale=1">',
-                f"<title>Live</title><style>{STYLE}{LIVE_STYLE}</style></head>",
+                f"<title>Live</title><style>{STYLE}{LIVE_STYLE}</style>{app_head('live')}",
+                "</head>",
                 f'<body data-token="{e(self.token)}">',
                 nav("live"),
                 "<h1>Live</h1>",

@@ -251,6 +251,7 @@ def client(log, tmp_path):
 def test_visits_at_the_top_and_faces_under_it(client):
     status, body = client.get()
     assert status == 200 and b"<h1>Visits</h1>" in body
+    assert b'<link rel=manifest href="manifest.webmanifest">' in body  # the app's start page
     status, body = client.get("faces/")
     assert status == 200 and b"<h1>Household faces</h1>" in body
     assert b'<a href="../">Visits</a>' in body
