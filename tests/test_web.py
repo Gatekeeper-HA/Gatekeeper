@@ -190,8 +190,9 @@ def test_the_app_files_are_served_without_logging_in(faces):
 
 
 def test_every_page_links_the_app_relatively():
-    assert 'href="manifest.webmanifest"' in web.app_head("visits")
-    assert 'register("sw.js")' in web.app_head("visits")
+    for page in ("visits", "login"):
+        head = web.app_head(page)
+        assert 'href="manifest.webmanifest"' in head and 'register("sw.js")' in head
     for page in ("faces", "live", "zones"):
         head = web.app_head(page)
         assert 'href="../manifest.webmanifest"' in head and 'register("../sw.js")' in head

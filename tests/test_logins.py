@@ -65,6 +65,7 @@ def test_a_page_sends_you_to_log_in_and_back(site):
     status, body, _ = b.request("login?next=faces/")
     assert status == 200 and 'name=next value="faces/"' in body
     assert "autocomplete=current-password" in body
+    assert 'href="manifest.webmanifest"' in body  # the app installs from here too
 
     status, body, _ = b.log_in("guess", "faces/")
     assert status == 401 and "not the password" in body and not b.cookies
