@@ -417,10 +417,12 @@ def handler(
     live=None,
     logged_in: logins.Logins | None = None,
     push=None,
+    replies: Callable[[str], None] | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     """``visits``: the Visits page (visits.VisitsPage) at ``/``, with the faces at
     ``faces/``; without it the faces are at ``/``. ``zones``: the Zones page
-    (zones.ZonesPage) at ``zones/``. ``push``: the app's notifications, at ``push/``."""
+    (zones.ZonesPage) at ``zones/``. ``push``: the app's notifications, at ``push/``.
+    ``replies``: their quick reply buttons' text (quick_reply.QuickReplies.from_button)."""
     expected = password.encode()
     sessions = logged_in or logins.Logins(None)
 
@@ -675,6 +677,12 @@ def handler(
             if urllib.parse.urlsplit(self.path).path.endswith("/login"):
                 self._login(length)
                 return
+            if replies and urllib.parse.urlsplit(self.path).path.endswith("/push/reply"):
+                # A quick reply button in the app's notification (sw.js): signed, and
+                # checked by quick_reply.py, so it needs no login (as ntfy's doesn't).
+                replies(self.rfile.read(length).decode("utf-8", "replace")[:200])
+                self._send(204, b"", "text/plain")
+                return
             if not self._authorized():
                 return
             post_path = urllib.parse.urlsplit(self.path).path
@@ -755,16 +763,19 @@ def serve(
     tls: ssl.SSLContext | None = None,
     logged_in: logins.Logins | None = None,
     push=None,
+    replies: Callable[[str], None] | None = None,
 ) -> ThreadingHTTPServer:
     """Serve the pages on ``port`` in a daemon thread; over HTTPS with ``tls``. ``push``:
-    the app's notifications (webpush.WebPush), switched on from the Visits page."""
+    the app's notifications (webpush.WebPush), switched on from the Visits page, and
+    ``replies``: their quick reply buttons."""
     for other in (visits, zones, live):
         if other is not None:
             other.token = page.token  # one token proves a form came from any page
     if visits is not None and push is not None:
         visits.push_key = push.public_key
     server = _Server(
-        ("0.0.0.0", port), handler(page, password, visits, zones, live, logged_in, push)
+        ("0.0.0.0", port),
+        handler(page, password, visits, zones, live, logged_in, push, replies),
     )
     server.ssl_context = tls
     threading.Thread(target=server.serve_forever, name="web", daemon=True).start()

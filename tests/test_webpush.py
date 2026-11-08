@@ -226,6 +226,28 @@ def test_the_snapshot_is_at_an_unguessable_address_while_the_notification_is_kep
     assert "image" not in phone.read(service.posted[-1])
 
 
+def test_the_buttons_go_with_it():
+    n = Notification(
+        "Suspicious visitor at the front door",
+        "Why: ...",
+        priority=5,
+        actions=[("I'm coming", "e1 coming 0123456789abcdef")],
+        links=[
+            ("Text 911", "sms:911?body=Suspicious%20person"),
+            ("Call 911", "tel:911"),
+            ("Nothing else", "javascript:alert(1)"),  # only the phone's call and text links
+        ],
+    )
+    data = json.loads(webpush.payload(n))
+    assert data["replies"] == [{"title": "I'm coming", "reply": "e1 coming 0123456789abcdef"}]
+    assert data["links"] == [
+        {"title": "Text 911", "url": "sms:911?body=Suspicious%20person"},
+        {"title": "Call 911", "url": "tel:911"},
+    ]
+    plain = json.loads(webpush.payload(Notification("Package at the front door", "Left.")))
+    assert "replies" not in plain and "links" not in plain
+
+
 def test_a_long_message_is_cut_to_fit():
     for message in ("x" * 10_000, "é" * 5_000):
         data = webpush.payload(Notification("Law enforcement at the front door", message))
@@ -247,9 +269,10 @@ def site(tmp_path):
         snapshot=lambda event_id: None,
         snapshot_dir=tmp_path,
     )
-    server = web.serve(faces, PASSWORD, port=0, visits=visits, push=push)
+    said = []  # the quick reply buttons' text (quick_reply.QuickReplies.from_button)
+    server = web.serve(faces, PASSWORD, port=0, visits=visits, push=push, replies=said.append)
     base = f"http://127.0.0.1:{server.server_address[1]}/"
-    yield base, faces.token, push, service
+    yield base, faces.token, push, service, said
     server.shutdown()
 
 
@@ -268,7 +291,7 @@ def call(base, path, body=None, token="", password=PASSWORD):
 
 
 def test_the_visits_page_has_the_switch(site):
-    base, token, push, _ = site
+    base, token, push, _, _ = site
     status, page = call(base, "")
     assert status == 200
     assert f'data-key="{push.public_key}"'.encode() in page
@@ -280,10 +303,22 @@ def test_the_visits_page_has_the_switch(site):
     assert status == 200 and struct.unpack(">II", png[16:24]) == (96, 96)
     status, js = call(base, "sw.js", password="")
     assert b'addEventListener("push"' in js and b'addEventListener("notificationclick"' in js
+    # The buttons: as many as the phone shows, the replies posted, 911's page made here
+    # and taking only call and text links.
+    assert b"maxActions" in js and b'"push/reply"' in js
+    assert b'new URL("emergency"' in js and b"/^(tel|sms):/" in js
+
+
+def test_a_quick_reply_button_needs_no_login(site):
+    base, _, _, _, said = site
+    assert call(base, "push/reply", b"e1 coming 0123456789abcdef", password="")[0] == 204
+    assert call(base, "api/hassio_ingress/abc/push/reply", b"x" * 500, password="")[0] == 204
+    # Checked by quick_reply.py (the signature); only its first 200 characters.
+    assert said == ["e1 coming 0123456789abcdef", "x" * 200]
 
 
 def test_a_phone_turns_them_on_tests_them_and_turns_them_off(site):
-    base, token, push, service = site
+    base, token, push, service, _ = site
     phone = Phone()
     endpoint = {"endpoint": phone.subscription["endpoint"]}
     assert call(base, "push/subscribe", phone.subscription, token, password="")[0] == 401
@@ -331,5 +366,6 @@ def test_without_them_there_is_no_switch(tmp_path):
         status, page = call(base, "")
         assert status == 200 and b"id=push" not in page
         assert call(base, "push/subscribe", Phone().subscription, faces.token)[0] != 204
+        assert call(base, "push/reply", b"e1 coming x", password="")[0] == 401
     finally:
         server.shutdown()

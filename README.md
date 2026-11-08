@@ -83,7 +83,7 @@ Only services that require a login are published, on `SERVER_IP`:
 | 8971 | Frigate UI and API | HTTPS, Frigate login |
 | 1883 | MQTT | Per-account passwords (see [MQTT](#mqtt)) |
 | 8090 | ntfy notifications | Gatekeeper token / `phone` user; anyone may post a quick reply (signed, see [Quick replies](#quick-replies)) |
-| 8098 | Gatekeeper's web page: [visits](#visits), [household faces](#household-faces) and [zones](#zones) | `GATEKEEPER_WEB_PASSWORD` (plain HTTP; off without a password) |
+| 8098 | Gatekeeper's web page: [visits](#visits), [household faces](#household-faces) and [zones](#zones) | `GATEKEEPER_WEB_PASSWORD` (HTTPS with `WEB_TLS`; off without a password). Without it: the [app's](#the-app) files, a notification's snapshot (at an unguessable address, for 12 hours) and a quick reply (signed) |
 | 8123 | Home Assistant (optional `ha` profile) | Home Assistant login |
 
 Frigate's unauthenticated API (5000) and go2rtc (API/UI, RTSP restream, WebRTC) are used
@@ -545,7 +545,12 @@ gets them anywhere, though opening one away from home needs a way in (a VPN, Tai
   carry a picture, so the phone fetches it from an unguessable address that works without
   logging in, kept in the server's memory for 12 hours (as long as an undelivered
   notification is kept).
-- Not yet in the app: the buttons (quick replies, 911).
+- The buttons: as many as the phone shows (Chrome has shown two), 911 first, then the
+  [quick replies](#quick-replies). 911 is one button, *Call or text 911*: it opens a page
+  with *Call 911* and *Text 911* (`EMERGENCY_BUTTONS`), one tap more than ntfy's. That page
+  is built into the app, so it opens even when the phone can't reach the server. A quick
+  reply needs the server: if the phone can't reach it, a notification says the reply
+  wasn't said.
 - On an iPhone, only in the app added to the Home Screen (iOS 16.4 or later).
 - The phones are kept in `LOG_DIR/web-push.json`, and the key in `LOG_DIR/web-push-key.pem`.
   A new key ends every phone's subscription: turn them on again.
@@ -570,6 +575,9 @@ is made with a key Gatekeeper creates at startup, so only buttons from its own n
 work. After a restart, older buttons stop working. On your own ntfy server, allow anonymous
 writes to the reply topic (`ntfy access everyone doorbell-replies write-only`) and give
 Gatekeeper's user read access to it.
+
+**In the app** ([notifications in the app](#in-the-app)), each button posts the same signed
+text to the web page's `push/reply`, which needs no login for the same reason.
 
 **Home Assistant** gets a *Say: …* button per reply on the Gatekeeper device (see [MQTT](#mqtt)),
 which answers the latest visit. Use them in a dashboard, or as actions of your own

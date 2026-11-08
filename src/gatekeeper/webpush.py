@@ -157,7 +157,14 @@ def phone(subscription) -> dict:
 def payload(notification, image: str = "") -> bytes:
     """What the app's service worker shows (sw.js): the title and message, the visit's
     tag (its next notification replaces this one), quiet when ntfy's would be (priority
-    2 or less), the page a tap opens (Live, like ntfy's) and the snapshot's address."""
+    2 or less), the page a tap opens (Live, like ntfy's), the snapshot's address, and
+    the buttons: the quick replies' signed text, and the 911 links (EMERGENCY_BUTTONS)."""
+    buttons = {}
+    if notification.actions:
+        buttons["replies"] = [{"title": t, "reply": r} for t, r in notification.actions]
+    links = [(t, u) for t, u in notification.links if u.startswith(("tel:", "sms:"))]
+    if links:
+        buttons["links"] = [{"title": t, "url": u} for t, u in links]
 
     def encoded(message: str) -> bytes:
         return json.dumps(
@@ -168,6 +175,7 @@ def payload(notification, image: str = "") -> bytes:
                 "silent": notification.priority <= 2,
                 "url": "live/",
                 **({"image": image} if image else {}),
+                **buttons,
             },
             ensure_ascii=False,
         ).encode()

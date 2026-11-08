@@ -596,7 +596,7 @@ def main() -> None:
             settings.ntfy_url,
             settings.ntfy_reply_topic,
             settings.ntfy_token.get_secret_value(),
-            quick.from_ntfy,
+            quick.from_button,
         )
         start_thread("quick-replies", replies.run_forever)
     tap = None
@@ -737,6 +737,7 @@ def main() -> None:
             tls=tls,
             logged_in=Logins(settings.log_dir / "web-logins.json"),
             push=push,
+            replies=quick.from_button if quick else None,
         )
     start_thread(
         "sweep", tracker.sweep_forever, settings.sweep_interval_seconds, on_sweep=health.sweep_done
