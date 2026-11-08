@@ -117,6 +117,9 @@ start(false);
 
 LIVE_STYLE = """
 video { width: 100%; max-width: 960px; background: #000; border-radius: 6px; display: block; }
+details.more { margin-top: 2em; } details.more summary { cursor: pointer; color: #555; }
+a.call { display: inline-block; margin: 8px 8px 0 0; padding: 8px 14px; border-radius: 6px;
+  color: #fff; background: #c62828; text-decoration: none; }
 """
 
 
@@ -135,11 +138,16 @@ class LivePage:
         talk_stream: str | None = None,
         owner=None,
         timeout: float = 10.0,
+        emergency: list[tuple[str, str]] | None = None,
     ) -> None:
         self.go2rtc_api = go2rtc_api.rstrip("/")
         self.stream, self.hd_stream, self.talk_stream = stream, hd_stream, talk_stream
         self.owner = owner
         self.timeout = timeout
+        # EMERGENCY_BUTTONS: Call 911 and Text 911 (notify.links_911), out of the way under
+        # More. A notification puts them first only when Gatekeeper thinks it's an emergency
+        # or a suspicious visitor; this is for anything it didn't catch.
+        self.emergency = emergency or []
 
     def talk(self, sdp: str) -> str:
         """The resident starts talking: Gatekeeper steps out at once, then go2rtc's answer
@@ -183,6 +191,21 @@ class LivePage:
             raise ValueError("The camera's stream isn't available right now.") from None
         return answer
 
+    def _more(self) -> list[str]:
+        if not self.emergency:
+            return []
+        e = html.escape
+        # Call first: with no visit to describe, the text says only where.
+        links = sorted(self.emergency, key=lambda link: not link[1].startswith("tel:"))
+        return [
+            "<details class=more><summary>More</summary><p>",
+            *(f'<a class=call href="{e(url)}">{e(label)}</a> ' for label, url in links),
+            "</p><p class=note>For an emergency Gatekeeper didn't catch. Text 911 opens your "
+            "messages with your address: you still tap send.</p></details>"
+            if any(url.startswith("sms:") for _, url in links)
+            else "</p></details>",
+        ]
+
     def render(self, message: str = "", error: str = "") -> str:
         from gatekeeper.web import STYLE, app_head, nav
 
@@ -206,6 +229,7 @@ class LivePage:
                 "<p class=note>The door now, with sound, on your home network. HD is the "
                 "camera's full resolution: heavier on a phone. While you talk, Gatekeeper "
                 "steps out of any conversation at the door and greets nobody.</p>",
+                *self._more(),
                 f"<script>const RENEW = {RENEW_SECONDS};{SCRIPT}</script></body></html>",
             ]
         )

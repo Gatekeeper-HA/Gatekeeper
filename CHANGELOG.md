@@ -6,6 +6,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **911 under *More* on the Live page** (with `EMERGENCY_BUTTONS`): *Call 911* and *Text
+  911* with your address, out of the way, for an emergency Gatekeeper didn't catch. A
+  notification still has 911 buttons only when Gatekeeper judges an emergency or a
+  suspicious visitor, and then first.
 - **Settings page** (`settings/` on the web page, in every page's menu): threat levels, the
   911 buttons and the address *Text 911* sends, and Halloween (on or off, hours, treats,
   press sound), without editing `.env`. What it saves (`LOG_DIR/settings.json`, mode 600)
