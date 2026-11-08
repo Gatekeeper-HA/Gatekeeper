@@ -18,19 +18,21 @@ reach the server from outside (a VPN, for now).</p>
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
 
-// The app's notifications (webpush.py): a visit's next one replaces it (its tag), and
-// tapping one opens its page (Live) in the app.
+// The app's notifications (webpush.py): the visitor's snapshot (fetched from the server),
+// a visit's next one replaces it (its tag), and tapping one opens its page (Live).
 self.addEventListener("push", (event) => {
   const n = event.data ? event.data.json() : { title: "Gatekeeper" };
+  const scope = self.registration.scope;
   event.waitUntil(
     self.registration.showNotification(n.title, {
       body: n.body || "",
       icon: "icon-192.png",
       badge: "badge-96.png",
+      image: n.image ? new URL(n.image, scope).href : undefined,
       tag: n.tag || undefined,
       renotify: Boolean(n.tag),
       silent: Boolean(n.silent),
-      data: { url: new URL(n.url || "./", self.registration.scope).href },
+      data: { url: new URL(n.url || "./", scope).href },
     }),
   );
 });

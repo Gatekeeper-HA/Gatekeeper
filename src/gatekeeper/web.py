@@ -616,6 +616,14 @@ def handler(
             if (name := url_path.rsplit("/", 1)[-1]) in APP_FILES:
                 self._send(200, (APP_DIR / name).read_bytes(), APP_FILES[name])
                 return
+            if push and (m := re.fullmatch(r".*/push/image/([\w-]+)\.jpg", url_path)):
+                # A notification's snapshot: its unguessable address is the key (webpush.py).
+                jpeg = push.image(m[1])
+                if jpeg is None:
+                    self.send_error(404)
+                else:
+                    self._send(200, jpeg, "image/jpeg")
+                return
             if not self._authorized():
                 return
             path = urllib.parse.urlsplit(self.path).path

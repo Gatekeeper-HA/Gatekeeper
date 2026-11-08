@@ -8,6 +8,11 @@ passes it on without being able to read it, and is signed with Gatekeeper's own 
 
 The phones are kept in ``web-push.json`` next to the visit log, and the key in
 ``web-push-key.pem``: a new key would end every phone's subscription.
+
+A message holds at most 4 KB, so the visitor's snapshot isn't in it: the phone fetches it
+from ``push/image/<id>.jpg``, an unguessable address kept in memory for as long as the
+notification is (``TTL``), and served without logging in (the phone's notification
+fetches it without the app's login).
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ import base64
 import json
 import logging
 import os
+import secrets
 import threading
 import time
 import urllib.error
@@ -33,6 +39,7 @@ RECORD_SIZE = 4096
 # An undelivered notification (the phone off) is dropped after this, as ntfy's are.
 TTL = 12 * 3600
 MAX_PHONES = 20
+MAX_IMAGES = 30  # the snapshots kept for the notifications, newest
 # Who runs the sender, for the push service (RFC 8292's "sub"; Apple's requires one).
 CONTACT = "https://github.com/Gatekeeper-HA/Gatekeeper"
 TEST = {
@@ -147,10 +154,10 @@ def phone(subscription) -> dict:
     return {"endpoint": endpoint, "p256dh": p256dh, "auth": auth}
 
 
-def payload(notification) -> bytes:
+def payload(notification, image: str = "") -> bytes:
     """What the app's service worker shows (sw.js): the title and message, the visit's
     tag (its next notification replaces this one), quiet when ntfy's would be (priority
-    2 or less), and the page a tap opens: Live, like ntfy's."""
+    2 or less), the page a tap opens (Live, like ntfy's) and the snapshot's address."""
 
     def encoded(message: str) -> bytes:
         return json.dumps(
@@ -160,6 +167,7 @@ def payload(notification) -> bytes:
                 "tag": notification.tag,
                 "silent": notification.priority <= 2,
                 "url": "live/",
+                **({"image": image} if image else {}),
             },
             ensure_ascii=False,
         ).encode()
@@ -192,6 +200,7 @@ class WebPush:
         self._open = opener
         self._lock = threading.Lock()
         self._phones = self._load()
+        self._images: dict[str, tuple[float, bytes]] = {}  # id -> (until, the JPEG)
 
     @property
     def active(self) -> bool:
@@ -241,10 +250,27 @@ class WebPush:
             self._save()
         log.info("web push: a phone %s (%d left)", why, len(kept))
 
+    def image(self, image_id: str) -> bytes | None:
+        """A notification's snapshot (``push/image/<id>.jpg``), while it's kept."""
+        with self._lock:
+            until, jpeg = self._images.get(image_id, (0.0, b""))
+        return jpeg if until > self._clock() else None
+
+    def _keep(self, jpeg: bytes) -> str:
+        now = self._clock()
+        image_id = secrets.token_urlsafe(18)
+        with self._lock:
+            kept = [(k, v) for k, v in self._images.items() if v[0] > now]
+            self._images = dict(kept[-(MAX_IMAGES - 1) :])
+            self._images[image_id] = (now + TTL, jpeg)
+        return image_id
+
     def send(self, notification, image: bytes | None) -> None:
-        """To every phone (without the snapshot, for now). A phone whose subscription
-        ended is forgotten; any other failure is raised once all were tried."""
-        data = payload(notification)
+        """To every phone, with the snapshot's address. A phone whose subscription ended
+        is forgotten; any other failure is raised once all were tried."""
+        if not self._phones:
+            return
+        data = payload(notification, f"push/image/{self._keep(image)}.jpg" if image else "")
         urgency = "high" if notification.priority >= 4 else "normal"
         errors = []
         for p in list(self._phones):
