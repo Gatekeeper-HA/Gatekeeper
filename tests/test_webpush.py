@@ -203,6 +203,29 @@ def test_a_phone_whose_subscription_ended_is_forgotten_and_other_failures_raised
     ]
 
 
+def test_the_snapshot_is_at_an_unguessable_address_while_the_notification_is_kept(tmp_path):
+    now = [NOW]
+    service = PushService()
+    push = WebPush(tmp_path, clock=lambda: now[0], opener=service)
+    push.send(Notification("Package at the front door", "Left."), b"JPEG")
+    assert not push._images  # nobody to send it to: nothing kept
+    phone = Phone()
+    push.subscribe(phone.subscription)
+
+    push.send(Notification("Visitor at the front door", "Hi"), b"JPEG")
+    m = re.fullmatch(r"push/image/([\w-]{24})\.jpg", phone.read(service.posted[-1])["image"])
+    assert push.image(m[1]) == b"JPEG"
+    assert push.image("guess") is None
+    now[0] += webpush.TTL + 1
+    assert push.image(m[1]) is None  # as long as the push service keeps the notification
+
+    for _ in range(webpush.MAX_IMAGES + 5):
+        push.send(Notification("Visitor at the front door", "Hi"), b"JPEG")
+    assert len(push._images) == webpush.MAX_IMAGES
+    push.send(Notification("Someone went inside by the front door", "In."), None)
+    assert "image" not in phone.read(service.posted[-1])
+
+
 def test_a_long_message_is_cut_to_fit():
     for message in ("x" * 10_000, "é" * 5_000):
         data = webpush.payload(Notification("Law enforcement at the front door", message))
@@ -274,6 +297,13 @@ def test_a_phone_turns_them_on_tests_them_and_turns_them_off(site):
     assert push.active
     assert call(base, "push/test", endpoint, token)[0] == 204
     assert phone.read(service.posted[-1])["body"] == "Notifications work on this phone."
+
+    # The snapshot, as the phone's notification fetches it: no login, the address is the key.
+    push.send(Notification("Visitor at the front door", "Hi"), b"JPEG")
+    image = phone.read(service.posted[-1])["image"]
+    assert call(base, image, password="") == (200, b"JPEG")
+    assert call(base, "api/hassio_ingress/abc/" + image, password="")[0] == 200
+    assert call(base, "push/image/guess.jpg", password="")[0] == 404
 
     service.answers[endpoint["endpoint"]] = 500
     status, said = call(base, "push/test", endpoint, token)

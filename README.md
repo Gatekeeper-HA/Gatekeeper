@@ -541,7 +541,11 @@ gets them anywhere, though opening one away from home needs a way in (a VPN, Tai
 - Tapping one opens Live. A visit's next notification replaces its earlier one (the full
   story after an officer's first alert).
 - The quiet ones (the household coming home) make no sound, as with ntfy.
-- Not yet in the app: the visitor's snapshot and the buttons (quick replies, 911).
+- The visitor's snapshot shows when the phone can reach the server. A notification can't
+  carry a picture, so the phone fetches it from an unguessable address that works without
+  logging in, kept in the server's memory for 12 hours (as long as an undelivered
+  notification is kept).
+- Not yet in the app: the buttons (quick replies, 911).
 - On an iPhone, only in the app added to the Home Screen (iOS 16.4 or later).
 - The phones are kept in `LOG_DIR/web-push.json`, and the key in `LOG_DIR/web-push-key.pem`.
   A new key ends every phone's subscription: turn them on again.
