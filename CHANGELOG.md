@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Settings page** (`settings/` on the web page, in every page's menu): threat levels, the
+  911 buttons and the address *Text 911* sends, and Halloween (on or off, hours, treats,
+  press sound), without editing `.env`. What it saves (`LOG_DIR/settings.json`, mode 600)
+  replaces the same settings from `.env`, and Gatekeeper restarts to use it once no visit
+  is in progress. A saved setting that no longer fits is left out with a warning. README,
+  *Settings*.
 - **Notifications in the app** (web push), next to ntfy. A phone turns them on from the
   Visits page in the installed app. Each one is encrypted for that phone (RFC 8291) and
   signed with Gatekeeper's own key (VAPID), so the phone's push service passes it on

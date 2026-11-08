@@ -1,6 +1,7 @@
 """Gatekeeper's web page (``WEB_PORT``, behind ``WEB_PASSWORD``): the visits at the door
 (``/``, visits.py, where the owner says what each visit was), the household's faces
-(``faces/``) and the zones (``zones/``, zones.py, drawn on the camera's picture).
+(``faces/``), the zones (``zones/``, zones.py, drawn on the camera's picture) and the
+settings (``settings/``, settings_page.py).
 
 With face recognition on, the faces of people who went in by the front door are kept
 for enrollment (face_watch.py). This page shows them grouped by person: tick the faces
@@ -362,10 +363,11 @@ def _day(ts: float) -> str:
 
 def nav(current: str) -> str:
     """The links between the pages: Visits is at ``./``, Faces at ``faces/``, Zones at
-    ``zones/`` (relative, so they work behind a path prefix)."""
+    ``zones/``, Settings at ``settings/`` (relative, so they work behind a path prefix)."""
     up = "" if current == "visits" else "../"
     links = [("visits", "Visits", up or "./"), ("live", "Live", f"{up}live/")]
     links += [("faces", "Faces", f"{up}faces/"), ("zones", "Zones", f"{up}zones/")]
+    links += [("settings", "Settings", f"{up}settings/")]
     return (
         "<nav>"
         + " ".join(
@@ -418,11 +420,13 @@ def handler(
     logged_in: logins.Logins | None = None,
     push=None,
     replies: Callable[[str], None] | None = None,
+    settings_page=None,
 ) -> type[BaseHTTPRequestHandler]:
     """``visits``: the Visits page (visits.VisitsPage) at ``/``, with the faces at
     ``faces/``; without it the faces are at ``/``. ``zones``: the Zones page
     (zones.ZonesPage) at ``zones/``. ``push``: the app's notifications, at ``push/``.
-    ``replies``: their quick reply buttons' text (quick_reply.QuickReplies.from_button)."""
+    ``replies``: their quick reply buttons' text (quick_reply.QuickReplies.from_button).
+    ``settings_page``: the settings page (settings_page.SettingsPage) at ``settings/``."""
     expected = password.encode()
     sessions = logged_in or logins.Logins(None)
 
@@ -646,6 +650,10 @@ def handler(
             elif live and path.endswith("/live/"):
                 self._page(which=live)
                 return
+            elif settings_page and path.endswith("/settings/"):
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                self._page(which=settings_page, message=query.get("done", [""])[0][:300])
+                return
             elif zones and path.endswith("/zones/"):
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 self._page(which=zones, message=query.get("done", [""])[0][:200])
@@ -708,6 +716,8 @@ def handler(
             which = visits if visits and action == "labels" else page
             if zones and path.endswith("/zones/save"):
                 which = zones
+            if settings_page and path.endswith(("/settings/save", "/settings/forget")):
+                which = settings_page
             if not hmac.compare_digest(form.get("token", [""])[0], page.token):
                 self._page(
                     403, which, error="That form is out of date: reload the page and try again."
@@ -720,6 +730,11 @@ def handler(
 
                     chosen = {k[6:]: v[0] for k, v in form.items() if k.startswith("label:")}
                     done = visits.save(chosen, {eid: form_details(form, eid) for eid in chosen})
+                elif which is settings_page:
+                    if action == "save":
+                        done = settings_page.save({k: v[0] for k, v in form.items()})
+                    else:
+                        done = settings_page.forget()
                 elif which is zones:
                     done = zones.save({k: v[0] for k, v in form.items() if k.startswith("zone:")})
                 elif action == "enroll":
@@ -764,18 +779,19 @@ def serve(
     logged_in: logins.Logins | None = None,
     push=None,
     replies: Callable[[str], None] | None = None,
+    settings_page=None,
 ) -> ThreadingHTTPServer:
     """Serve the pages on ``port`` in a daemon thread; over HTTPS with ``tls``. ``push``:
     the app's notifications (webpush.WebPush), switched on from the Visits page, and
-    ``replies``: their quick reply buttons."""
-    for other in (visits, zones, live):
+    ``replies``: their quick reply buttons. ``settings_page``: at ``settings/``."""
+    for other in (visits, zones, live, settings_page):
         if other is not None:
             other.token = page.token  # one token proves a form came from any page
     if visits is not None and push is not None:
         visits.push_key = push.public_key
     server = _Server(
         ("0.0.0.0", port),
-        handler(page, password, visits, zones, live, logged_in, push, replies),
+        handler(page, password, visits, zones, live, logged_in, push, replies, settings_page),
     )
     server.ssl_context = tls
     threading.Thread(target=server.serve_forever, name="web", daemon=True).start()

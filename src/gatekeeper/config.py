@@ -2,16 +2,22 @@
 
 Every field maps to the upper-cased environment variable of the same name
 (``mqtt_host`` -> ``MQTT_HOST``). Defaults are the compose rig's; the Home
-Assistant add-on overrides them from its options in the s6 ``run`` script.
+Assistant add-on overrides them from its options in the s6 ``run`` script. The
+settings page (settings_page.py) saves a few of them, which replace the
+environment's (``load``).
 """
 
 from __future__ import annotations
 
+import json
+import logging
 from pathlib import Path
 from typing import Literal
 
-from pydantic import SecretStr, model_validator
+from pydantic import SecretStr, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+log = logging.getLogger(__name__)
 
 REPLY_KEYS = ("no_answer", "delivery", "sales", "maintenance", "generic", "pressed")
 
@@ -745,3 +751,45 @@ def _pool(
     if pressed is not False:
         out |= {f"{kind}_pressed_{n}": t for n, t in enumerate(pressed_lines, 1)}
     return out or {kind: fallback}
+
+
+# What the settings page (settings_page.py) changes. It keeps them in LOG_DIR/settings.json,
+# and they replace the same settings from the environment.
+SAVED_SETTINGS = "settings.json"
+PAGE_SETTINGS = (
+    "threat_levels",
+    "emergency_buttons",
+    "home_address",
+    "halloween",
+    "halloween_start_hour",
+    "halloween_end_hour",
+    "halloween_treats",
+    "halloween_press_sound",
+)
+
+
+def saved_settings(path: Path) -> dict:
+    """What the settings page saved in ``path`` (only its own settings), or nothing."""
+    try:
+        saved = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as e:
+        log.warning("couldn't read the settings page's %s: %s", path, e)
+        return {}
+    return {k: v for k, v in saved.items() if k in PAGE_SETTINGS} if isinstance(saved, dict) else {}
+
+
+def load() -> Settings:
+    """The environment's settings, with what the settings page saved on top. Saved ones
+    that no longer fit the environment's are left out (with a warning): they never stop
+    Gatekeeper from starting."""
+    settings = Settings()
+    saved = saved_settings(settings.log_dir / SAVED_SETTINGS)
+    if not saved:
+        return settings
+    try:
+        return Settings(**saved)
+    except ValidationError as e:
+        log.warning("the settings page's settings don't fit the environment's; not used: %s", e)
+        return settings
