@@ -375,8 +375,9 @@ def nav(current: str) -> str:
 
 def app_head(current: str) -> str:
     """What makes the pages an installable app, for each page's head: the manifest, the
-    icon an iPhone uses, the bar colours and the service worker. Relative, like ``nav``."""
-    up = "" if current == "visits" else "../"
+    icon an iPhone uses, the bar colours and the service worker. Relative, like ``nav``;
+    the login page sits beside Visits."""
+    up = "" if current in ("visits", "login") else "../"
     return (
         f'<link rel=manifest href="{up}manifest.webmanifest">'
         f'<link rel=apple-touch-icon href="{up}icon-192.png">'

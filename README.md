@@ -615,8 +615,20 @@ A phone installs it only from a page over HTTPS whose certificate it trusts:
 1. Turn on `WEB_TLS` ([Live](#live)). Then either install `web-cert.pem` on the phone as
    trusted, or reach the page by a name that has a real certificate (Tailscale's HTTPS
    names, for example).
-2. Open the page and log in. On Android, choose *Install app* (or *Add to home screen*)
-   from Chrome's menu. On an iPhone, choose *Add to Home Screen* from Safari's share menu.
+2. Open the page. On Android, choose *Install and create shortcut* from Chrome's menu
+   (*Add to home screen* before Chrome 150), then *Install*. On an iPhone, choose *Add to
+   Home Screen* from Safari's share menu.
+
+With [Tailscale](https://tailscale.com), the app also works away from home, and only your
+own devices can reach it. Add the server and the phone to your tailnet, then on the server:
+
+```
+sudo tailscale serve --bg https+insecure://<SERVER_IP>:8098
+```
+
+The page is published on `SERVER_IP` only, not on `localhost`. Leave Tailscale Funnel off:
+it would put the page on the public internet. The app's address is then
+`https://<server name>.<tailnet name>.ts.net/`.
 
 The daily report counts how often the app was opened from the home screen.
 

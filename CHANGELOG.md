@@ -10,8 +10,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   manifest, icons and a service worker, served without logging in since they hold nothing
   private. The icon opens the Visits page full screen. Nothing is kept on the phone, and
   when the server can't be reached the app says so. It needs HTTPS with a certificate the
-  phone trusts (README, *The app*). The daily report counts how often it was opened from
-  the home screen.
+  phone trusts (README, *The app*, with the steps for Tailscale). It installs from the
+  login page too. The daily report counts how often it was opened from the home screen.
 - **Daily report: waits on the disk** (#142). On a host short of memory, what sits idle
   between visits (Whisper's buffers, the conversation model's tables) is swapped out, and
   the next visit waits while it's read back. Each transcription and each conversation model
