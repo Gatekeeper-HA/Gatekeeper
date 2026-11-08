@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Notifications in the app** (web push), next to ntfy. A phone turns them on from the
+  Visits page in the installed app. Each one is encrypted for that phone (RFC 8291) and
+  signed with Gatekeeper's own key (VAPID), so the phone's push service passes it on
+  without reading it; no account. Tapping one opens Live, a visit's next notification
+  replaces its earlier one, and the quiet ones make no sound. The snapshot and the buttons
+  come next. README, *Notifications*, *In the app*.
 - **The web page installs as an app** on a phone's home screen (Android and iPhone): a
   manifest, icons and a service worker, served without logging in since they hold nothing
   private. The icon opens the Visits page full screen. Nothing is kept on the phone, and

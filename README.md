@@ -529,6 +529,23 @@ the `phone` user can read it. In the ntfy Android app:
 
 The phone must be able to reach the server (home Wi-Fi, or a VPN when away).
 
+### In the app
+
+The installed app ([The app](#the-app)) gets the same notifications, without ntfy. Open
+the Visits page in the app and tap *Turn on* next to *Notifications on this phone are off*;
+*Send a test* checks that they arrive. They go through the phone's own push service
+(Google's for Chrome on Android, Apple's on an iPhone), encrypted for that phone, so the push
+service can't read them. There's no account to make, and the server only sends: the phone
+gets them anywhere, though opening one away from home needs a way in (a VPN, Tailscale).
+
+- Tapping one opens Live. A visit's next notification replaces its earlier one (the full
+  story after an officer's first alert).
+- The quiet ones (the household coming home) make no sound, as with ntfy.
+- Not yet in the app: the visitor's snapshot and the buttons (quick replies, 911).
+- On an iPhone, only in the app added to the Home Screen (iOS 16.4 or later).
+- The phones are kept in `LOG_DIR/web-push.json`, and the key in `LOG_DIR/web-push-key.pem`.
+  A new key ends every phone's subscription: turn them on again.
+
 ## Quick replies
 
 A doorbell notification has buttons to answer the visitor without going to the door:
@@ -609,7 +626,8 @@ request instead (HTTP Basic, any user name).
 The web page installs as an app on a phone's home screen. Its icon opens the Visits page
 full screen, without the browser's bars, with Live, Faces and Zones a tap away. Nothing is
 kept on the phone: every page comes from the server. Away from home without a way in, the
-app says it can't reach Gatekeeper instead of showing the browser's error.
+app says it can't reach Gatekeeper instead of showing the browser's error. It gets
+Gatekeeper's notifications too ([In the app](#in-the-app)).
 
 A phone installs it only from a page over HTTPS whose certificate it trusts:
 1. Turn on `WEB_TLS` ([Live](#live)). Then either install `web-cert.pem` on the phone as

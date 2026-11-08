@@ -147,6 +147,17 @@ def test_notifier_without_backends_does_nothing():
     Notifier([])(visit())
 
 
+def test_a_backend_with_nobody_to_send_to_is_skipped_and_the_visit_is_the_tag():
+    idle, ok = FakeBackend("idle"), FakeBackend("ok")
+    idle.active = False  # the app's notifications, with no phone (webpush.WebPush)
+    tags = []
+    ok.send = lambda n, image: tags.append(n.tag)
+    Notifier([idle, ok]).send(
+        visit(event_id="e7", classification="solicitor", transcript="x", response="No.")
+    )
+    assert idle.sent == [] and tags == ["e7"]
+
+
 def test_compose_when_the_reply_could_not_be_played():
     # 2026-10-03 go2rtc-stop test: the message read "Replied: None".
     n = compose(visit(classification="no_response", transcript="Hello?", response=None,

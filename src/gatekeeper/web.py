@@ -19,7 +19,8 @@ Faces are biometric data:
 It's plain HTML with relative links, so it works on a phone and behind a proxy that adds
 a path prefix (Home Assistant's ingress). Only the Zones page has a script of its own (to
 draw by clicking), and works without it. Every page also registers the app's service worker
-(``app_head``): with it the pages install as an app on a phone's home screen.
+(``app_head``): with it the pages install as an app on a phone's home screen. The Visits
+page's ``push.js`` turns the app's notifications on (``push/``, webpush.py).
 """
 
 from __future__ import annotations
@@ -66,7 +67,9 @@ APP_DIR = Path(__file__).parent / "webapp"
 APP_FILES = {
     "manifest.webmanifest": "application/manifest+json",
     "sw.js": "text/javascript; charset=utf-8",
+    "push.js": "text/javascript; charset=utf-8",
     "icon-192.png": "image/png",
+    "badge-96.png": "image/png",
     "icon-512.png": "image/png",
     "icon-maskable-512.png": "image/png",
 }
@@ -413,10 +416,11 @@ def handler(
     zones=None,
     live=None,
     logged_in: logins.Logins | None = None,
+    push=None,
 ) -> type[BaseHTTPRequestHandler]:
     """``visits``: the Visits page (visits.VisitsPage) at ``/``, with the faces at
     ``faces/``; without it the faces are at ``/``. ``zones``: the Zones page
-    (zones.ZonesPage) at ``zones/``."""
+    (zones.ZonesPage) at ``zones/``. ``push``: the app's notifications, at ``push/``."""
     expected = password.encode()
     sessions = logged_in or logins.Logins(None)
 
@@ -530,6 +534,32 @@ def handler(
                 return
             self._send(200, answer.encode(), "application/sdp")
 
+        def _push(self, length: int, action: str) -> None:
+            """The Visits page's switch for the app's notifications (push.js): a phone's
+            subscription, or its address, as JSON."""
+            given = self.rfile.read(length)
+            if not hmac.compare_digest(self.headers.get("X-Token", ""), page.token):
+                self._send(403, b"That page is out of date: reload it.", "text/plain")
+                return
+            try:
+                given = json.loads(given or b"{}")
+                if not isinstance(given, dict):
+                    raise ValueError("Send a subscription.")
+                if action == "subscribe":
+                    push.subscribe(given)
+                elif action == "unsubscribe":
+                    push.unsubscribe(str(given.get("endpoint", "")))
+                else:
+                    push.test(str(given.get("endpoint", "")))
+            except ValueError as e:
+                self._send(400, str(e).encode(), "text/plain; charset=utf-8")
+                return
+            except Exception as e:  # the push service refused the test
+                log.warning("web push: the test failed: %s", e)
+                self._send(502, f"That didn't work: {e}".encode(), "text/plain; charset=utf-8")
+                return
+            self._send(204, b"", "text/plain")
+
         def _send_file(self, path: Path, kind: str) -> None:
             """A file, or the byte range asked for (Safari plays video only so)."""
             size = path.stat().st_size
@@ -640,6 +670,9 @@ def handler(
             if not self._authorized():
                 return
             post_path = urllib.parse.urlsplit(self.path).path
+            if push and post_path.endswith(("/push/subscribe", "/push/unsubscribe", "/push/test")):
+                self._push(length, post_path.rsplit("/", 1)[-1])
+                return
             if live and post_path.endswith(("/live/offer", "/live/talk")):
                 self._live_offer(length, talk=post_path.endswith("/talk"))
                 return
@@ -713,12 +746,18 @@ def serve(
     live=None,
     tls: ssl.SSLContext | None = None,
     logged_in: logins.Logins | None = None,
+    push=None,
 ) -> ThreadingHTTPServer:
-    """Serve the pages on ``port`` in a daemon thread; over HTTPS with ``tls``."""
+    """Serve the pages on ``port`` in a daemon thread; over HTTPS with ``tls``. ``push``:
+    the app's notifications (webpush.WebPush), switched on from the Visits page."""
     for other in (visits, zones, live):
         if other is not None:
             other.token = page.token  # one token proves a form came from any page
-    server = _Server(("0.0.0.0", port), handler(page, password, visits, zones, live, logged_in))
+    if visits is not None and push is not None:
+        visits.push_key = push.public_key
+    server = _Server(
+        ("0.0.0.0", port), handler(page, password, visits, zones, live, logged_in, push)
+    )
     server.ssl_context = tls
     threading.Thread(target=server.serve_forever, name="web", daemon=True).start()
     log.info(
