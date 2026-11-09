@@ -6,10 +6,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
-- **911 under *More* on the Live page** (with `EMERGENCY_BUTTONS`): *Call 911* and *Text
-  911* with your address, out of the way, for an emergency Gatekeeper didn't catch. A
-  notification still has 911 buttons only when Gatekeeper judges an emergency or a
-  suspicious visitor, and then first.
 - **Settings page** (`settings/` on the web page, in every page's menu): threat levels, the
   911 buttons and the address *Text 911* sends, and Halloween (on or off, hours, treats,
   press sound), without editing `.env`. What it saves (`LOG_DIR/settings.json`, mode 600)
@@ -25,6 +21,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   the buttons: *Call or text 911* (a page built into the app, so it opens without the
   server) and the quick replies (signed, posted to `push/reply` without a login, as ntfy's
   are). README, *Notifications*, *In the app*.
+- **911 under *More* on the Live page** (with `EMERGENCY_BUTTONS`): *Call 911* and *Text
+  911* with your address, out of the way, for an emergency Gatekeeper didn't catch. A
+  notification still has 911 buttons only when Gatekeeper judges an emergency or a
+  suspicious visitor, and then first.
 - **The web page installs as an app** on a phone's home screen (Android and iPhone): a
   manifest, icons and a service worker, served without logging in since they hold nothing
   private. The icon opens the Visits page full screen. Nothing is kept on the phone, and
