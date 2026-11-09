@@ -219,7 +219,63 @@ def test_a_good_day_is_all_clear():
         "unnotified": [],
         "slowest_seconds": 0.8,
         "failed_attempts": 0,
+        "backends": {},
     }
+
+
+def test_the_notified_line_gives_each_backend():
+    # ntfy and the app's notifications (web push) each log an attempt per visit.
+    a, b = visit(NOW - 3600, NOW - 3570), visit(NOW - 1800, NOW - 1770)
+    sent = [
+        {
+            "ts": NOW - 3569,
+            "event_id": a["event_id"],
+            "backend": "ntfy",
+            "ok": True,
+            "seconds": 0.3,
+        },
+        {
+            "ts": NOW - 3569,
+            "event_id": a["event_id"],
+            "backend": "web push",
+            "ok": True,
+            "seconds": 0.6,
+        },
+        {
+            "ts": NOW - 1769,
+            "event_id": b["event_id"],
+            "backend": "ntfy",
+            "ok": True,
+            "seconds": 0.2,
+        },
+        {
+            "ts": NOW - 1769,
+            "event_id": b["event_id"],
+            "backend": "web push",
+            "ok": False,
+            "seconds": 10.2,
+            "error": "fcm.googleapis.com: HTTP Error 403",
+        },
+        {
+            "ts": NOW - 900,
+            "event_id": "1.5-entered",
+            "backend": "web push",
+            "ok": True,
+            "seconds": 0.4,
+        },  # a quiet one (went inside): not a visit
+    ]
+    r = build(inputs(visits=[a, b], window_visits=[a, b], notifications=sent))
+    assert r["notifications"]["backends"] == {
+        "ntfy": {"sent": 2, "failed": 0},
+        "web push": {"sent": 1, "failed": 1},
+    }
+    assert r["notifications"]["notified"] == 2 and failing(r) == {}
+    assert "Notified: 2/2, slowest 0.60 s (ntfy 2, web push 1, 1 failed)" in render_text(r)
+
+    # Nobody turned the app's notifications on: only ntfy, which says so.
+    ntfy_only = [n for n in sent if n["backend"] == "ntfy"]
+    r = build(inputs(visits=[a, b], window_visits=[a, b], notifications=ntfy_only))
+    assert "Notified: 2/2, slowest 0.30 s (ntfy 2)" in render_text(r)
 
 
 def test_problems_fail_their_checks_and_make_the_title():

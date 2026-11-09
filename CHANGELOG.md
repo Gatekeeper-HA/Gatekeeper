@@ -331,6 +331,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **Daily report: the *Notified* line gives each backend** (#158). With the app's
+  notifications (web push) next to ntfy, *Notified: N/N* counted a visit notified if any
+  backend got through, so the app's notifications could stop with the report green. The
+  line now adds each backend's visits notified and failed attempts (*ntfy 14, web push 14*),
+  also in `notifications.backends`. A backend with no phone to send to isn't listed.
 - **Daily report: an arrival merged on purpose isn't a miss** (#156). Someone appearing
   right after a person left by the door, or after a household member was recognized, is
   taken for them and not greeted, by design. If their track started a few seconds before

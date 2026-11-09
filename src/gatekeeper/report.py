@@ -283,6 +283,23 @@ def log_time(text: str) -> float:
     return datetime.datetime.strptime(text, "%Y-%m-%d %H:%M:%S").timestamp()
 
 
+def notify_backends(notifications: list[dict], visits: set[str]) -> dict:
+    """Each notification backend (ntfy, the app's web push): the visits it notified, and
+    its failed attempts. A backend with nobody to send to logs nothing, so isn't here."""
+    out: dict[str, dict] = {}
+    for n in notifications:
+        if not n.get("backend"):  # logged before backends were named
+            continue
+        b = out.setdefault(n["backend"], {"sent": set(), "failed": 0})
+        if not n.get("ok"):
+            b["failed"] += 1
+        elif n.get("event_id") in visits:
+            b["sent"].add(n["event_id"])
+    return {
+        name: {"sent": len(b["sent"]), "failed": b["failed"]} for name, b in sorted(out.items())
+    }
+
+
 def missed_why(missed: list[dict], lines: list[str], log_start: float | None = None) -> list[dict]:
     """For each porch arrival not greeted: how long Frigate saw the person, and the last
     thing Gatekeeper logged about their event, or why it couldn't have (it started before
@@ -1452,6 +1469,7 @@ def build(i: Inputs) -> dict:
             "unnotified": [v["event_id"] for v in unnotified],
             "slowest_seconds": round(slowest, 2),
             "failed_attempts": sum(1 for n in i.notifications if not n.get("ok")),
+            "backends": notify_backends(i.notifications, {v["event_id"] for v in tracked}),
         },
         "hangs": {
             "timeouts": outcomes.get("timeout", 0),
@@ -1537,7 +1555,17 @@ def summary_lines(report: dict) -> list[str]:
         + f": {report['arrivals']['total']}, "
         f"not greeted {len(report['arrivals']['missed'])}"
         + (f"; {', '.join(household)} (not greeted, on purpose)" if household else ""),
-        f"Notified: {n['notified']}/{n['tracked']}, slowest {n['slowest_seconds']:.2f} s",
+        f"Notified: {n['notified']}/{n['tracked']}, slowest {n['slowest_seconds']:.2f} s"
+        + (
+            " ("
+            + ", ".join(
+                f"{name} {b['sent']}" + (f", {b['failed']} failed" if b["failed"] else "")
+                for name, b in n["backends"].items()
+            )
+            + ")"
+            if n.get("backends")
+            else ""
+        ),
     ]
     rec = counts.get("recognized") or {}
     if rec.get("count") or rec.get("watches"):
