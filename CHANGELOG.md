@@ -317,6 +317,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **Daily report: the *Notified* line gives each backend** (#158). With the app's
+  notifications (web push) next to ntfy, *Notified: N/N* counted a visit notified if any
+  backend got through, so the app's notifications could stop with the report green. The
+  line now adds each backend's visits notified and failed attempts (*ntfy 14, web push 14*),
+  also in `notifications.backends`. A backend with no phone to send to isn't listed.
 - **The conversation model's time leaves out waiting for its server.** A turn asked while
   its server was starting or loading (after a deploy or a model change) counted the retry
   waits as the model's time: one such turn read *247.8 s max* on a day whose median was
