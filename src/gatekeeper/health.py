@@ -7,7 +7,8 @@ visits) own perception's look loop is running. Docker (compose) doesn't
 restart unhealthy containers, so on an internal hang (sweep stalled or a visit
 stuck) that lasts ``hang_exit_seconds`` the watchdog exits and
 ``restart: unless-stopped`` brings Gatekeeper back. An MQTT outage only
-reports unhealthy: paho reconnects by itself.
+reports unhealthy: paho reconnects by itself. The settings page's restart, to
+use what it saved, waits for the visit in progress (``restart_when_idle``).
 """
 
 from __future__ import annotations
@@ -73,6 +74,24 @@ class Health:
     def visit_finished(self) -> None:
         with self._lock:
             self._visit_started = None
+
+    def restart_when_idle(
+        self,
+        why: str,
+        stop: Callable[[], None],
+        longest: float = 600.0,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        """Stop Gatekeeper (``stop``: as on SIGTERM) once no visit is running, at most
+        ``longest`` seconds from now, for Docker (``restart: unless-stopped``) or the
+        add-on's supervisor to start it again: how the settings page's settings are used."""
+        sleep(1.0)  # the page's answer goes out first
+        waited = 1.0
+        while self._visit_started is not None and waited < longest:
+            sleep(1.0)
+            waited += 1.0
+        log.info("restarting %s", why)
+        stop()
 
     def _ages(self) -> tuple[float | None, float | None, float | None]:
         now = self._clock()

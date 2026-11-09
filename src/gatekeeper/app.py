@@ -16,7 +16,8 @@ from gatekeeper import __version__, occasions, threat
 from gatekeeper.audio import Synthesizer, Transcriber, presynth_all
 from gatekeeper.audio_tap import AudioTap
 from gatekeeper.button import DoorbellButton
-from gatekeeper.config import Settings
+from gatekeeper.config import SAVED_SETTINGS, Settings, saved_settings
+from gatekeeper.config import load as load_settings
 from gatekeeper.eventlog import EventLog
 from gatekeeper.frigate import FrigatePerception
 from gatekeeper.health import Health, serve
@@ -446,7 +447,7 @@ def start_own_perception(settings: Settings, zones: Zones, listeners=(), on_look
 
 
 def main() -> None:
-    settings = Settings()
+    settings = load_settings()
     setup_logging(settings.log_level, settings.log_format)
     log.info(
         "Gatekeeper %s starting: camera=%s zones=%s mqtt=%s:%s go2rtc=%s",
@@ -457,6 +458,8 @@ def main() -> None:
         settings.mqtt_port,
         settings.go2rtc_api,
     )
+    if saved := saved_settings(settings.log_dir / SAVED_SETTINGS):
+        log.info("from the settings page: %s", ", ".join(saved))
 
     on_stop: list[Callable[[], None]] = []
     stop_on_sigterm(on_stop)
@@ -727,6 +730,17 @@ def main() -> None:
             talk_stream=settings.go2rtc_talk_stream,
             owner=interaction,
         )
+        from gatekeeper.settings_page import SettingsPage
+
+        settings_page = SettingsPage(
+            settings,
+            restart=lambda: start_thread(
+                "restart",
+                health.restart_when_idle,
+                "to use the settings page's settings",
+                lambda: os.kill(os.getpid(), signal.SIGTERM),  # stop_on_sigterm's clean stop
+            ),
+        )
         web.serve(
             page,
             settings.web_password.get_secret_value(),
@@ -738,6 +752,7 @@ def main() -> None:
             logged_in=Logins(settings.log_dir / "web-logins.json"),
             push=push,
             replies=quick.from_button if quick else None,
+            settings=settings_page,
         )
     start_thread(
         "sweep", tracker.sweep_forever, settings.sweep_interval_seconds, on_sweep=health.sweep_done
