@@ -1129,10 +1129,50 @@ def test_own_perception_is_compared_with_frigates_arrivals():
     assert (
         f"Own perception (shadow, since {report.local(NOW - 8000)}): saw 1 of 3 of Frigate's "
         f"porch arrivals in the zone, 1 elsewhere, missed {report.local(NOW - 3000)}; "
-        f"3 track(s), 1 on the porch Frigate didn't have ({report.local(NOW - 3500)}); "
+        f"3 track(s), 1 on the porch Frigate didn't have ({report.local(NOW - 3500)} 0.88, 10 s); "
         "detector on 1500 of 18000 frames: on cpu 3.0 fps, median 190 ms (1 h); "
         "on cuda 1.0 fps, median 180 ms (2 h)" in render_text(r)
     )
+
+
+def test_porch_tracks_frigate_didnt_have_say_their_score_length_and_visit():
+    # Two porch tracks with no Frigate arrival near them: one started a visit (its id is
+    # the visit's event id), the other didn't. The report gives each one's best score and
+    # length, and says which started a visit (#148).
+    on = "own perception on (visits): go2rtc:8554/front_door_sub, zones porch"
+    started = (
+        NOW - 3001,
+        "own_perception",
+        f"own perception: person track {NOW - 3020:.6f}-own7 start={NOW - 3020:.1f} "
+        f"end={NOW - 3008:.1f} zones=porch path=(0.40,0.90)->(0.41,0.90) best=0.57 hits=9",
+    )
+    log = own_log((NOW - 8000, "app", on), started, own_track(NOW - 2000, NOW - 1990, "porch"))
+    greeted = visit(NOW - 3020, NOW - 2990, event_id=f"{NOW - 3020:.6f}-own7")
+    r = build(
+        inputs(
+            arrivals=[],
+            log_text=log,
+            trigger_zones=("porch",),
+            own_perception="visits",
+            window_visits=[greeted],
+            visits=[greeted],
+        )
+    )
+    own = r["own_perception"]
+    assert own["extra"] == [report.local(NOW - 3020), report.local(NOW - 2000)]
+    assert own["extra_tracks"] == [
+        {"at": report.local(NOW - 3020), "seconds": 12.0, "best": 0.57, "visit": "completed"},
+        {"at": report.local(NOW - 2000), "seconds": 10.0, "best": 0.88, "visit": None},
+    ]
+    assert (
+        f"2 on the porch Frigate didn't have (1 started a visit: {report.local(NOW - 3020)} "
+        f"0.57, 12 s, visit: completed; {report.local(NOW - 2000)} 0.88, 10 s)"
+    ) in render_text(r)
+
+
+def test_extra_tracks_from_a_report_before_their_details_are_times_only():
+    own = {"extra": ["Sat 04:39", "Sat 11:43"]}
+    assert report.extra_tracks_text(own) == "Sat 04:39, Sat 11:43"
 
 
 def test_an_arrival_while_gatekeeper_restarted_isnt_an_own_perception_miss():

@@ -31,6 +31,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   when the server can't be reached the app says so. It needs HTTPS with a certificate the
   phone trusts (README, *The app*, with the steps for Tailscale). It installs from the
   login page too. The daily report counts how often it was opened from the home screen.
+- **Daily report: porch tracks Frigate didn't have, in detail** (#148). With
+  `PERCEPTION=own` such a track starts a visit, so it's where a false detection shows. The
+  Own perception line now says how many of them started a visit, and gives each one's best
+  detector score and length; `own_perception.extra_tracks` has them with the visit's outcome.
 - **Daily report: waits on the disk** (#142). On a host short of memory, what sits idle
   between visits (Whisper's buffers, the conversation model's tables) is swapped out, and
   the next visit waits while it's read back. Each transcription and each conversation model
