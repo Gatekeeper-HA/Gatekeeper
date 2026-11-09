@@ -7,7 +7,14 @@ import pytest
 
 from conftest import load_fixture
 from gatekeeper import report
-from gatekeeper.report import Inputs, build, render_markdown, render_text, summarize_logs
+from gatekeeper.report import (
+    OPENED_FROM_APP,
+    Inputs,
+    build,
+    render_markdown,
+    render_text,
+    summarize_logs,
+)
 
 GATEKEEPER_LOG = load_fixture("report/gatekeeper.log").decode()
 FRIGATE_LOG = load_fixture("report/frigate.log").decode()
@@ -586,6 +593,22 @@ def test_the_hosts_memory_when_the_report_ran():
         in render_text(r)
     )
     assert "Host memory" not in render_text(build(inputs()))  # no /proc, or an older report
+
+
+def test_opening_the_app_from_the_home_screen_is_counted():
+    from gatekeeper import web
+
+    assert OPENED_FROM_APP == web.OPENED_FROM_APP  # the line web.py logs
+    log = (
+        "### gatekeeper\n"
+        f"2026-11-07 08:00:00,000 INFO    gatekeeper.web [-] {web.OPENED_FROM_APP}\n"
+        f"2026-11-07 18:30:00,000 INFO    gatekeeper.web [-] {web.OPENED_FROM_APP}\n"
+    )
+    r = build(inputs(log_text=log))
+    assert r["web_app"] == {"opened": 2}
+    assert "Web app: opened from the home screen 2 time(s)" in render_text(r)
+    # Not opened (or not installed): nothing said.
+    assert "Web app" not in render_text(build(inputs()))
 
 
 def test_silent_turns_not_transcribed_are_counted():

@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Notifications in the app** (web push), next to ntfy. A phone turns them on from the
+  Visits page in the installed app. Each one is encrypted for that phone (RFC 8291) and
+  signed with Gatekeeper's own key (VAPID), so the phone's push service passes it on
+  without reading it; no account. Tapping one opens Live, a visit's next notification
+  replaces its earlier one, and the quiet ones make no sound. They show the visitor's
+  snapshot, which the phone fetches from an unguessable address kept for 12 hours, and
+  the buttons: *Call or text 911* (a page built into the app, so it opens without the
+  server) and the quick replies (signed, posted to `push/reply` without a login, as ntfy's
+  are). README, *Notifications*, *In the app*.
+- **The web page installs as an app** on a phone's home screen (Android and iPhone): a
+  manifest, icons and a service worker, served without logging in since they hold nothing
+  private. The icon opens the Visits page full screen. Nothing is kept on the phone, and
+  when the server can't be reached the app says so. It needs HTTPS with a certificate the
+  phone trusts (README, *The app*, with the steps for Tailscale). It installs from the
+  login page too. The daily report counts how often it was opened from the home screen.
 - **Daily report: porch tracks Frigate didn't have, in detail** (#148). With
   `PERCEPTION=own` such a track starts a visit, so it's where a false detection shows. The
   Own perception line now says how many of them started a visit, and gives each one's best

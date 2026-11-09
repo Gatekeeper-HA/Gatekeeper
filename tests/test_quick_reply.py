@@ -33,7 +33,7 @@ def test_a_button_says_its_reply_for_its_visit():
     assert [label for label, _ in buttons] == ["I'm coming", "Not now", "No thanks"]
 
     clock.now += 40
-    q.from_ntfy(buttons[0][1])
+    q.from_button(buttons[0][1])
     # 40 s after the notification, 260 s left to say it.
     assert said == [(EID, "coming", 40.0, 260.0)]
 
@@ -42,10 +42,10 @@ def test_only_a_notification_button_works():
     clock, said = FakeClock(), []
     q = quick(clock, said)
     notified(q)
-    q.from_ntfy(f"{EID} coming 0123456789abcdef")  # someone guessing the signature
-    q.from_ntfy("coming")
+    q.from_button(f"{EID} coming 0123456789abcdef")  # someone guessing the signature
+    q.from_button("coming")
     other = quick(clock, said).buttons(Visit(EID, "front_door"))[0][1]
-    q.from_ntfy(other)  # signed before a restart (another key)
+    q.from_button(other)  # signed before a restart (another key)
     assert said == []
 
 

@@ -6,8 +6,9 @@ when the visit fails. Sending happens on a background thread so the visit
 isn't delayed; a snapshot of the visitor (from the perception) is attached when available.
 With quick replies (quick_reply.py), ntfy notifications carry their buttons.
 
-Backends: ntfy (self-hosted or ntfy.sh). Home Assistant notify can be added as
-another backend with the same ``send(notification, image)`` method.
+Backends: ntfy (self-hosted or ntfy.sh), and the app's own notifications (webpush.py).
+Home Assistant notify can be added as another backend with the same
+``send(notification, image)`` method.
 """
 
 from __future__ import annotations
@@ -70,6 +71,9 @@ class Notification:
     actions: list[tuple[str, str]] = field(default_factory=list)
     # Buttons that open a link on the phone (label, URL): Text 911, Call 911.
     links: list[tuple[str, str]] = field(default_factory=list)
+    # The visit's event id: in the app (webpush.py), a visit's next notification replaces
+    # this one, as the full story replaces a conversation's first alert.
+    tag: str = ""
 
 
 def _clock_time(ts) -> str:
@@ -354,6 +358,7 @@ class Notifier:
         notification = compose(visit)
         notification.actions = self._actions(visit)
         notification.links = self._links(visit)
+        notification.tag = visit.event_id
         image = None
         if visit.image is not None:  # e.g. a warrant held up to the camera
             try:
@@ -363,6 +368,8 @@ class Notifier:
         if image is None:
             image = self._snapshot(visit)
         for backend in self.backends:
+            if not getattr(backend, "active", True):
+                continue  # the app's notifications, with no phone to send to
             error = None
             try:
                 backend.send(notification, image)

@@ -83,7 +83,7 @@ Only services that require a login are published, on `SERVER_IP`:
 | 8971 | Frigate UI and API | HTTPS, Frigate login |
 | 1883 | MQTT | Per-account passwords (see [MQTT](#mqtt)) |
 | 8090 | ntfy notifications | Gatekeeper token / `phone` user; anyone may post a quick reply (signed, see [Quick replies](#quick-replies)) |
-| 8098 | Gatekeeper's web page: [visits](#visits), [household faces](#household-faces) and [zones](#zones) | `GATEKEEPER_WEB_PASSWORD` (plain HTTP; off without a password) |
+| 8098 | Gatekeeper's web page: [visits](#visits), [household faces](#household-faces) and [zones](#zones) | `GATEKEEPER_WEB_PASSWORD` (HTTPS with `WEB_TLS`; off without a password). Without it: the [app's](#the-app) files, a notification's snapshot (at an unguessable address, for 12 hours) and a quick reply (signed) |
 | 8123 | Home Assistant (optional `ha` profile) | Home Assistant login |
 
 Frigate's unauthenticated API (5000) and go2rtc (API/UI, RTSP restream, WebRTC) are used
@@ -529,6 +529,32 @@ the `phone` user can read it. In the ntfy Android app:
 
 The phone must be able to reach the server (home Wi-Fi, or a VPN when away).
 
+### In the app
+
+The installed app ([The app](#the-app)) gets the same notifications, without ntfy. Open
+the Visits page in the app and tap *Turn on* next to *Notifications on this phone are off*;
+*Send a test* checks that they arrive. They go through the phone's own push service
+(Google's for Chrome on Android, Apple's on an iPhone), encrypted for that phone, so the push
+service can't read them. There's no account to make, and the server only sends: the phone
+gets them anywhere, though opening one away from home needs a way in (a VPN, Tailscale).
+
+- Tapping one opens Live. A visit's next notification replaces its earlier one (the full
+  story after an officer's first alert).
+- The quiet ones (the household coming home) make no sound, as with ntfy.
+- The visitor's snapshot shows when the phone can reach the server. A notification can't
+  carry a picture, so the phone fetches it from an unguessable address that works without
+  logging in, kept in the server's memory for 12 hours (as long as an undelivered
+  notification is kept).
+- The buttons: as many as the phone shows (Chrome has shown two), 911 first, then the
+  [quick replies](#quick-replies). 911 is one button, *Call or text 911*: it opens a page
+  with *Call 911* and *Text 911* (`EMERGENCY_BUTTONS`), one tap more than ntfy's. That page
+  is built into the app, so it opens even when the phone can't reach the server. A quick
+  reply needs the server: if the phone can't reach it, a notification says the reply
+  wasn't said.
+- On an iPhone, only in the app added to the Home Screen (iOS 16.4 or later).
+- The phones are kept in `LOG_DIR/web-push.json`, and the key in `LOG_DIR/web-push-key.pem`.
+  A new key ends every phone's subscription: turn them on again.
+
 ## Quick replies
 
 A doorbell notification has buttons to answer the visitor without going to the door:
@@ -549,6 +575,9 @@ is made with a key Gatekeeper creates at startup, so only buttons from its own n
 work. After a restart, older buttons stop working. On your own ntfy server, allow anonymous
 writes to the reply topic (`ntfy access everyone doorbell-replies write-only`) and give
 Gatekeeper's user read access to it.
+
+**In the app** ([notifications in the app](#in-the-app)), each button posts the same signed
+text to the web page's `push/reply`, which needs no login for the same reason.
 
 **Home Assistant** gets a *Say: …* button per reply on the Gatekeeper device (see [MQTT](#mqtt)),
 which answers the latest visit. Use them in a dashboard, or as actions of your own
@@ -603,6 +632,35 @@ on its login page, then keeps you logged in on that browser for 30 days from you
 visit (a cookie; only its hash is kept, in `LOG_DIR/web-logins.json`, so a restart doesn't
 log you out). *Log out* is at the end of the menu. Scripts can send the password with each
 request instead (HTTP Basic, any user name).
+
+### The app
+
+The web page installs as an app on a phone's home screen. Its icon opens the Visits page
+full screen, without the browser's bars, with Live, Faces and Zones a tap away. Nothing is
+kept on the phone: every page comes from the server. Away from home without a way in, the
+app says it can't reach Gatekeeper instead of showing the browser's error. It gets
+Gatekeeper's notifications too ([In the app](#in-the-app)).
+
+A phone installs it only from a page over HTTPS whose certificate it trusts:
+1. Turn on `WEB_TLS` ([Live](#live)). Then either install `web-cert.pem` on the phone as
+   trusted, or reach the page by a name that has a real certificate (Tailscale's HTTPS
+   names, for example).
+2. Open the page. On Android, choose *Install and create shortcut* from Chrome's menu
+   (*Add to home screen* before Chrome 150), then *Install*. On an iPhone, choose *Add to
+   Home Screen* from Safari's share menu.
+
+With [Tailscale](https://tailscale.com), the app also works away from home, and only your
+own devices can reach it. Add the server and the phone to your tailnet, then on the server:
+
+```
+sudo tailscale serve --bg https+insecure://<SERVER_IP>:8098
+```
+
+The page is published on `SERVER_IP` only, not on `localhost`. Leave Tailscale Funnel off:
+it would put the page on the public internet. The app's address is then
+`https://<server name>.<tailnet name>.ts.net/`.
+
+The daily report counts how often the app was opened from the home screen.
 
 ## Visits
 

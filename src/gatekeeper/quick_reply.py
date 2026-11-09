@@ -2,12 +2,14 @@
 
 The doorbell notification offers buttons (QUICK_REPLIES: "I'm coming", "Not now",
 "No thanks"); pressing one makes Gatekeeper say that line at the door
-(``Interaction.quick_reply``). Two ways in:
+(``Interaction.quick_reply``). Three ways in:
 
 - **ntfy:** each button posts ``<event id> <reply> <signature>`` to the reply topic
   (NTFY_REPLY_TOPIC), which ``NtfyReplies`` follows. The signature is an HMAC with
   a key made at startup, so only a notification's buttons work, though anyone may
   post to the topic (the phone posts without logging in).
+- **The app** (webpush.py): its notification's buttons post the same text to the web
+  page's ``push/reply``, also without logging in.
 - **MQTT (Home Assistant):** ``<reply>``, or ``{"reply": ..., "event_id": ...}``,
   on ``gatekeeper/<camera>/quick_reply``. Discovery gives Home Assistant a button
   per reply; without an event id it answers the latest visit.
@@ -94,8 +96,9 @@ class QuickReplies:
                 del self._notified[event_id]
             self._said = {s for s in self._said if s[0] not in old}
 
-    def from_ntfy(self, text: str) -> None:
-        """A message on the reply topic: a button's ``<event id> <reply> <signature>``."""
+    def from_button(self, text: str) -> None:
+        """A notification button's ``<event id> <reply> <signature>`` (ntfy's reply topic,
+        or the app's ``push/reply``)."""
         parts = text.split()
         if len(parts) != 3:
             log.warning("ignoring a quick reply that isn't from a notification button")

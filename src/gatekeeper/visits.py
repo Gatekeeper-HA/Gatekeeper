@@ -321,6 +321,8 @@ class VisitsPage:
         self.clips = clips  # Gatekeeper's own recordings (recording.Clips), if it records
         self._clock = clock
         self.token = ""  # set by web.serve (shared with the faces page)
+        # The app's notifications' public key (webpush.py), set by web.serve when they're on.
+        self.push_key = ""
 
     def visits(self, days: int = DAYS) -> list[dict]:
         """The visits of the last ``days`` days, newest first, each with its label."""
@@ -395,7 +397,7 @@ class VisitsPage:
     # -- the page ----------------------------------------------------------------
 
     def render(self, message: str = "", error: str = "", days: int = DAYS) -> str:
-        from gatekeeper.web import STYLE, nav
+        from gatekeeper.web import STYLE, app_head, nav
 
         e = html.escape
         rows = self.visits(days)
@@ -405,7 +407,8 @@ class VisitsPage:
         out = [
             "<!doctype html><html lang=en><head><meta charset=utf-8>",
             '<meta name=viewport content="width=device-width, initial-scale=1">',
-            f"<title>Visits</title><style>{STYLE}</style></head><body>",
+            f"<title>Visits</title><style>{STYLE}</style>{app_head('visits')}",
+            "</head><body>",
             nav("visits"),
             "<h1>Visits</h1>",
         ]
@@ -413,6 +416,13 @@ class VisitsPage:
             out.append(f"<p class=done role=status>{e(message)}</p>")
         if error:
             out.append(f"<p class=error role=alert>{e(error)}</p>")
+        if self.push_key:
+            # The switch for the app's notifications: push.js shows it where the browser
+            # can take them (over HTTPS; on an iPhone, in the installed app).
+            out.append(
+                f'<p id=push hidden data-key="{e(self.push_key)}" data-token="{e(self.token)}">'
+                '</p><script src="push.js" defer></script>'
+            )
         out.append(
             f"<p class=note>The last {days} day(s) at the door, newest first. Say what each "
             "visit really was: it shows where Gatekeeper got it wrong, and teaches it to tell "

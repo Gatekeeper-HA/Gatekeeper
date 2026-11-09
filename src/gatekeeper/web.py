@@ -17,8 +17,10 @@ Faces are biometric data:
 - nothing is cached.
 
 It's plain HTML with relative links, so it works on a phone and behind a proxy that adds
-a path prefix (Home Assistant's ingress). Only the Zones page has a script (to draw by
-clicking), and works without it.
+a path prefix (Home Assistant's ingress). Only the Zones page has a script of its own (to
+draw by clicking), and works without it. Every page also registers the app's service worker
+(``app_head``): with it the pages install as an app on a phone's home screen. The Visits
+page's ``push.js`` turns the app's notifications on (``push/``, webpush.py).
 """
 
 from __future__ import annotations
@@ -59,6 +61,20 @@ MAX_BODY = 64 * 1024
 # more; the two wrong guesses, on groups of one or two faces, scored 0.30.
 SUGGEST_SCORE = 0.40
 SUGGEST_MARGIN = 0.05
+# The installable web app (README "The app"): its manifest, service worker and icons. They
+# hold nothing private, so they're served without logging in, at the pages' top level.
+APP_DIR = Path(__file__).parent / "webapp"
+APP_FILES = {
+    "manifest.webmanifest": "application/manifest+json",
+    "sw.js": "text/javascript; charset=utf-8",
+    "push.js": "text/javascript; charset=utf-8",
+    "icon-192.png": "image/png",
+    "badge-96.png": "image/png",
+    "icon-512.png": "image/png",
+    "icon-maskable-512.png": "image/png",
+}
+# The app's icon opens ``./?from=app``; this line says so, and the daily report counts it.
+OPENED_FROM_APP = "web: opened from the home screen"
 
 STYLE = """
 body { font: 16px/1.4 system-ui, sans-serif; margin: 0 auto; max-width: 960px;
@@ -238,7 +254,8 @@ class FacesPage:
         out = [
             "<!doctype html><html lang=en><head><meta charset=utf-8>",
             '<meta name=viewport content="width=device-width, initial-scale=1">',
-            f"<title>Household faces</title><style>{STYLE}</style></head><body>",
+            f"<title>Household faces</title><style>{STYLE}</style>{app_head('faces')}",
+            "</head><body>",
             nav("faces"),
             "<h1>Household faces</h1>",
         ]
@@ -359,6 +376,21 @@ def nav(current: str) -> str:
     )
 
 
+def app_head(current: str) -> str:
+    """What makes the pages an installable app, for each page's head: the manifest, the
+    icon an iPhone uses, the bar colours and the service worker. Relative, like ``nav``;
+    the login page sits beside Visits."""
+    up = "" if current in ("visits", "login") else "../"
+    return (
+        f'<link rel=manifest href="{up}manifest.webmanifest">'
+        f'<link rel=apple-touch-icon href="{up}icon-192.png">'
+        '<meta name=theme-color content="#fafafa" media="(prefers-color-scheme: light)">'
+        '<meta name=theme-color content="#17171a" media="(prefers-color-scheme: dark)">'
+        '<script>if ("serviceWorker" in navigator) '
+        f'navigator.serviceWorker.register("{up}sw.js").catch(() => {{}});</script>'
+    )
+
+
 def _chosen(values: list[str]) -> set[tuple[str, int]]:
     out = set()
     for v in values:
@@ -384,10 +416,13 @@ def handler(
     zones=None,
     live=None,
     logged_in: logins.Logins | None = None,
+    push=None,
+    replies: Callable[[str], None] | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     """``visits``: the Visits page (visits.VisitsPage) at ``/``, with the faces at
     ``faces/``; without it the faces are at ``/``. ``zones``: the Zones page
-    (zones.ZonesPage) at ``zones/``."""
+    (zones.ZonesPage) at ``zones/``. ``push``: the app's notifications, at ``push/``.
+    ``replies``: their quick reply buttons' text (quick_reply.QuickReplies.from_button)."""
     expected = password.encode()
     sessions = logged_in or logins.Logins(None)
 
@@ -501,6 +536,32 @@ def handler(
                 return
             self._send(200, answer.encode(), "application/sdp")
 
+        def _push(self, length: int, action: str) -> None:
+            """The Visits page's switch for the app's notifications (push.js): a phone's
+            subscription, or its address, as JSON."""
+            given = self.rfile.read(length)
+            if not hmac.compare_digest(self.headers.get("X-Token", ""), page.token):
+                self._send(403, b"That page is out of date: reload it.", "text/plain")
+                return
+            try:
+                given = json.loads(given or b"{}")
+                if not isinstance(given, dict):
+                    raise ValueError("Send a subscription.")
+                if action == "subscribe":
+                    push.subscribe(given)
+                elif action == "unsubscribe":
+                    push.unsubscribe(str(given.get("endpoint", "")))
+                else:
+                    push.test(str(given.get("endpoint", "")))
+            except ValueError as e:
+                self._send(400, str(e).encode(), "text/plain; charset=utf-8")
+                return
+            except Exception as e:  # the push service refused the test
+                log.warning("web push: the test failed: %s", e)
+                self._send(502, f"That didn't work: {e}".encode(), "text/plain; charset=utf-8")
+                return
+            self._send(204, b"", "text/plain")
+
         def _send_file(self, path: Path, kind: str) -> None:
             """A file, or the byte range asked for (Safari plays video only so)."""
             size = path.stat().st_size
@@ -554,6 +615,17 @@ def handler(
                 up = "../" * (url_path.count("/") - 1)
                 self._redirect(f"{up}login", self._cookie("", 0))
                 return
+            if (name := url_path.rsplit("/", 1)[-1]) in APP_FILES:
+                self._send(200, (APP_DIR / name).read_bytes(), APP_FILES[name])
+                return
+            if push and (m := re.fullmatch(r".*/push/image/([\w-]+)\.jpg", url_path)):
+                # A notification's snapshot: its unguessable address is the key (webpush.py).
+                jpeg = push.image(m[1])
+                if jpeg is None:
+                    self.send_error(404)
+                else:
+                    self._send(200, jpeg, "image/jpeg")
+                return
             if not self._authorized():
                 return
             path = urllib.parse.urlsplit(self.path).path
@@ -580,6 +652,8 @@ def handler(
                 return
             elif path.endswith("/"):
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                if query.get("from") == ["app"]:
+                    log.info(OPENED_FROM_APP)
                 message = query.get("done", [""])[0][:200]
                 if visits and not path.endswith("/faces/"):
                     days = query.get("days", [""])[0]
@@ -603,9 +677,18 @@ def handler(
             if urllib.parse.urlsplit(self.path).path.endswith("/login"):
                 self._login(length)
                 return
+            if replies and urllib.parse.urlsplit(self.path).path.endswith("/push/reply"):
+                # A quick reply button in the app's notification (sw.js): signed, and
+                # checked by quick_reply.py, so it needs no login (as ntfy's doesn't).
+                replies(self.rfile.read(length).decode("utf-8", "replace")[:200])
+                self._send(204, b"", "text/plain")
+                return
             if not self._authorized():
                 return
             post_path = urllib.parse.urlsplit(self.path).path
+            if push and post_path.endswith(("/push/subscribe", "/push/unsubscribe", "/push/test")):
+                self._push(length, post_path.rsplit("/", 1)[-1])
+                return
             if live and post_path.endswith(("/live/offer", "/live/talk")):
                 self._live_offer(length, talk=post_path.endswith("/talk"))
                 return
@@ -679,12 +762,21 @@ def serve(
     live=None,
     tls: ssl.SSLContext | None = None,
     logged_in: logins.Logins | None = None,
+    push=None,
+    replies: Callable[[str], None] | None = None,
 ) -> ThreadingHTTPServer:
-    """Serve the pages on ``port`` in a daemon thread; over HTTPS with ``tls``."""
+    """Serve the pages on ``port`` in a daemon thread; over HTTPS with ``tls``. ``push``:
+    the app's notifications (webpush.WebPush), switched on from the Visits page, and
+    ``replies``: their quick reply buttons."""
     for other in (visits, zones, live):
         if other is not None:
             other.token = page.token  # one token proves a form came from any page
-    server = _Server(("0.0.0.0", port), handler(page, password, visits, zones, live, logged_in))
+    if visits is not None and push is not None:
+        visits.push_key = push.public_key
+    server = _Server(
+        ("0.0.0.0", port),
+        handler(page, password, visits, zones, live, logged_in, push, replies),
+    )
     server.ssl_context = tls
     threading.Thread(target=server.serve_forever, name="web", daemon=True).start()
     log.info(

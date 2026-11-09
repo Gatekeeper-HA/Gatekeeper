@@ -85,8 +85,9 @@ def build_mqtt_client(
     return client
 
 
-def build_notify_backends(settings: Settings) -> list:
-    backends = []
+def build_notify_backends(settings: Settings, push=None) -> list:
+    """ntfy (NTFY_URL), and ``push``: the app's own notifications (webpush.WebPush)."""
+    backends = [push] if push else []
     if settings.ntfy_url:
         reply_url = ""
         if settings.quick_reply_list:
@@ -107,8 +108,25 @@ def build_notify_backends(settings: Settings) -> list:
             )
         )
     if not backends:
-        log.warning("no notification backend configured (set NTFY_URL); nobody will be notified")
+        log.warning(
+            "no notification backend configured (set NTFY_URL, or WEB_PASSWORD for the app's "
+            "notifications); nobody will be notified"
+        )
     return backends
+
+
+def start_web_push(settings: Settings):
+    """The app's notifications (webpush.py), when the web page is on: the phones turn them
+    on from it."""
+    if not settings.web_password.get_secret_value():
+        return None
+    try:
+        from gatekeeper.webpush import WebPush
+
+        return WebPush(settings.log_dir)
+    except ImportError:
+        log.warning("the app's notifications need the cryptography package; they're off")
+        return None
 
 
 def start_thread(name: str, target, *args, **kwargs) -> None:
@@ -563,8 +581,9 @@ def main() -> None:
                 log.warning("couldn't keep the press's picture: %s", e)
         return image
 
+    push = start_web_push(settings)
     notifier = Notifier(
-        build_notify_backends(settings),
+        build_notify_backends(settings, push),
         snapshot=snapshot,
         log_to=EventLog(settings.notification_log_file),
         actions=quick.buttons if quick else lambda visit: [],
@@ -577,7 +596,7 @@ def main() -> None:
             settings.ntfy_url,
             settings.ntfy_reply_topic,
             settings.ntfy_token.get_secret_value(),
-            quick.from_ntfy,
+            quick.from_button,
         )
         start_thread("quick-replies", replies.run_forever)
     tap = None
@@ -717,6 +736,8 @@ def main() -> None:
             live=live,
             tls=tls,
             logged_in=Logins(settings.log_dir / "web-logins.json"),
+            push=push,
+            replies=quick.from_button if quick else None,
         )
     start_thread(
         "sweep", tracker.sweep_forever, settings.sweep_interval_seconds, on_sweep=health.sweep_done

@@ -1,5 +1,7 @@
 import base64
+import json
 import re
+import struct
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -96,7 +98,9 @@ def test_the_kept_faces_are_shown_grouped_by_person(faces):
     assert "Faces to enroll (3)" in page
     groups = re.findall(r"<strong>Group (\d)</strong>: (\d) face", page)
     assert groups == [("1", "2"), ("2", "1")]
-    assert 'src="face/e1.npz/0.jpg"' in page and "<script" not in page
+    assert 'src="face/e1.npz/0.jpg"' in page
+    # Its only script registers the app's service worker (web.app_head).
+    assert page.count("<script") == 1 and 'serviceWorker.register("../sw.js")' in page
     status, jpeg, headers = faces.get("face/e1.npz/0.jpg")
     assert (status, jpeg, headers["Content-Type"]) == (200, b"JPEG", "image/jpeg")
 
@@ -160,6 +164,45 @@ def test_behind_a_path_prefix_links_stay_relative(faces):
     status, body, _ = faces.get("api/hassio_ingress/abc/")
     assert status == 200 and 'action="enroll"' in body.decode()
     assert faces.get("api/hassio_ingress/abc/face/e1.npz/0.jpg")[1] == b"JPEG"
+
+
+def test_the_app_files_are_served_without_logging_in(faces):
+    stranger = Client.__new__(Client)
+    stranger.base, stranger.auth = faces.base, ""
+    status, body, headers = stranger.get("manifest.webmanifest")
+    assert status == 200 and headers["Content-Type"] == "application/manifest+json"
+    manifest = json.loads(body)
+    assert manifest["display"] == "standalone" and manifest["start_url"] == "./?from=app"
+    # Every icon it names is served, at the size it says.
+    for icon in manifest["icons"]:
+        status, png, headers = stranger.get(icon["src"])
+        assert status == 200 and headers["Content-Type"] == "image/png"
+        size = int(icon["sizes"].split("x")[0])
+        assert struct.unpack(">II", png[16:24]) == (size, size)  # the PNG's width, height
+    assert {"any", "maskable"} == {i["purpose"] for i in manifest["icons"]}
+    status, js, headers = stranger.get("sw.js")
+    assert status == 200 and headers["Content-Type"].startswith("text/javascript")
+    assert b'addEventListener("fetch"' in js and b"caches" not in js  # nothing kept
+    # Behind a path prefix too, where the pages link them relatively.
+    assert stranger.get("api/hassio_ingress/abc/sw.js")[0] == 200
+    # Nothing else is served without the password.
+    assert stranger.get("face/e1.npz/0.jpg")[0] == 401
+
+
+def test_every_page_links_the_app_relatively():
+    for page in ("visits", "login"):
+        head = web.app_head(page)
+        assert 'href="manifest.webmanifest"' in head and 'register("sw.js")' in head
+    for page in ("faces", "live", "zones"):
+        head = web.app_head(page)
+        assert 'href="../manifest.webmanifest"' in head and 'register("../sw.js")' in head
+
+
+def test_opening_the_app_from_the_home_screen_is_logged(faces, caplog):
+    caplog.set_level("INFO", logger="gatekeeper.web")
+    assert faces.get("?from=app")[0] == 200
+    assert faces.get()[0] == 200
+    assert [r.getMessage() for r in caplog.records].count(web.OPENED_FROM_APP) == 1
 
 
 def test_the_page_says_when_face_recognition_is_off(tmp_path):
