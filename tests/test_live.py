@@ -100,6 +100,23 @@ def test_the_live_page_on_the_web(tmp_path, go2rtc):
         server.shutdown()
 
 
+def test_911_is_out_of_the_way_under_more():
+    from gatekeeper.notify import links_911
+
+    plain = LivePage("http://go2rtc", "a", "b").render()
+    assert "<details" not in plain and "911" not in plain  # EMERGENCY_BUTTONS off
+
+    links = links_911("12 Elm Street", "I need help at my door at 12 Elm Street.")
+    page = LivePage("http://go2rtc", "a", "b", emergency=links).render()
+    more = page[page.index("<details class=more>") :]
+    assert more.index('href="tel:911"') < more.index('href="sms:911?body=I%20need%20help')
+    assert page.index("<details class=more>") > page.index("<video")  # after everything
+    assert "you still tap send" in more
+
+    only_call = LivePage("http://go2rtc", "a", "b", emergency=links_911("", "")).render()
+    assert 'href="tel:911"' in only_call and "sms:" not in only_call
+
+
 def test_the_live_streams_default_to_the_cameras():
     from gatekeeper.config import Settings
 

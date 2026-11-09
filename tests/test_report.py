@@ -474,7 +474,14 @@ def test_collect_reads_the_logs_and_asks_frigate(settings):
     r = build(report.collect(settings, HOST, "", now, fetch=fetch))
 
     assert r["counts"]["visits"] == 1
-    assert r["arrivals"] == {"total": 1, "by": "Frigate", "since": None, "missed": [], "why": []}
+    assert r["arrivals"] == {
+        "total": 1,
+        "by": "Frigate",
+        "since": None,
+        "missed": [],
+        "why": [],
+        "merged": [],
+    }
     assert failing(r) == {}
     assert "labels=person" in asked[0] and asked[1].endswith("/api/stats")
 
@@ -893,6 +900,47 @@ def test_each_arrival_not_greeted_says_what_gatekeeper_did_with_it():
     assert "Gatekeeper: nothing logged" in text
 
 
+def test_an_arrival_merged_on_purpose_is_not_a_miss():
+    # sessions.py takes someone appearing right after a person left by the door (or was
+    # recognized) for them: not greeted on purpose. Anything else still fails the check.
+    log = (
+        "### gatekeeper\n"
+        "2026-10-13 18:01:00,100 INFO    gatekeeper.sessions [-] person event 1.5-after "
+        "merged into 1.4-own13, who just left by the door\n"
+        "2026-10-13 18:02:00,100 INFO    gatekeeper.sessions [-] person event 2.5-kim "
+        "merged into 2.4-own20, who was just recognized\n"
+        "2026-10-13 18:03:00,100 INFO    gatekeeper.sessions [-] person event 3.5-visit "
+        "merged into visit 3.4-own30\n"
+    )
+    r = build(
+        inputs(
+            arrivals=[
+                {"id": "1.5-after", "start_time": NOW - 7200, "end_time": NOW - 7178.4},
+                {"id": "2.5-kim", "start_time": NOW - 6000, "end_time": NOW - 5990},
+                {"id": "3.5-visit", "start_time": NOW - 5400, "end_time": NOW - 5390},
+            ],
+            log_text=log,
+        )
+    )
+    assert failing(r) == {"arrivals_greeted": "1 porch arrival(s) not greeted"}
+    assert [m["gatekeeper"] for m in r["arrivals"]["why"]] == ["merged into visit 3.4-own30"]
+    assert [m["start"] for m in r["arrivals"]["merged"]] == [
+        report.local(NOW - 7200),
+        report.local(NOW - 6000),
+    ]
+    text = render_text(r)
+    assert "not greeted 1; 2 taken for someone who had just left or was just recognized" in text
+    assert (
+        f"Not greeted on purpose at {report.local(NOW - 7200)}: Gatekeeper merged into "
+        "1.4-own13, who just left by the door"
+    ) in text
+
+    # Only those: the day's one merge is all clear.
+    r = build(inputs(arrivals=[{"id": "1.5-after", "start_time": NOW - 7200}], log_text=log))
+    assert "arrivals_greeted" not in failing(r)
+    assert r["arrivals"]["why"] == [] and len(r["arrivals"]["merged"]) == 1
+
+
 def test_the_household_recognized_by_face_is_counted_apart():
     before = visit(
         NOW - 3000, NOW - 2998, outcome="household", details={"name": "Alex", "greeted": False}
@@ -1185,10 +1233,50 @@ def test_own_perception_is_compared_with_frigates_arrivals():
     assert (
         f"Own perception (shadow, since {report.local(NOW - 8000)}): saw 1 of 3 of Frigate's "
         f"porch arrivals in the zone, 1 elsewhere, missed {report.local(NOW - 3000)}; "
-        f"3 track(s), 1 on the porch Frigate didn't have ({report.local(NOW - 3500)}); "
+        f"3 track(s), 1 on the porch Frigate didn't have ({report.local(NOW - 3500)} 0.88, 10 s); "
         "detector on 1500 of 18000 frames: on cpu 3.0 fps, median 190 ms (1 h); "
         "on cuda 1.0 fps, median 180 ms (2 h)" in render_text(r)
     )
+
+
+def test_porch_tracks_frigate_didnt_have_say_their_score_length_and_visit():
+    # Two porch tracks with no Frigate arrival near them: one started a visit (its id is
+    # the visit's event id), the other didn't. The report gives each one's best score and
+    # length, and says which started a visit (#148).
+    on = "own perception on (visits): go2rtc:8554/front_door_sub, zones porch"
+    started = (
+        NOW - 3001,
+        "own_perception",
+        f"own perception: person track {NOW - 3020:.6f}-own7 start={NOW - 3020:.1f} "
+        f"end={NOW - 3008:.1f} zones=porch path=(0.40,0.90)->(0.41,0.90) best=0.57 hits=9",
+    )
+    log = own_log((NOW - 8000, "app", on), started, own_track(NOW - 2000, NOW - 1990, "porch"))
+    greeted = visit(NOW - 3020, NOW - 2990, event_id=f"{NOW - 3020:.6f}-own7")
+    r = build(
+        inputs(
+            arrivals=[],
+            log_text=log,
+            trigger_zones=("porch",),
+            own_perception="visits",
+            window_visits=[greeted],
+            visits=[greeted],
+        )
+    )
+    own = r["own_perception"]
+    assert own["extra"] == [report.local(NOW - 3020), report.local(NOW - 2000)]
+    assert own["extra_tracks"] == [
+        {"at": report.local(NOW - 3020), "seconds": 12.0, "best": 0.57, "visit": "completed"},
+        {"at": report.local(NOW - 2000), "seconds": 10.0, "best": 0.88, "visit": None},
+    ]
+    assert (
+        f"2 on the porch Frigate didn't have (1 started a visit: {report.local(NOW - 3020)} "
+        f"0.57, 12 s, visit: completed; {report.local(NOW - 2000)} 0.88, 10 s)"
+    ) in render_text(r)
+
+
+def test_extra_tracks_from_a_report_before_their_details_are_times_only():
+    own = {"extra": ["Sat 04:39", "Sat 11:43"]}
+    assert report.extra_tracks_text(own) == "Sat 04:39, Sat 11:43"
 
 
 def test_an_arrival_while_gatekeeper_restarted_isnt_an_own_perception_miss():

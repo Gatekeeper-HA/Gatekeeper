@@ -83,7 +83,7 @@ Only services that require a login are published, on `SERVER_IP`:
 | 8971 | Frigate UI and API | HTTPS, Frigate login |
 | 1883 | MQTT | Per-account passwords (see [MQTT](#mqtt)) |
 | 8090 | ntfy notifications | Gatekeeper token / `phone` user; anyone may post a quick reply (signed, see [Quick replies](#quick-replies)) |
-| 8098 | Gatekeeper's web page: [visits](#visits), [household faces](#household-faces) and [zones](#zones) | `GATEKEEPER_WEB_PASSWORD` (HTTPS with `WEB_TLS`; off without a password). Without it: the [app's](#the-app) files, a notification's snapshot (at an unguessable address, for 12 hours) and a quick reply (signed) |
+| 8098 | Gatekeeper's web page: [visits](#visits), [household faces](#household-faces), [zones](#zones) and [settings](#settings) | `GATEKEEPER_WEB_PASSWORD` (HTTPS with `WEB_TLS`; off without a password). Without it: the [app's](#the-app) files, a notification's snapshot (at an unguessable address, for 12 hours) and a quick reply (signed) |
 | 8123 | Home Assistant (optional `ha` profile) | Home Assistant login |
 
 Frigate's unauthenticated API (5000) and go2rtc (API/UI, RTSP restream, WebRTC) are used
@@ -186,14 +186,14 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `NO_ANSWER_PRESSED_LINES` | 2 lines | Said too after a doorbell press: they mention the bell |
 | `GOODBYE_LINES` | 7 send-offs | Said instead of a no-answer line to someone already walking away when the greeting gets no answer (a courier who dropped something off, mostly). A JSON list replaces them; `REPLY_GOODBYE` sets a single one |
 | `REPLY_PRESSED` | *The resident has already been notified.* | Said when the doorbell is pressed during a visit's cooldown |
-| `THREAT_LEVELS` | `off` | [Threat levels](#threat-levels): `shadow` assesses each visit and logs it (nothing else changes); `on` also acts on it. The compose stack reads it from `.env` |
+| `THREAT_LEVELS` | `off` | [Threat levels](#threat-levels): `shadow` assesses each visit and logs it (nothing else changes); `on` also acts on it. The compose stack reads it from `.env`; [Settings](#settings) can set it |
 | `THREAT_LINES` | 4 lines (`config.py`) | What Gatekeeper says to a suspicious visitor (level 2), one after another while they stay: that the resident knows and it's recorded, the big dog behind the door, that the police will be called, a last warning. A JSON list replaces them |
 | `PHRASE_THREAT_URGENT` | *You need to leave now. The resident has been alerted, and you are being recorded.* | The first line to a threat (level 3), then the rest of `THREAT_LINES` |
-| `EMERGENCY_BUTTONS` | `false` | Opt-in: *Text 911* and *Call 911* buttons on the notification of a suspicious visitor or an emergency. *Text 911* opens your phone's messages to 911 with `HOME_ADDRESS` and what happened filled in; you still tap send. The compose stack reads both from `.env` |
+| `EMERGENCY_BUTTONS` | `false` | Opt-in: *Text 911* and *Call 911* buttons on the notification of a suspicious visitor or an emergency. *Text 911* opens your phone's messages to 911 with `HOME_ADDRESS` and what happened filled in; you still tap send. The compose stack reads both from `.env`; [Settings](#settings) can set them |
 | `HOME_ADDRESS` | *(none)* | Your street address, for *Text 911*. Without it, only *Call 911* |
-| `HALLOWEEN` | `auto` | [Halloween](#halloween): `auto` is October 31 from `HALLOWEEN_START_HOUR` (`16`) to `HALLOWEEN_END_HOUR` (`22`), local time; `on` or `off` force it. The compose stack reads it from `.env` |
-| `HALLOWEEN_PRESS_SOUND` | `witch` | The sound a doorbell press or a knock plays before the Halloween greeting: `witch` (a cackle), `theremin`, or the path to your own sound file in any format, e.g. `/audio/my-laugh.mp3` (the first 10 s are played). The compose stack reads it from `.env` |
-| `HALLOWEEN_TREATS` | `unset` | The answer to "trick or treat": `bowl` (help yourselves from the bowl by the door), `none` (no treats this year), or `unset` (compliments the costumes and promises nothing). The compose stack reads it from `.env` |
+| `HALLOWEEN` | `auto` | [Halloween](#halloween): `auto` is October 31 from `HALLOWEEN_START_HOUR` (`16`) to `HALLOWEEN_END_HOUR` (`22`), local time; `on` or `off` force it. The compose stack reads it from `.env`; [Settings](#settings) can set it |
+| `HALLOWEEN_PRESS_SOUND` | `witch` | The sound a doorbell press or a knock plays before the Halloween greeting: `witch` (a cackle), `theremin`, or the path to your own sound file in any format, e.g. `/audio/my-laugh.mp3` (the first 10 s are played). The compose stack reads it from `.env`; [Settings](#settings) can set it |
+| `HALLOWEEN_TREATS` | `unset` | The answer to "trick or treat": `bowl` (help yourselves from the bowl by the door), `none` (no treats this year), or `unset` (compliments the costumes and promises nothing). The compose stack reads it from `.env`; [Settings](#settings) can set it |
 | `HALLOWEEN_GREETING_LINES`, `HALLOWEEN_NO_ANSWER_LINES`, `HALLOWEEN_GOODBYE_LINES`, `HALLOWEEN_REPLY_LINES` | 5, 4, 3 and 3 lines | Halloween's own lines, each a JSON list; `HALLOWEEN_REPLY_LINES` replaces the ones `HALLOWEEN_TREATS` picks |
 | `PHRASE_EMERGENCY_WAIT` | *I have alerted the resident. Please wait.* | To someone reporting an emergency |
 | `PHRASE_POLICE_ASK_REASON` | *This is an automated assistant, and this conversation is recorded. What is the reason for your visit, and do you have a warrant?* | First question to law enforcement, unless their first sentence already said why they came or whether they have a warrant |
@@ -395,6 +395,11 @@ With `EMERGENCY_BUTTONS` on, the notification of a suspicious visitor or an emer
 with your address and what happened written for you, and you still tap send: Gatekeeper never
 contacts 911 itself. Text-to-911 isn't available everywhere. Where it isn't, your carrier
 replies that you need to call, so *Call 911* is always there too.
+
+Every other notification has no 911 button: they're only for what Gatekeeper judges an
+emergency or a suspicious visitor, and then they come first. For anything it didn't catch,
+*Call 911* and *Text 911* (with your address) are out of the way at the end of the Live
+page, under *More*. Tapping a notification opens that page.
 
 Emergencies and officers keep their own conversations (the levels are recorded, not acted
 on). What someone looks like, how they talk or what language they speak never counts.
@@ -632,6 +637,22 @@ on its login page, then keeps you logged in on that browser for 30 days from you
 visit (a cookie; only its hash is kept, in `LOG_DIR/web-logins.json`, so a restart doesn't
 log you out). *Log out* is at the end of the menu. Scripts can send the password with each
 request instead (HTTP Basic, any user name).
+
+### Settings
+
+*Settings* (`settings/`) turns the opt-in features on without editing `.env`:
+[threat levels](#threat-levels), the 911 buttons and the address *Text 911* sends
+(`EMERGENCY_BUTTONS`, `HOME_ADDRESS`), and [Halloween](#halloween) (on or off, its hours,
+treats and press sound).
+
+- What you save there is kept in `LOG_DIR/settings.json` (readable only by Gatekeeper,
+  since it holds your address), and replaces the same settings from `.env`. *Use .env's
+  settings again* forgets it.
+- Settings are read when Gatekeeper starts, so saving restarts it: once no visit is in
+  progress, it stops, and Docker (`restart: unless-stopped`) or the add-on's supervisor
+  starts it again. It's back in about 30 seconds.
+- A saved setting that no longer fits the rest (Halloween's hours after a change in `.env`,
+  say) is left out, with a warning in the log; it never stops Gatekeeper from starting.
 
 ### The app
 

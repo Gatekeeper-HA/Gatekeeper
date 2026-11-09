@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Settings page** (`settings/` on the web page, in every page's menu): threat levels, the
+  911 buttons and the address *Text 911* sends, and Halloween (on or off, hours, treats,
+  press sound), without editing `.env`. What it saves (`LOG_DIR/settings.json`, mode 600)
+  replaces the same settings from `.env`, and Gatekeeper restarts to use it once no visit
+  is in progress. A saved setting that no longer fits is left out with a warning. README,
+  *Settings*.
 - **Notifications in the app** (web push), next to ntfy. A phone turns them on from the
   Visits page in the installed app. Each one is encrypted for that phone (RFC 8291) and
   signed with Gatekeeper's own key (VAPID), so the phone's push service passes it on
@@ -15,12 +21,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   the buttons: *Call or text 911* (a page built into the app, so it opens without the
   server) and the quick replies (signed, posted to `push/reply` without a login, as ntfy's
   are). README, *Notifications*, *In the app*.
+- **911 under *More* on the Live page** (with `EMERGENCY_BUTTONS`): *Call 911* and *Text
+  911* with your address, out of the way, for an emergency Gatekeeper didn't catch. A
+  notification still has 911 buttons only when Gatekeeper judges an emergency or a
+  suspicious visitor, and then first.
 - **The web page installs as an app** on a phone's home screen (Android and iPhone): a
   manifest, icons and a service worker, served without logging in since they hold nothing
   private. The icon opens the Visits page full screen. Nothing is kept on the phone, and
   when the server can't be reached the app says so. It needs HTTPS with a certificate the
   phone trusts (README, *The app*, with the steps for Tailscale). It installs from the
   login page too. The daily report counts how often it was opened from the home screen.
+- **Daily report: porch tracks Frigate didn't have, in detail** (#148). With
+  `PERCEPTION=own` such a track starts a visit, so it's where a false detection shows. The
+  Own perception line now says how many of them started a visit, and gives each one's best
+  detector score and length; `own_perception.extra_tracks` has them with the visit's outcome.
 - **Daily report: waits on the disk** (#142). On a host short of memory, what sits idle
   between visits (Whisper's buffers, the conversation model's tables) is swapped out, and
   the next visit waits while it's read back. Each transcription and each conversation model
@@ -322,6 +336,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   backend got through, so the app's notifications could stop with the report green. The
   line now adds each backend's visits notified and failed attempts (*ntfy 14, web push 14*),
   also in `notifications.backends`. A backend with no phone to send to isn't listed.
+- **Daily report: an arrival merged on purpose isn't a miss** (#156). Someone appearing
+  right after a person left by the door, or after a household member was recognized, is
+  taken for them and not greeted, by design. If their track started a few seconds before
+  the other's, `arrivals_greeted` failed anyway. These are now `arrivals.merged`, counted on
+  the *Porch arrivals* line as *taken for someone who had just left or was just
+  recognized*, each with a *Not greeted on purpose at …* line, and pass the check.
 - **The conversation model's time leaves out waiting for its server.** A turn asked while
   its server was starting or loading (after a deploy or a model change) counted the retry
   waits as the model's time: one such turn read *247.8 s max* on a day whose median was

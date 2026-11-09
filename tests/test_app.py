@@ -226,3 +226,46 @@ def test_a_knock_is_a_doorbell_press_when_on(monkeypatch):
         app.start_knock_listener(settings, object(), tracker, presses.append)
         heard["on_knock"](0.9, 1_800_000_000.0)
         assert presses == pressed, (mode, in_visit)
+
+
+def test_main_calls_with_keywords_that_exist():
+    """main() runs only in the container, so check the keywords app.py passes to
+    Gatekeeper's own functions and classes against their parameters: a renamed parameter
+    crashed Gatekeeper on start with every test passing."""
+    import ast
+    import importlib
+    import inspect
+
+    from gatekeeper import app
+
+    tree = ast.parse(inspect.getsource(app))
+    names = {}  # app.py's imports from gatekeeper, the ones inside functions too
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("gatekeeper"):
+            module = importlib.import_module(node.module)
+            for alias in node.names:
+                found = getattr(module, alias.name, None)
+                if found is None:
+                    found = importlib.import_module(f"{node.module}.{alias.name}")
+                names[alias.asname or alias.name] = found
+    checked = 0
+    for call in ast.walk(tree):
+        if not isinstance(call, ast.Call) or not call.keywords:
+            continue
+        f = call.func
+        if isinstance(f, ast.Name):
+            target = names.get(f.id, getattr(app, f.id, None))
+        elif isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name):
+            target = getattr(names.get(f.value.id), f.attr, None)
+        else:
+            continue
+        module = getattr(target, "__module__", None) or ""
+        if not callable(target) or not module.startswith("gatekeeper"):
+            continue
+        params = inspect.signature(target).parameters
+        if any(p.kind is p.VAR_KEYWORD for p in params.values()):
+            continue
+        for k in call.keywords:
+            assert k.arg is None or k.arg in params, f"line {call.lineno}: no {k.arg}= parameter"
+        checked += 1
+    assert checked > 20

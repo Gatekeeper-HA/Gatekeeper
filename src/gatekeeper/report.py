@@ -142,6 +142,10 @@ DOORSTEP_RETRY = re.compile(r"doorstep not checked yet")
 DOORSTEP_SCORE = re.compile(r"doorstep change at .*: package score ([\d.]+) \(before ([\d.]+)\)")
 # sessions.py's lines on a person event not greeted (merged, left, returned, ended).
 PERSON_EVENT = re.compile(r"person event (?P<id>\S+) (?P<why>.+)$")
+# sessions.py's merges on purpose: the same person (a split track), or the household together.
+MERGED_ON_PURPOSE = re.compile(
+    r"^merged into \S+, who (just left by the door|was just recognized)$"
+)
 # app.py's lines on when Gatekeeper starts and stops listening for Frigate's events.
 GATEKEEPER_STARTING = re.compile(r"^Gatekeeper \S+ starting: ")
 GATEKEEPER_STOPPING = re.compile(r"^Gatekeeper stopping ")
@@ -163,7 +167,7 @@ KNOCK_STATS = re.compile(
 )
 OWN_TRACK = re.compile(
     r"own perception: person track (?P<id>\S+) start=(?P<start>[\d.]+) end=(?P<end>[\d.]+) "
-    r"zones=(?P<zones>\S+)"
+    r"zones=(?P<zones>\S+)(?:.*? best=(?P<best>[\d.]+))?"
 )
 OWN_STATS = re.compile(
     r"own perception stats: (?P<frames>\d+) frames in (?P<seconds>\d+) s, "
@@ -480,12 +484,15 @@ def own_perception_info(
     now: float,
     window_start: float = 0.0,
     visits_since: float | None = None,
+    visits: list[dict] | None = None,
 ) -> dict | None:
     """Our own perception in shadow mode next to Frigate (own_perception.py): of Frigate's
     porch arrivals since it started, those it saw in the same zones, saw elsewhere, or
     missed; its porch tracks Frigate had no arrival for; and how much it looked. With
     ``visits_since`` (it starts the visits since then), ``missed_visits`` counts the
-    misses since then: arrivals nobody greeted. None when it logged nothing (off)."""
+    misses since then: arrivals nobody greeted. ``visits`` (the window's visit records)
+    say which of the extra tracks started a visit: a track's id is its visit's event id.
+    None when it logged nothing (off)."""
     started, tracks, stats, mode = None, [], [], "shadow"
     for line in lines:
         m = GATEKEEPER_LINE.match(line)
@@ -496,7 +503,8 @@ def own_perception_info(
                 started = log_time(m["time"])
         elif t := OWN_TRACK.search(message):
             zones_seen = set() if t["zones"] == "-" else set(t["zones"].split(","))
-            tracks.append((float(t["start"]), float(t["end"]), zones_seen))
+            best = float(t["best"]) if t["best"] else None
+            tracks.append((float(t["start"]), float(t["end"]), zones_seen, t["id"], best))
         elif st := OWN_STATS.search(message):
             stats.append({k: v if k == "device" else int(v) for k, v in st.groupdict().items()})
             if m:  # it ran for the hour before this line
@@ -541,6 +549,12 @@ def own_perception_info(
         if in_zone(t[2])
         and not any(near(e["start_time"], e.get("end_time") or now, t[0], t[1]) for e in arrivals)
     ]
+    outcomes = {
+        str(v["event_id"]): v.get("outcome") or "visit"
+        for v in visits or []
+        if v.get("event_id")
+        and v.get("outcome") not in {"quick_reply", "package_delivered", "package_picked_up"}
+    }
     # Per device, in the order it ran on: a day can have both (the GPU arriving with a
     # deploy, or falling back to the CPU). Lines from before the device was logged were
     # all on the CPU.
@@ -560,12 +574,40 @@ def own_perception_info(
         "restarting": [local(e["start_time"]) for e in restarting],
         "tracks": len(tracks),
         "extra": [local(t[0]) for t in extra],
+        # With PERCEPTION=own such a track starts a visit: its score and length help tell a
+        # false detection from someone Frigate missed (#148).
+        "extra_tracks": [
+            {
+                "at": local(t[0]),
+                "seconds": round(t[1] - t[0], 1),
+                "best": t[4],
+                "visit": outcomes.get(t[3]),
+            }
+            for t in extra
+        ],
         "frames": sum(st["frames"] for st in stats),
         "detected": sum(st["detected"] for st in stats),
         "devices": [device_stats(name, hours) for name, hours in devices.items()],
         "device": (stats[-1].get("device") or "cpu") if stats else None,
         "blind": blind_hours(stats, window_start),
     }
+
+
+def extra_tracks_text(own: dict, most: int = 10) -> str:
+    """The porch tracks Frigate didn't have, for the Own perception line: how many started
+    a visit, then each one's time, best score and length (reports from before #148 have
+    the times only)."""
+    tracks = own.get("extra_tracks")
+    if tracks is None:
+        return ", ".join(own["extra"][:most])
+    started = sum(t["visit"] is not None for t in tracks)
+    parts = []
+    for t in tracks[:most]:
+        about = ([f"{t['best']:.2f}"] if t["best"] is not None else []) + [f"{t['seconds']:g} s"]
+        if t["visit"]:
+            about.append(f"visit: {t['visit']}")
+        parts.append(f"{t['at']} {', '.join(about)}")
+    return (f"{started} started a visit: " if started else "") + "; ".join(parts)
 
 
 def blind_hours(stats: list[dict], window_start: float = 0.0) -> list[str]:
@@ -1229,6 +1271,14 @@ def build(i: Inputs) -> dict:
     created = {name: ts for name, ts in recreated.items() if name not in kept}
     logs["since"] = {name: local(ts) for name, ts in created.items()}
     logs["kept"] = {name: local(ts) for name, ts in recreated.items() if name in kept}
+    # Why each wasn't greeted. Gatekeeper merges someone into the person who just left by
+    # the door, or who was just recognized, on purpose (one person's split track, or the
+    # household together): listed apart, not a miss.
+    why = missed_why(missed, sources.get("gatekeeper", []), created.get("gatekeeper"))
+    kept_why = [not MERGED_ON_PURPOSE.search(w["gatekeeper"] or "") for w in why]
+    merged = [w for w, k in zip(why, kept_why, strict=True) if not k]
+    missed = [e for e, k in zip(missed, kept_why, strict=True) if k]
+    why = [w for w, k in zip(why, kept_why, strict=True) if k]
     # A watchdog exit is what restarts the container: one hang, not two.
     hangs = outcomes.get("timeout", 0) + max(host.get("hang_exits", 0), host.get("restarts", 0))
 
@@ -1329,6 +1379,7 @@ def build(i: Inputs) -> dict:
         i.now,
         since,
         visits_since=arrivals_since if own_visits else None,
+        visits=i.visits,
     )
     doorbell = doorbell_info(sources.get("gatekeeper", []))
     if doorbell:
@@ -1409,7 +1460,8 @@ def build(i: Inputs) -> dict:
             "by": "own perception" if own_visits else "Frigate",
             "since": local(arrivals_since) if arrivals_since > since else None,
             "missed": [local(e["start_time"]) for e in missed],
-            "why": missed_why(missed, sources.get("gatekeeper", []), created.get("gatekeeper")),
+            "why": why,
+            "merged": merged,
         },
         "notifications": {
             "tracked": len(tracked),
@@ -1484,6 +1536,10 @@ def summary_lines(report: dict) -> list[str]:
             (counts.get("stepped_out"), "came out and went back in"),
             (counts.get("returned"), "came back soon after"),
             (counts.get("delivery_trips"), "more trip(s) of a delivery"),
+            (
+                len(report["arrivals"].get("merged") or []),
+                "taken for someone who had just left or was just recognized",
+            ),
         )
         if n
     ]
@@ -1635,6 +1691,9 @@ def summary_lines(report: dict) -> list[str]:
         + (f"{m['seconds']:g} s" if m["seconds"] is not None else "(still going)")
         + f"; Gatekeeper: {m['gatekeeper'] or 'nothing logged'}"
         for m in report["arrivals"].get("why", [])
+    ] + [
+        f"Not greeted on purpose at {m['start']}: Gatekeeper {m['gatekeeper']}"
+        for m in report["arrivals"].get("merged") or []
     ]
     if counts.get("return_gaps"):
         lines.append(
@@ -1740,7 +1799,7 @@ def summary_lines(report: dict) -> list[str]:
                 else ""
             )
             + f"; {own['tracks']} track(s), {len(own['extra'])} on the porch Frigate didn't have"
-            + (f" ({', '.join(own['extra'][:10])})" if own["extra"] else "")
+            + (f" ({extra_tracks_text(own)})" if own["extra"] else "")
             + (
                 f"; detector on {own['detected']} of {own['frames']} frames: "
                 + "; ".join(
