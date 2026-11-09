@@ -331,6 +331,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **Daily report: an arrival merged on purpose isn't a miss** (#156). Someone appearing
+  right after a person left by the door, or after a household member was recognized, is
+  taken for them and not greeted, by design. If their track started a few seconds before
+  the other's, `arrivals_greeted` failed anyway. These are now `arrivals.merged`, counted on
+  the *Porch arrivals* line as *taken for someone who had just left or was just
+  recognized*, each with a *Not greeted on purpose at …* line, and pass the check.
 - **The conversation model's time leaves out waiting for its server.** A turn asked while
   its server was starting or loading (after a deploy or a model change) counted the retry
   waits as the model's time: one such turn read *247.8 s max* on a day whose median was
