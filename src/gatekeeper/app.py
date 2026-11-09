@@ -770,7 +770,7 @@ def main() -> None:
             logged_in=Logins(settings.log_dir / "web-logins.json"),
             push=push,
             replies=quick.from_button if quick else None,
-            settings=settings_page,
+            settings_page=settings_page,
         )
     start_thread(
         "sweep", tracker.sweep_forever, settings.sweep_interval_seconds, on_sweep=health.sweep_done
