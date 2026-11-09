@@ -212,15 +212,20 @@ def emergency_links(visit: Visit, address: str) -> list[tuple[str, str]]:
         return []  # a package already gone isn't an emergency in progress
     if not (suspicious or visit.classification == "emergency"):
         return []
+    if suspicious:
+        body = (
+            f"Suspicious person at my door at {address}: "
+            f"{'; '.join(threat.get('reasons', []))}. My doorbell camera is recording."
+        )
+    else:
+        body = f'Emergency reported at my door at {address}: "{visit.transcript[:120]}"'
+    return links_911(address, body)
+
+
+def links_911(address: str, body: str) -> list[tuple[str, str]]:
+    """Text 911 (its messages opened with ``body``; only with HOME_ADDRESS), then Call 911."""
     links = []
     if address:
-        if suspicious:
-            body = (
-                f"Suspicious person at my door at {address}: "
-                f"{'; '.join(threat.get('reasons', []))}. My doorbell camera is recording."
-            )
-        else:
-            body = f'Emergency reported at my door at {address}: "{visit.transcript[:120]}"'
         links.append(("Text 911", "sms:911?body=" + urllib.parse.quote(body)))
     links.append(("Call 911", "tel:911"))
     return links

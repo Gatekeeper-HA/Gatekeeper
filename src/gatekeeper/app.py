@@ -23,7 +23,7 @@ from gatekeeper.frigate import FrigatePerception
 from gatekeeper.health import Health, serve
 from gatekeeper.interaction import HOUSEHOLD_OUTCOMES, Interaction, Visit
 from gatekeeper.logs import setup_logging
-from gatekeeper.notify import Notifier, NtfyBackend, emergency_links
+from gatekeeper.notify import Notifier, NtfyBackend, emergency_links, links_911
 from gatekeeper.packages import Baselines, PackageModel, PackageWatcher
 from gatekeeper.perception import Perception
 from gatekeeper.publish import QUICK_REPLY_TOPIC, Publisher
@@ -729,6 +729,24 @@ def main() -> None:
             settings.live_hd_stream,
             talk_stream=settings.go2rtc_talk_stream,
             owner=interaction,
+            emergency=links_911(
+                settings.home_address,
+                f"I need help at my door at {settings.home_address}. "
+                "My doorbell camera is recording.",
+            )
+            if settings.emergency_buttons
+            else None,
+        )
+        from gatekeeper.settings_page import SettingsPage
+
+        settings_page = SettingsPage(
+            settings,
+            restart=lambda: start_thread(
+                "restart",
+                health.restart_when_idle,
+                "to use the settings page's settings",
+                lambda: os.kill(os.getpid(), signal.SIGTERM),  # stop_on_sigterm's clean stop
+            ),
         )
         from gatekeeper.settings_page import SettingsPage
 

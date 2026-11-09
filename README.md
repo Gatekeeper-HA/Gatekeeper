@@ -396,6 +396,11 @@ with your address and what happened written for you, and you still tap send: Gat
 contacts 911 itself. Text-to-911 isn't available everywhere. Where it isn't, your carrier
 replies that you need to call, so *Call 911* is always there too.
 
+Every other notification has no 911 button: they're only for what Gatekeeper judges an
+emergency or a suspicious visitor, and then they come first. For anything it didn't catch,
+*Call 911* and *Text 911* (with your address) are out of the way at the end of the Live
+page, under *More*. Tapping a notification opens that page.
+
 Emergencies and officers keep their own conversations (the levels are recorded, not acted
 on). What someone looks like, how they talk or what language they speak never counts.
 `THREAT_LEVELS=shadow` assesses every visit and logs it, without changing anything: the
