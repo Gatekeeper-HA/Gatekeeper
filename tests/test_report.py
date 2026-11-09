@@ -418,7 +418,14 @@ def test_collect_reads_the_logs_and_asks_frigate(settings):
     r = build(report.collect(settings, HOST, "", now, fetch=fetch))
 
     assert r["counts"]["visits"] == 1
-    assert r["arrivals"] == {"total": 1, "by": "Frigate", "since": None, "missed": [], "why": []}
+    assert r["arrivals"] == {
+        "total": 1,
+        "by": "Frigate",
+        "since": None,
+        "missed": [],
+        "why": [],
+        "merged": [],
+    }
     assert failing(r) == {}
     assert "labels=person" in asked[0] and asked[1].endswith("/api/stats")
 
@@ -835,6 +842,47 @@ def test_each_arrival_not_greeted_says_what_gatekeeper_did_with_it():
     assert f"Not greeted at {first['start']}: Frigate saw them 1.9 s; Gatekeeper: ended" in text
     assert f"Not greeted at {second['start']}: Frigate saw them (still going); " in text
     assert "Gatekeeper: nothing logged" in text
+
+
+def test_an_arrival_merged_on_purpose_is_not_a_miss():
+    # sessions.py takes someone appearing right after a person left by the door (or was
+    # recognized) for them: not greeted on purpose. Anything else still fails the check.
+    log = (
+        "### gatekeeper\n"
+        "2026-10-13 18:01:00,100 INFO    gatekeeper.sessions [-] person event 1.5-after "
+        "merged into 1.4-own13, who just left by the door\n"
+        "2026-10-13 18:02:00,100 INFO    gatekeeper.sessions [-] person event 2.5-kim "
+        "merged into 2.4-own20, who was just recognized\n"
+        "2026-10-13 18:03:00,100 INFO    gatekeeper.sessions [-] person event 3.5-visit "
+        "merged into visit 3.4-own30\n"
+    )
+    r = build(
+        inputs(
+            arrivals=[
+                {"id": "1.5-after", "start_time": NOW - 7200, "end_time": NOW - 7178.4},
+                {"id": "2.5-kim", "start_time": NOW - 6000, "end_time": NOW - 5990},
+                {"id": "3.5-visit", "start_time": NOW - 5400, "end_time": NOW - 5390},
+            ],
+            log_text=log,
+        )
+    )
+    assert failing(r) == {"arrivals_greeted": "1 porch arrival(s) not greeted"}
+    assert [m["gatekeeper"] for m in r["arrivals"]["why"]] == ["merged into visit 3.4-own30"]
+    assert [m["start"] for m in r["arrivals"]["merged"]] == [
+        report.local(NOW - 7200),
+        report.local(NOW - 6000),
+    ]
+    text = render_text(r)
+    assert "not greeted 1; 2 taken for someone who had just left or was just recognized" in text
+    assert (
+        f"Not greeted on purpose at {report.local(NOW - 7200)}: Gatekeeper merged into "
+        "1.4-own13, who just left by the door"
+    ) in text
+
+    # Only those: the day's one merge is all clear.
+    r = build(inputs(arrivals=[{"id": "1.5-after", "start_time": NOW - 7200}], log_text=log))
+    assert "arrivals_greeted" not in failing(r)
+    assert r["arrivals"]["why"] == [] and len(r["arrivals"]["merged"]) == 1
 
 
 def test_the_household_recognized_by_face_is_counted_apart():

@@ -142,6 +142,10 @@ DOORSTEP_RETRY = re.compile(r"doorstep not checked yet")
 DOORSTEP_SCORE = re.compile(r"doorstep change at .*: package score ([\d.]+) \(before ([\d.]+)\)")
 # sessions.py's lines on a person event not greeted (merged, left, returned, ended).
 PERSON_EVENT = re.compile(r"person event (?P<id>\S+) (?P<why>.+)$")
+# sessions.py's merges on purpose: the same person (a split track), or the household together.
+MERGED_ON_PURPOSE = re.compile(
+    r"^merged into \S+, who (just left by the door|was just recognized)$"
+)
 # app.py's lines on when Gatekeeper starts and stops listening for Frigate's events.
 GATEKEEPER_STARTING = re.compile(r"^Gatekeeper \S+ starting: ")
 GATEKEEPER_STOPPING = re.compile(r"^Gatekeeper stopping ")
@@ -1212,6 +1216,14 @@ def build(i: Inputs) -> dict:
     created = {name: ts for name, ts in recreated.items() if name not in kept}
     logs["since"] = {name: local(ts) for name, ts in created.items()}
     logs["kept"] = {name: local(ts) for name, ts in recreated.items() if name in kept}
+    # Why each wasn't greeted. Gatekeeper merges someone into the person who just left by
+    # the door, or who was just recognized, on purpose (one person's split track, or the
+    # household together): listed apart, not a miss.
+    why = missed_why(missed, sources.get("gatekeeper", []), created.get("gatekeeper"))
+    kept_why = [not MERGED_ON_PURPOSE.search(w["gatekeeper"] or "") for w in why]
+    merged = [w for w, k in zip(why, kept_why, strict=True) if not k]
+    missed = [e for e, k in zip(missed, kept_why, strict=True) if k]
+    why = [w for w, k in zip(why, kept_why, strict=True) if k]
     # A watchdog exit is what restarts the container: one hang, not two.
     hangs = outcomes.get("timeout", 0) + max(host.get("hang_exits", 0), host.get("restarts", 0))
 
@@ -1392,7 +1404,8 @@ def build(i: Inputs) -> dict:
             "by": "own perception" if own_visits else "Frigate",
             "since": local(arrivals_since) if arrivals_since > since else None,
             "missed": [local(e["start_time"]) for e in missed],
-            "why": missed_why(missed, sources.get("gatekeeper", []), created.get("gatekeeper")),
+            "why": why,
+            "merged": merged,
         },
         "notifications": {
             "tracked": len(tracked),
@@ -1466,6 +1479,10 @@ def summary_lines(report: dict) -> list[str]:
             (counts.get("stepped_out"), "came out and went back in"),
             (counts.get("returned"), "came back soon after"),
             (counts.get("delivery_trips"), "more trip(s) of a delivery"),
+            (
+                len(report["arrivals"].get("merged") or []),
+                "taken for someone who had just left or was just recognized",
+            ),
         )
         if n
     ]
@@ -1607,6 +1624,9 @@ def summary_lines(report: dict) -> list[str]:
         + (f"{m['seconds']:g} s" if m["seconds"] is not None else "(still going)")
         + f"; Gatekeeper: {m['gatekeeper'] or 'nothing logged'}"
         for m in report["arrivals"].get("why", [])
+    ] + [
+        f"Not greeted on purpose at {m['start']}: Gatekeeper {m['gatekeeper']}"
+        for m in report["arrivals"].get("merged") or []
     ]
     if counts.get("return_gaps"):
         lines.append(
