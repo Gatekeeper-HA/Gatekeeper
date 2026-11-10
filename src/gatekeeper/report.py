@@ -901,9 +901,11 @@ def split_sources(text: str) -> dict[str, list[str]]:
 
 def log_events(lines: list[str]) -> list[dict]:
     """Warnings, errors and tracebacks in a container's log. A traceback right after an
-    error line (``log.exception``) belongs to it."""
+    error line (``log.exception``) belongs to it. A traceback or native crash on its own
+    has no time of its own: it gets the time of the last line before it that had one."""
     events: list[dict] = []
     last_line = -2
+    last_time = ""
     i = 0
     while i < len(lines):
         line = lines[i]
@@ -922,7 +924,7 @@ def log_events(lines: list[str]) -> list[dict]:
                 events[-1]["exception"] = exception
                 events[-1]["where"] = where
             else:
-                events.append(_event("TRACEBACK", "python", exception, "", exception, where))
+                events.append(_event("TRACEBACK", "python", exception, last_time, exception, where))
             continue
         if m := FATAL_ERROR.match(line):
             # Then each thread's stack, most recent call first; the crashing one is the
@@ -938,10 +940,11 @@ def log_events(lines: list[str]) -> list[dict]:
                     where = f'File "{f["file"]}", line {f["line"]} in {f["func"]}'
                 i += 1
             message = f"Fatal Python error: {m['message'].strip()}"
-            events.append(_event("CRITICAL", "python", message, "", None, where))
+            events.append(_event("CRITICAL", "python", message, last_time, None, where))
             continue
         if m := GATEKEEPER_LINE.match(line) or FRIGATE_LINE.match(line):
             level, logger, message, time_ = m["level"], m["logger"], m["message"], m["time"]
+            last_time = time_
         elif m := PYTHON_WARNING.match(line):
             level, logger = "WARNING", "python"
             message, time_ = f"{m['category']}: {m['message']} ({m['file']})", ""

@@ -331,6 +331,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **Daily report: tracebacks and native crashes say when** (#162). A traceback that
+  doesn't follow a logged error (one at startup, say) and faulthandler's *Fatal Python
+  error* have no time of their own, so the report listed them as `( – )` and couldn't tell
+  a crash on the way out during a deploy from one mid-day. They now get the time of the last
+  line logged before them, in the log kinds' first and last times.
 - **Daily report: the *Notified* line gives each backend** (#158). With the app's
   notifications (web push) next to ntfy, *Notified: N/N* counted a visit notified if any
   backend got through, so the app's notifications could stop with the report green. The

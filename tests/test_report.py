@@ -178,6 +178,35 @@ def test_a_native_crash_is_a_critical_error_where_the_current_thread_was():
     assert crash["message"] == "Fatal Python error: Segmentation fault"
     assert crash["where"].endswith('own_perception.py", line 547 in look_forever')
     assert crash["level"] in report.ERROR_LEVELS
+    # faulthandler's lines have no time: the crash came right after the last logged line.
+    assert crash["time"] == "2026-10-01 10:00:00"
+
+
+def test_a_traceback_or_crash_on_its_own_gets_the_time_of_the_line_before_it():
+    log = (
+        "### gatekeeper\n"
+        "2026-10-01 09:00:00,000 INFO    gatekeeper.app [-] Gatekeeper 0.3.0 starting\n"
+        "Traceback (most recent call last):\n"
+        '  File "/app/src/gatekeeper/app.py", line 744, in main\n'
+        "TypeError: serve() got an unexpected keyword argument 'x'\n"
+        "2026-10-01 09:00:30,000 INFO    gatekeeper.app [-] Gatekeeper 0.3.0 starting\n"
+        "Traceback (most recent call last):\n"
+        '  File "/app/src/gatekeeper/app.py", line 744, in main\n'
+        "TypeError: serve() got an unexpected keyword argument 'x'\n" + FATAL_LOG
+    )
+    top = report.summarize_logs(log)["sources"]["gatekeeper"]["top"]
+
+    crash = next(g for g in top if g["level"] == "CRITICAL")
+    assert (crash["first"], crash["last"]) == ("2026-10-01 10:00:00",) * 2
+    traceback = next(g for g in top if g["level"] == "TRACEBACK")
+    assert traceback["count"] == 2
+    assert (traceback["first"], traceback["last"]) == (
+        "2026-10-01 09:00:00",
+        "2026-10-01 09:00:30",
+    )
+    # Before any line with a time, there's none to give.
+    alone = report.log_events(["Traceback (most recent call last):", "  File x", "OSError: y"])
+    assert alone[0]["time"] == ""
 
 
 def test_whisper_model_device_and_transcription_times():
