@@ -331,6 +331,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **Daily report: the settings page's saves, and its restarts aren't hangs** (#163). Saving
+  or forgetting the settings page restarts Gatekeeper on purpose, which the report counted
+  as a hang (`no_hangs` red). Those restarts are now left out, and a *Settings page* line
+  says what was saved (which settings), forgotten, how many restarts it caused, and what's
+  in use from the page at the last start (`web_app.settings_page`).
 - **Daily report: the *Notified* line gives each backend** (#158). With the app's
   notifications (web push) next to ntfy, *Notified: N/N* counted a visit notified if any
   backend got through, so the app's notifications could stop with the report green. The

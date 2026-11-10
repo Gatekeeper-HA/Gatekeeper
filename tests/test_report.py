@@ -119,6 +119,64 @@ def test_a_watchdog_exit_and_the_restart_it_causes_are_one_hang():
     assert failing(r)["no_hangs"] == "2 hang/restart(s)"
 
 
+SETTINGS_LOG = """\
+### gatekeeper
+2026-10-01 09:00:00,000 INFO    gatekeeper.app [-] Gatekeeper 0.3.0 starting: camera=front_door
+2026-10-01 10:00:00,000 INFO    gatekeeper.settings_page [-] web: settings saved \
+(threat_levels, emergency_buttons); restarting to use them
+2026-10-01 10:00:01,000 INFO    gatekeeper.health [-] restarting to use the settings page's settings
+2026-10-01 10:00:30,000 INFO    gatekeeper.app [-] Gatekeeper 0.3.0 starting: camera=front_door
+2026-10-01 10:00:30,000 INFO    gatekeeper.app [-] from the settings page: threat_levels, \
+emergency_buttons
+2026-10-01 11:00:00,000 INFO    gatekeeper.settings_page [-] web: settings saved \
+(threat_levels); restarting to use them
+2026-10-01 11:00:01,000 INFO    gatekeeper.health [-] restarting to use the settings page's settings
+2026-10-01 11:00:30,000 INFO    gatekeeper.app [-] Gatekeeper 0.3.0 starting: camera=front_door
+2026-10-01 11:00:30,000 INFO    gatekeeper.app [-] from the settings page: threat_levels, \
+emergency_buttons
+"""
+
+
+def test_the_settings_page_restarts_on_purpose_are_not_hangs():
+    r = build(inputs(log_text=SETTINGS_LOG, host={**HOST, "restarts": 2}))
+
+    assert "no_hangs" not in failing(r)
+    assert r["web_app"]["settings_page"] == {
+        "saved": 2,
+        "changed": ["threat_levels", "emergency_buttons"],
+        "forgotten": 0,
+        "restarts": 2,
+        "in_use": ["threat_levels", "emergency_buttons"],
+    }
+    assert r["hangs"]["settings_page_restarts"] == 2
+    assert (
+        "Settings page: saved 2 time(s) (threat_levels, emergency_buttons); restarted "
+        "Gatekeeper 2 time(s) (on purpose); in use at the last start: threat_levels, "
+        "emergency_buttons"
+    ) in render_text(r)
+
+    # A restart beyond the page's still counts.
+    r = build(inputs(log_text=SETTINGS_LOG, host={**HOST, "restarts": 3}))
+    assert failing(r)["no_hangs"] == "1 hang/restart(s)"
+
+
+def test_settings_forgotten_and_a_start_with_nothing_from_the_page():
+    log = SETTINGS_LOG + (
+        "2026-10-01 12:00:00,000 INFO    gatekeeper.settings_page [-] web: the settings "
+        "page's settings forgotten; restarting\n"
+        "2026-10-01 12:00:01,000 INFO    gatekeeper.health [-] restarting to use the "
+        "settings page's settings\n"
+        "2026-10-01 12:00:30,000 INFO    gatekeeper.app [-] Gatekeeper 0.3.0 starting: x\n"
+    )
+    page = build(inputs(log_text=log, host={**HOST, "restarts": 3}))["web_app"]["settings_page"]
+
+    assert (page["forgotten"], page["restarts"], page["in_use"]) == (1, 3, [])
+    # Not used at all: nothing said.
+    r = build(inputs())
+    assert "settings_page" not in r["web_app"]
+    assert "Settings page" not in render_text(r)
+
+
 def test_a_stall_says_where_its_stuck():
     lines = [
         "2026-10-30 12:22:29,001 CRITICAL gatekeeper.own_perception [-] own perception "
