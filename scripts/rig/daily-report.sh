@@ -85,6 +85,12 @@ host=$(jq -nc --argjson hang_exits "$hang_exits" --argjson restarts "$restarts" 
 if {
   echo "### whisper"
   docker logs gatekeeper 2>&1 | grep -E "loading Whisper model|couldn't run on the GPU" || true
+  # State lines logged when Gatekeeper starts: on a day with no restart they come before
+  # the window, and the report takes the last one before it as how the day began.
+  echo "### startup"
+  docker logs gatekeeper 2>&1 \
+    | grep -E "listening for button presses|doorbell button listener stopped|own perception on \(" \
+    || true
   echo "### gatekeeper"
   day_log gatekeeper
   echo "### frigate"

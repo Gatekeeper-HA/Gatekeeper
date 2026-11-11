@@ -331,6 +331,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **Daily report: a day with no restart keeps the state Gatekeeper started in** (#166). The
+  doorbell button's listener and own perception's mode are logged when Gatekeeper starts, so
+  on a day with no deploy or restart they were before the report's 24 h: own perception read
+  *shadow* although it started the visits, and the *Doorbell* line and its `doorbell_button`
+  check disappeared (a listener down since before the window would have stayed green).
+  `daily-report.sh` now sends those lines from the container's whole log, and the report
+  takes the last of each before the window as how the day began.
 - **Daily report: the *Notified* line gives each backend** (#158). With the app's
   notifications (web push) next to ntfy, *Notified: N/N* counted a visit notified if any
   backend got through, so the app's notifications could stop with the report green. The

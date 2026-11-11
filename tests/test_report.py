@@ -1382,6 +1382,62 @@ def test_the_doorbell_button_not_listening_fails_a_check():
     assert "doorbell_button" not in failing(build(inputs()))
 
 
+def startup_log(*lines):
+    """daily-report.sh's ``startup`` section: Gatekeeper's state lines from its whole log."""
+    return "### startup\n" + "".join(
+        f"{stamp(ts)} INFO    gatekeeper.{logger} [-] {message}\n" for ts, logger, message in lines
+    )
+
+
+BUTTON_ON = "listening for button presses on Reolink Video Doorbell WiFi (firmware v3)"
+OWN_VISITS_ON = "own perception on (visits): go2rtc:8554/front_door_sub, zones porch"
+
+
+def test_a_day_with_no_restart_keeps_the_state_gatekeeper_started_in():
+    # Gatekeeper started two days ago and ran all day: its state lines are before the
+    # window, in the container's whole log only.
+    started = NOW - 2 * 86400
+    startup = startup_log((started, "button", BUTTON_ON), (started, "app", OWN_VISITS_ON))
+    log = own_log(own_track(NOW - 3000, NOW - 2990, "porch")) + startup
+    r = build(inputs(log_text=log, trigger_zones=("porch",), perception="own"))
+
+    assert r["doorbell"] == {"firmware": ["v3"], "listening": True, "stops": []}
+    assert "doorbell_button" not in failing(r)
+    assert r["own_perception"]["mode"] == "visits"
+    text = render_text(r)
+    assert "Doorbell: firmware v3" in text
+    assert "Own perception (starts the visits, since " in text
+    # The startup lines aren't the window's: no errors or warnings counted from them.
+    assert "startup" not in r["logs"]["sources"]
+
+
+def test_a_doorbell_listener_down_since_before_the_window_fails_its_check():
+    stopped = NOW - 2 * 86400 + 60
+    startup = startup_log(
+        (NOW - 2 * 86400, "button", BUTTON_ON),
+        (stopped, "button", "doorbell button listener stopped: Cannot connect to host"),
+    )
+    r = build(inputs(log_text=button_log() + startup))
+    assert failing(r)["doorbell_button"] == (
+        f"the doorbell button isn't heard: its listener stopped at {report.local(stopped)}"
+    )
+
+
+def test_state_lines_inside_the_window_come_from_the_days_log_not_startup():
+    # Restarted in the window: the whole log's lines are the day's own, read once.
+    restart = NOW - 3000
+    startup = startup_log(
+        (NOW - 2 * 86400, "app", OWN_VISITS_ON.replace("(visits)", "(shadow)")),
+        (restart, "app", OWN_VISITS_ON),
+        (restart, "button", BUTTON_ON),
+    )
+    day = own_log((restart, "app", OWN_VISITS_ON), (restart, "button", BUTTON_ON))
+    r = build(inputs(log_text=day + startup, trigger_zones=("porch",), perception="own"))
+    assert r["doorbell"]["firmware"] == ["v3"] and not r["doorbell"]["stops"]
+    # It was in shadow before the restart; the restart in the window switched it.
+    assert r["own_perception"]["mode"] == "visits"
+
+
 def test_own_perception_compares_from_its_first_track_before_a_restart():
     # Running all day; a deploy restarted it in the evening, so the window's only "on"
     # line is late. The morning's arrival still counts, and was seen.
