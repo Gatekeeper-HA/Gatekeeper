@@ -66,13 +66,14 @@ packages = ["src/gatekeeper"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["src", "tests"]
+src = ["src", "tests", "cloud"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "cloud/tests"]
+pythonpath = ["cloud"]  # the name service (cloud/README.md)
 addopts = "-q"
 
 [tool.coverage.run]
