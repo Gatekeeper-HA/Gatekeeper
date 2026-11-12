@@ -13,7 +13,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from hubnames import __main__ as cli
 from hubnames.api import serve
 from hubnames.powerdns import PowerDNS
-from hubnames.service import NameService, TooMany, b64, message
+from hubnames.service import NameService, TooMany, b64, message, zone_records
 from hubnames.store import Refused, Store
 
 ZONE = "hubs.example"
@@ -23,14 +23,32 @@ VALUE = "x" * 43  # a DNS-01 challenge's TXT value: base64url of a SHA-256
 
 
 class PowerDNSAPI:
-    """PowerDNS's API as far as the name service uses it: PATCH a zone's record sets."""
+    """PowerDNS's API as far as the name service uses it: create the zone, and PATCH its
+    record sets."""
 
     def __init__(self):
         self.patches = []
+        self.created = []
         self.status = 204
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                assert self.path == f"/api/v1/servers/localhost/zones/{ZONE}."
+                self.send_response(200 if outer.created else 404)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def do_POST(self):
+                assert self.path == "/api/v1/servers/localhost/zones"
+                assert self.headers["X-API-Key"] == "pdns-key"
+                outer.created.append(
+                    json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                )
+                self.send_response(201)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
             def do_PATCH(self):
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 assert self.headers["X-API-Key"] == "pdns-key"
@@ -245,6 +263,35 @@ def test_the_api_over_http(names, pdns):
         assert call("PUT", f"/v1/hubs/{hub_id}/address", {"address": "10.0.0.2"})[0] == 404
     finally:
         server.shutdown()
+
+
+def test_the_zone_is_created_once_and_its_own_records_set(pdns, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("HUBNAMES_ZONE", ZONE)
+    monkeypatch.setenv("PDNS_API_URL", pdns.url)
+    monkeypatch.setenv("PDNS_API_KEY", "pdns-key")
+    monkeypatch.setenv("HUBNAMES_DB", str(tmp_path / "hubnames.db"))
+    monkeypatch.setenv("SERVER_IPV4", "203.0.113.5")
+    monkeypatch.setenv("SERVER_IPV6", "2001:db8::5")
+    cli.main(["zone"])
+    cli.main(["zone"])  # again: kept, not created twice
+    assert capsys.readouterr().out.count("created") == 1
+    [zone] = pdns.created
+    assert zone["name"] == f"{ZONE}." and zone["kind"] == "Native"
+    rrsets = {(r["name"], r["type"]): [x["content"] for x in r["records"]] for r in zone["rrsets"]}
+    assert rrsets == {
+        (f"{ZONE}.", "SOA"): [f"ns1.{ZONE}. hostmaster.{ZONE}. 1 10800 3600 604800 60"],
+        (f"{ZONE}.", "NS"): [f"ns1.{ZONE}.", f"ns2.{ZONE}."],
+    }
+    records = {k: [x["content"] for x in r["records"]] for k, r in pdns.last().items()}
+    assert (f"{ZONE}.", "SOA") not in records  # its serial is PowerDNS's to keep
+    assert records[(f"api.{ZONE}.", "A")] == ["203.0.113.5"]
+    assert records[(f"ns2.{ZONE}.", "AAAA")] == ["2001:db8::5"]
+    assert records[(f"{ZONE}.", "CAA")] == ['0 issue "letsencrypt.org"', '0 issuewild ";"']
+    assert records[(f"{ZONE}.", "MX")] == ["0 ."]  # no email
+    assert records[(f"_dmarc.{ZONE}.", "TXT")] == ['"v=DMARC1; p=reject"']
+    assert all(r[1] != "AAAA" for r in zone_records(ZONE, "203.0.113.5"))
+    with pytest.raises(ValueError):
+        zone_records(ZONE, "ns1.example")
 
 
 def test_claim_codes_from_the_command_line(tmp_path, pdns, monkeypatch, capsys):

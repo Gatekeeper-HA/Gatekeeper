@@ -1,6 +1,7 @@
 """Run the name service, or manage it.
 
     python -m hubnames                 serve the API
+    python -m hubnames zone            set up the zone's own records (again)
     python -m hubnames claims 5        print 5 new claim codes
     python -m hubnames remove <id>     take a hub's name down
 
@@ -10,6 +11,8 @@ Settings, from the environment:
     PDNS_API_KEY       its key (required)
     HUBNAMES_DB        the database (default /data/hubnames.db)
     HUBNAMES_PORT      the API's port (default 8080)
+    SERVER_IPV4        this server's addresses, for the zone's nameservers and the API
+    SERVER_IPV6        (for ``zone``; IPv6 is optional)
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ import threading
 
 from hubnames.api import serve
 from hubnames.powerdns import PowerDNS
-from hubnames.service import NameService
+from hubnames.service import NameService, zone_records
 from hubnames.store import Store
 
 SWEEP_SECONDS = 60.0
@@ -45,6 +48,16 @@ def main(argv: list[str]) -> None:
         print("\n".join(names.store.new_claims(int(argv[1]))))
     elif argv[:1] == ["remove"] and len(argv) == 2:
         names.remove(argv[1])
+    elif argv == ["zone"]:
+        if "SERVER_IPV4" not in os.environ:
+            sys.exit("SERVER_IPV4 isn't set")
+        records = zone_records(
+            names.zone, os.environ["SERVER_IPV4"], os.environ.get("SERVER_IPV6", "")
+        )
+        if names.dns.create([r for r in records if r[1] in ("SOA", "NS")]):
+            print(f"created {names.zone}")
+        names.dns.change([r for r in records if r[1] != "SOA"])
+        print(f"{names.zone}'s own records are set")
     elif not argv:
         port = int(os.environ.get("HUBNAMES_PORT", "8080"))
         serve(names, port=port)

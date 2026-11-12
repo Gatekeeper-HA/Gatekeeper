@@ -59,6 +59,7 @@ with its API on. `hubnames` writes the records through that API and keeps the hu
 HUBNAMES_ZONE=<the zone> PDNS_API_KEY=<PowerDNS's API key> python -m hubnames
 python -m hubnames claims 5        # 5 new claim codes, printed once (only hashes are kept)
 python -m hubnames remove <id>     # take a hub's name down
+python -m hubnames zone            # set up the zone's own records (Deploying)
 ```
 
 | Setting | Default | |
@@ -68,6 +69,60 @@ python -m hubnames remove <id>     # take a hub's name down
 | `PDNS_API_URL` | `http://pdns:8081` | PowerDNS's API |
 | `HUBNAMES_DB` | `/data/hubnames.db` | the hubs and claim codes |
 | `HUBNAMES_PORT` | `8080` | the API's port |
+| `SERVER_IPV4`, `SERVER_IPV6` | | this server's addresses, for `zone` (IPv6 optional) |
 
 It needs Python 3.11 and `cryptography`. The tests are in `cloud/tests` and run with the
 rest (`pytest`).
+
+## Deploying
+
+One small server with a fixed IPv4 and IPv6 address runs everything (`compose.yml`):
+
+- **PowerDNS** answers for the zone, on port 53.
+- **hubnames** writes the hubs' records through PowerDNS's API.
+- **Caddy** gives the API HTTPS (`api.<zone>`), with a Let's Encrypt certificate.
+
+Only ports 53, 80 and 443 are open to the internet. PowerDNS's API and hubnames' own port
+stay on the compose network.
+
+**1. The server.** On a new Ubuntu 24.04 server, as root:
+
+```sh
+sh setup-server.sh <admin user>
+```
+
+It does the following:
+- adds the admin user, with root's SSH keys, sudo and Docker;
+- turns off password and root logins over SSH;
+- sets up a firewall (SSH, DNS and HTTP(S) only);
+- turns on automatic security updates;
+- installs Docker.
+
+**2. The services.** As the admin user:
+
+```sh
+git clone https://github.com/Gatekeeper-HA/Gatekeeper && cd Gatekeeper/cloud
+cp .env.example .env && chmod 600 .env    # then fill it in
+docker compose up -d --build
+docker compose exec hubnames python -m hubnames zone
+```
+
+`zone` creates the zone and sets its own records:
+- `ns1`, `ns2` and `api`: this server's addresses;
+- CAA: Let's Encrypt only;
+- no email: a null MX record, SPF `-all` and DMARC `reject`.
+
+It's safe to run again after an address change.
+
+**3. The domain.** At the registrar, set two things:
+- **Glue records:** `ns1` and `ns2`, with the server's addresses;
+- **Nameservers:** `ns1.<zone>` and `ns2.<zone>`.
+
+Once that's live (`dig NS <zone> @1.1.1.1`), Caddy gets the API's certificate by itself.
+
+**Claim codes:** `docker compose exec hubnames python -m hubnames claims 1`.
+
+**Backups:** the hubs are in the `hubnames` volume (`hubnames.db`), the records in the
+`pdns` volume. Losing them would cut every hub off from its name, so back up the server.
+
+**Later:** a second nameserver on another server (`ns2`), before customers depend on it.

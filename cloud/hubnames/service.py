@@ -41,6 +41,29 @@ HOME_NETWORKS = tuple(
 )
 
 
+def zone_records(zone: str, ipv4: str, ipv6: str = "") -> list[tuple[str, str, int, list[str]]]:
+    """The zone's own records. Its nameservers and the API are this server. Only Let's
+    Encrypt may issue certificates in it (a hub's own CAA record narrows that to its
+    account), and it sends no email, so nobody can send any in its name."""
+    ipaddress.IPv4Address(ipv4)
+    if ipv6:
+        ipaddress.IPv6Address(ipv6)
+    z = zone.rstrip(".") + "."
+    records = [
+        ("@", "SOA", 3600, [f"ns1.{z} hostmaster.{z} 1 10800 3600 604800 60"]),
+        ("@", "NS", 3600, [f"ns1.{z}", f"ns2.{z}"]),
+        ("@", "CAA", 3600, ['0 issue "letsencrypt.org"', '0 issuewild ";"']),
+        ("@", "MX", 3600, ["0 ."]),
+        ("@", "TXT", 3600, ['"v=spf1 -all"']),
+        ("_dmarc", "TXT", 3600, ['"v=DMARC1; p=reject"']),
+    ]
+    for name in ("ns1", "ns2", "api"):
+        records.append((name, "A", 3600, [ipv4]))
+        if ipv6:
+            records.append((name, "AAAA", 3600, [ipv6]))
+    return records
+
+
 class TooMany(Exception):
     """The hub asked too often."""
 
