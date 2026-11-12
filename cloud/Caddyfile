@@ -1,0 +1,12 @@
+# HTTPS for the name service's API, with a Let's Encrypt certificate Caddy gets itself.
+{
+	# The zone's CAA record allows Let's Encrypt only.
+	cert_issuer acme
+}
+
+api.{$ZONE} {
+	request_body {
+		max_size 8KB
+	}
+	reverse_proxy hubnames:8080
+}

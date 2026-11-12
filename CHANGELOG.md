@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **The name service for hub names** (`cloud/hubnames`), the first step to remote access.
+  Each hub gets `<id>.<zone>`, pointing at its address on the home network, so the app can
+  install from a Let's Encrypt certificate that the hub gets itself. The service publishes
+  only the hub's A record (private addresses only), the DNS-01 challenge and a CAA record
+  naming the hub's own ACME account, through PowerDNS's API. Hubs register once with a
+  claim code and sign every change with their own key. `cloud/README.md`.
 - **Settings page** (`settings/` on the web page, in every page's menu): threat levels, the
   911 buttons and the address *Text 911* sends, and Halloween (on or off, hours, treats,
   press sound), without editing `.env`. What it saves (`LOG_DIR/settings.json`, mode 600)
