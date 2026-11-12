@@ -879,6 +879,20 @@ def audio_check_info(lines: list[str], since: float) -> dict:
     return info
 
 
+def knock_text(knock: dict) -> str:
+    """One knock on the *Knocks heard* line: its time, score, and where it was heard."""
+    text = knock["at"]
+    if knock.get("score") is not None:
+        text += f" {knock['score']:.2f}"
+    where = [
+        "nobody on camera" if not knock.get("on_camera") else "",
+        "during a visit" if knock.get("in_visit") else "",
+    ]
+    if where := [w for w in where if w]:
+        text += f" ({', '.join(where)})"
+    return text
+
+
 def percentile(values: list[float], share: float) -> float:
     ordered = sorted(values)
     return ordered[max(0, math.ceil(share * len(ordered)) - 1)]
@@ -1497,6 +1511,16 @@ def build(i: Inputs) -> dict:
             "nobody_on_camera": sum(1 for k in i.knocks if not k.get("on_camera")),
             "during_visit": sum(1 for k in i.knocks if k.get("in_visit")),
             "at": [local(k["at"]) for k in i.knocks],
+            # Each knock's score and where it was heard, for tuning KNOCK_THRESHOLD (#169).
+            "list": [
+                {
+                    "at": local(k["at"]),
+                    "score": k.get("score"),
+                    "on_camera": bool(k.get("on_camera")),
+                    "in_visit": bool(k.get("in_visit")),
+                }
+                for k in i.knocks
+            ],
             "listener": i.knock_listener,
             **knock_stats(sources.get("gatekeeper", [])),
         },
@@ -1647,7 +1671,7 @@ def summary_lines(report: dict) -> list[str]:
             + f": {kn['heard']}"
             + (
                 f" ({kn['nobody_on_camera']} with nobody on camera, {kn['during_visit']} during "
-                f"a visit): {', '.join(kn['at'][:10])}"
+                f"a visit): {', '.join(knock_text(k) for k in kn['list'][:10])}"
                 if kn["heard"]
                 else ""
             )

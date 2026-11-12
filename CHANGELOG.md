@@ -550,6 +550,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   MQTT) was listed as "nothing logged", the same as an event Gatekeeper dropped silently.
   The report now says `not listening yet (Gatekeeper starting)`, `not listening (MQTT
   disconnected)` or `before Gatekeeper's log starts (container recreated)` instead.
+- **Daily report: each knock heard gives its score** (#169). The *Knocks heard* line listed
+  only the knocks' times; it now gives each one's classifier score and says which had
+  nobody on camera or came during a visit (*0.61 (nobody on camera)*), and the JSON has
+  them as `knocks.list`. The data for tuning `KNOCK_THRESHOLD`.
 
 ## [0.3.0] - 2026-10-14
 
