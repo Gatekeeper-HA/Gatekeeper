@@ -53,6 +53,10 @@ DROPOUT_SECONDS = 180.0
 # "MQTT disconnected" when a deploy restarts Mosquitto, counts as a line outside them.
 DROPOUT_MIN_LINES = 3
 MAX_DROPOUTS = 2
+# Silent recording hours that pass recording_audio when audio-check.sh restarted Frigate
+# and the audio came back (#170): the hour before its hourly check, and one more if the
+# deploy lock held it off. From one rig, where a dropout left 1 silent hour each time.
+HEALED_SILENT_HOURS = 2
 MAX_SKIPPED_SHARE = 0.1  # of the camera's frames that detection drops
 
 # Known, harmless log lines: counted, not listed.
@@ -1303,10 +1307,17 @@ def build(i: Inputs) -> dict:
     )
     silent = host.get("silent_audio_hours", [])
     audio_check = audio_check_info(host.get("audio_check", []), since)
-    # An alert means restarting Frigate didn't bring the audio back.
+    # An alert means restarting Frigate didn't bring the audio back. A silent hour or two
+    # that audio-check.sh fixed (every restart brought the audio back) is the designed
+    # recovery, not a failure (#170): the Recording audio line still lists them.
+    healed = (
+        len(silent) <= HEALED_SILENT_HOURS
+        and audio_check["restarted"]
+        and audio_check["audio_back"] >= len(audio_check["restarted"])
+    )
     check(
         "recording_audio",
-        not silent and not audio_check["alerted"],
+        (not silent or healed) and not audio_check["alerted"],
         f"no recording audio in {len(silent)} hour(s)"
         if silent
         else "audio check alerted: restarting Frigate didn't bring the audio back",

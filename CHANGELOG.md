@@ -550,6 +550,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   MQTT) was listed as "nothing logged", the same as an event Gatekeeper dropped silently.
   The report now says `not listening yet (Gatekeeper starting)`, `not listening (MQTT
   disconnected)` or `before Gatekeeper's log starts (container recreated)` instead.
+- **Daily report: a silent recording hour the audio check fixed isn't a failure** (#170).
+  After a camera dropout, `recording_audio` failed for the hour before `audio-check.sh`
+  restarted Frigate, even when the audio came back as designed. It now passes when every
+  restart brought the audio back and at most 2 hours were silent; the *Recording audio*
+  line still lists them. A silent hour with no restart, or an alert, still fails it.
 
 ## [0.3.0] - 2026-10-14
 

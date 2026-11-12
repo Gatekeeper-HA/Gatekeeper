@@ -1145,6 +1145,32 @@ def test_an_audio_check_alert_fails_the_recording_audio_check():
     assert f"audio check alerted at {report.local(NOW - 600)}" in render_text(r)
 
 
+def test_a_silent_hour_the_audio_check_fixed_passes():
+    def at(seconds_ago):
+        return report.datetime.datetime.fromtimestamp(NOW - seconds_ago).astimezone().isoformat()
+
+    fixed = [
+        f"{at(7200)} recordings silent, restarting Frigate",
+        f"{at(7100)} recordings have audio again",
+    ]
+    r = build(inputs(host={**HOST, "silent_audio_hours": ["Mon 22:00"], "audio_check": fixed}))
+    assert "recording_audio" not in failing(r)
+    assert "Recording audio: missing at Mon 22:00; audio check restarted Frigate" in render_text(r)
+
+    # No restart, a restart that didn't bring the audio back, or too many silent hours: red.
+    for host in (
+        {"silent_audio_hours": ["Mon 22:00"], "audio_check": []},
+        {"silent_audio_hours": ["Mon 22:00"], "audio_check": fixed[:1]},
+        {"silent_audio_hours": ["Mon 22:00", "Mon 23:00", "Tue 00:00"], "audio_check": fixed},
+    ):
+        r = build(inputs(host={**HOST, **host}))
+        assert failing(r)["recording_audio"].startswith("no recording audio in ")
+    # An alert stays red even with the audio back after an earlier restart.
+    alerted = fixed + [f"{at(600)} recordings silent, alerting"]
+    r = build(inputs(host={**HOST, "silent_audio_hours": ["Mon 22:00"], "audio_check": alerted}))
+    assert "recording_audio" in failing(r)
+
+
 def test_the_household_stepping_out_is_counted_and_covers_its_arrival():
     out = visit(NOW - 1800, NOW - 1770, outcome="stepped_out")
     r = build(
