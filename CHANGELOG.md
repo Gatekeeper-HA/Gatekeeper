@@ -11,7 +11,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   install from a Let's Encrypt certificate that the hub gets itself. The service publishes
   only the hub's A record (private addresses only), the DNS-01 challenge and a CAA record
   naming the hub's own ACME account, through PowerDNS's API. Hubs register once with a
-  claim code and sign every change with their own key. `cloud/README.md`.
+  claim code and sign every change with their own key. Gatekeeper's own runs on
+  `gatekeeperhome.net`. `cloud/README.md` has the API and a step-by-step deploy guide: the
+  server, the services, glue records and nameservers, checks, updates and moving servers.
 - **Settings page** (`settings/` on the web page, in every page's menu): threat levels, the
   911 buttons and the address *Text 911* sends, and Halloween (on or off, hours, treats,
   press sound), without editing `.env`. What it saves (`LOG_DIR/settings.json`, mode 600)

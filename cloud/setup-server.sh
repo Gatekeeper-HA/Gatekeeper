@@ -52,3 +52,6 @@ EOF
 systemctl restart docker
 
 echo "Done. Log in as $ADMIN from now on; root can't log in over SSH."
+if [ -f /var/run/reboot-required ]; then
+	echo "The updates need a reboot: run 'reboot' now."
+fi
