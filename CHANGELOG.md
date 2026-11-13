@@ -339,6 +339,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **Daily report: the settings page's saves, and its restarts aren't hangs** (#163). Saving
+  or forgetting the settings page restarts Gatekeeper on purpose, which the report counted
+  as a hang (`no_hangs` red). Those restarts are now left out, and a *Settings page* line
+  says what was saved (which settings), forgotten, how many restarts it caused, and what's
+  in use from the page at the last start (`web_app.settings_page`).
 - **Daily report: tracebacks and native crashes say when** (#162). A traceback that
   doesn't follow a logged error (one at startup, say) and faulthandler's *Fatal Python
   error* have no time of their own, so the report listed them as `( – )` and couldn't tell
