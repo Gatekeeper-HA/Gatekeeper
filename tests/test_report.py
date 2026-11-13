@@ -1657,10 +1657,24 @@ def test_knocks_are_counted():
     assert r["knocks"]["heard"] == 2 and r["knocks"]["nobody_on_camera"] == 1
     assert (
         f"Knocks heard (shadow): 2 (1 with nobody on camera, 1 during a visit): "
-        f"{report.local(NOW - 3600)}, {report.local(NOW - 1800)}" in render_text(r)
+        f"{report.local(NOW - 3600)} 0.90 (nobody on camera), "
+        f"{report.local(NOW - 1800)} 0.70 (during a visit)" in render_text(r)
     )
+    assert r["knocks"]["list"][0] == {
+        "at": report.local(NOW - 3600),
+        "score": 0.9,
+        "on_camera": False,
+        "in_visit": False,
+    }
+    assert r["knocks"]["at"] == [report.local(NOW - 3600), report.local(NOW - 1800)]
     assert "Knocks heard (shadow): 0; no checks logged" in render_text(build(inputs(knocks=[])))
     assert "Knocks heard" not in render_text(build(inputs()))  # the listener is off
+
+
+def test_a_knock_with_no_score_or_place_is_just_its_time():
+    knocks = [{"at": NOW - 600, "on_camera": True}]
+    r = build(inputs(knocks=knocks))
+    assert f"0 during a visit): {report.local(NOW - 600)}; " in render_text(r)
 
 
 def test_a_knock_listener_that_starts_visits_says_so():
@@ -1700,6 +1714,7 @@ def test_the_knock_listeners_checks_show_it_listening():
         "nobody_on_camera": 0,
         "during_visit": 0,
         "at": [],
+        "list": [],
         "listener": "shadow",
         "stats_hours": 3,
         "checks": 37,
