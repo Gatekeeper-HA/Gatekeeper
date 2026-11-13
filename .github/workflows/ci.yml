@@ -17,7 +17,7 @@ jobs:
       - name: Install
         run: pip install -e ".[dev]"
       - name: Lint
-        run: ruff check src tests
+        run: ruff check src tests cloud
       - name: Test
         run: pytest --cov --cov-report=term-missing
 
@@ -32,3 +32,11 @@ jobs:
           docker compose config --quiet
           # The NVIDIA GPU override (docker-compose.gpu.yml) on top.
           docker compose -f docker-compose.yml -f docker-compose.gpu.yml config --quiet
+      - name: Validate and build cloud/ (the name service's server)
+        working-directory: cloud
+        run: |
+          cp .env.example .env
+          sed -i -E -e 's/^ZONE=$/ZONE=hubs.example/' -e 's/^SERVER_IPV4=$/SERVER_IPV4=192.0.2.1/' \
+            -e 's/^SERVER_IPV6=$/SERVER_IPV6=2001:db8::1/' -e 's/^PDNS_API_KEY=$/PDNS_API_KEY=ci/' .env
+          docker compose config --quiet
+          docker build --quiet .

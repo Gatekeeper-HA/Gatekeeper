@@ -1,0 +1,64 @@
+# The name service on its server (cloud/README.md, "Deploying"): PowerDNS answers for the
+# zone, hubnames writes the hubs' records to it, and Caddy gives the API HTTPS.
+#
+# Only DNS (53) and HTTP(S) (80, 443) are published. PowerDNS's API and hubnames' own port
+# stay on the compose network.
+
+name: hubnames
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  pdns:
+    image: powerdns/pdns-auth-50:5.0.8
+    restart: unless-stopped
+    environment:
+      PDNS_AUTH_API_KEY: ${PDNS_API_KEY:?set PDNS_API_KEY in .env}
+    volumes:
+      - pdns:/var/lib/powerdns
+    # On the server's own addresses: systemd-resolved holds 127.0.0.53:53.
+    ports:
+      - "${SERVER_IPV4:?set SERVER_IPV4 in .env}:53:53/udp"
+      - "${SERVER_IPV4}:53:53/tcp"
+      - "[${SERVER_IPV6:?set SERVER_IPV6 in .env}]:53:53/udp"
+      - "[${SERVER_IPV6}]:53:53/tcp"
+    logging: *logging
+
+  hubnames:
+    build: .
+    restart: unless-stopped
+    environment:
+      HUBNAMES_ZONE: ${ZONE:?set ZONE in .env}
+      PDNS_API_URL: http://pdns:8081
+      PDNS_API_KEY: ${PDNS_API_KEY}
+      SERVER_IPV4: ${SERVER_IPV4}
+      SERVER_IPV6: ${SERVER_IPV6}
+    volumes:
+      - hubnames:/data
+    depends_on:
+      - pdns
+    logging: *logging
+
+  caddy:
+    image: caddy:2.11.9
+    restart: unless-stopped
+    environment:
+      ZONE: ${ZONE}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy:/data
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - hubnames
+    logging: *logging
+
+volumes:
+  pdns:
+  hubnames:
+  caddy:
