@@ -133,6 +133,13 @@ FACES_PURGED = re.compile(r"web: purged every face")
 FACES_CAPTURE = re.compile(r"capturing faces at the door for ")
 # web.py: the installed app opened from the phone's home screen (its start page).
 OPENED_FROM_APP = "web: opened from the home screen"
+# The settings page (settings_page.py, #154): a save or a forget restarts Gatekeeper on
+# purpose (health.restart_when_idle), and app.py says at startup what came from the page.
+SETTINGS_SAVED = re.compile(r"web: settings saved \((?P<changed>[^)]*)\); restarting")
+SETTINGS_FORGOTTEN = "web: the settings page's settings forgotten"
+SETTINGS_RESTART = "restarting to use the settings page's settings"
+SETTINGS_IN_USE = re.compile(r"from the settings page: (?P<names>.+)$")
+STARTING = re.compile(r"Gatekeeper \S+ starting: ")
 # Visit outcomes where the doorbell speaker didn't connect: nobody at the door heard a thing.
 SPEAKER_DOWN = {"talkback_failed", "talkback_unavailable"}
 # packages.py's log lines.
@@ -363,6 +370,37 @@ def recognized_info(records: list[dict], lines: list[str]) -> dict:
     if page := faces_page(lines):
         info["faces_page"] = page
     return info
+
+
+def settings_page_info(lines: list[str], since: float | None = None) -> dict:
+    """What was done on the settings page: saves (and the settings they changed), forgets,
+    the restarts they caused (``current``: those since ``since``, the current container's
+    start), and the page's settings in use at the last start. Empty if nothing."""
+    saved, changed, forgotten, restarts, current = 0, [], 0, 0, 0
+    in_use: list[str] = []
+    for line in lines:
+        if m := SETTINGS_SAVED.search(line):
+            saved += 1
+            changed += [n for n in m["changed"].split(", ") if n not in ("", "-", *changed)]
+        elif SETTINGS_FORGOTTEN in line:
+            forgotten += 1
+        elif SETTINGS_RESTART in line:
+            restarts += 1
+            m = GATEKEEPER_LINE.match(line)
+            if since is None or (m and log_time(m["time"]) >= since):
+                current += 1
+        elif m := SETTINGS_IN_USE.search(line):
+            in_use = [n.strip() for n in m["names"].split(",") if n.strip()]
+        elif STARTING.search(line):
+            in_use = []  # a start with nothing from the page logs no "from the settings page"
+    page = {
+        "saved": saved,
+        "changed": changed,
+        "forgotten": forgotten,
+        "restarts": restarts,
+        "in_use": in_use,
+    }
+    return {**page, "current_restarts": current} if any(page.values()) else {}
 
 
 def faces_page(lines: list[str]) -> dict:
@@ -896,6 +934,20 @@ def audio_check_info(lines: list[str], since: float) -> dict:
     return info
 
 
+def knock_text(knock: dict) -> str:
+    """One knock on the *Knocks heard* line: its time, score, and where it was heard."""
+    text = knock["at"]
+    if knock.get("score") is not None:
+        text += f" {knock['score']:.2f}"
+    where = [
+        "nobody on camera" if not knock.get("on_camera") else "",
+        "during a visit" if knock.get("in_visit") else "",
+    ]
+    if where := [w for w in where if w]:
+        text += f" ({', '.join(where)})"
+    return text
+
+
 def percentile(values: list[float], share: float) -> float:
     ordered = sorted(values)
     return ordered[max(0, math.ceil(share * len(ordered)) - 1)]
@@ -918,9 +970,11 @@ def split_sources(text: str) -> dict[str, list[str]]:
 
 def log_events(lines: list[str]) -> list[dict]:
     """Warnings, errors and tracebacks in a container's log. A traceback right after an
-    error line (``log.exception``) belongs to it."""
+    error line (``log.exception``) belongs to it. A traceback or native crash on its own
+    has no time of its own: it gets the time of the last line before it that had one."""
     events: list[dict] = []
     last_line = -2
+    last_time = ""
     i = 0
     while i < len(lines):
         line = lines[i]
@@ -939,7 +993,7 @@ def log_events(lines: list[str]) -> list[dict]:
                 events[-1]["exception"] = exception
                 events[-1]["where"] = where
             else:
-                events.append(_event("TRACEBACK", "python", exception, "", exception, where))
+                events.append(_event("TRACEBACK", "python", exception, last_time, exception, where))
             continue
         if m := FATAL_ERROR.match(line):
             # Then each thread's stack, most recent call first; the crashing one is the
@@ -955,10 +1009,11 @@ def log_events(lines: list[str]) -> list[dict]:
                     where = f'File "{f["file"]}", line {f["line"]} in {f["func"]}'
                 i += 1
             message = f"Fatal Python error: {m['message'].strip()}"
-            events.append(_event("CRITICAL", "python", message, "", None, where))
+            events.append(_event("CRITICAL", "python", message, last_time, None, where))
             continue
         if m := GATEKEEPER_LINE.match(line) or FRIGATE_LINE.match(line):
             level, logger, message, time_ = m["level"], m["logger"], m["message"], m["time"]
+            last_time = time_
         elif m := PYTHON_WARNING.match(line):
             level, logger = "WARNING", "python"
             message, time_ = f"{m['category']}: {m['message']} ({m['file']})", ""
@@ -1298,8 +1353,11 @@ def build(i: Inputs) -> dict:
     merged = [w for w, k in zip(why, kept_why, strict=True) if not k]
     missed = [e for e, k in zip(missed, kept_why, strict=True) if k]
     why = [w for w, k in zip(why, kept_why, strict=True) if k]
-    # A watchdog exit is what restarts the container: one hang, not two.
-    hangs = outcomes.get("timeout", 0) + max(host.get("hang_exits", 0), host.get("restarts", 0))
+    # A watchdog exit is what restarts the container: one hang, not two. A restart the
+    # settings page asked for (#154) is on purpose: not a hang.
+    settings_page = settings_page_info(sources.get("gatekeeper", []), recreated.get("gatekeeper"))
+    restarts = max(0, host.get("restarts", 0) - settings_page.pop("current_restarts", 0))
+    hangs = outcomes.get("timeout", 0) + max(host.get("hang_exits", 0), restarts)
 
     checks: list[dict] = []
 
@@ -1460,7 +1518,8 @@ def build(i: Inputs) -> dict:
         },
         "host_memory": i.memory,
         "web_app": {
-            "opened": sum(OPENED_FROM_APP in line for line in sources.get("gatekeeper", []))
+            "opened": sum(OPENED_FROM_APP in line for line in sources.get("gatekeeper", [])),
+            **({"settings_page": settings_page} if settings_page else {}),
         },
         "checks": checks,
         "visits": [
@@ -1504,6 +1563,7 @@ def build(i: Inputs) -> dict:
             "timeouts": outcomes.get("timeout", 0),
             "watchdog_exits": host.get("hang_exits", 0),
             "restarts": host.get("restarts", 0),
+            "settings_page_restarts": settings_page.get("restarts", 0),
         },
         "recording_audio": {"silent_hours": silent, "audio_check": audio_check},
         "whisper": whisper,
@@ -1526,6 +1586,16 @@ def build(i: Inputs) -> dict:
             "nobody_on_camera": sum(1 for k in i.knocks if not k.get("on_camera")),
             "during_visit": sum(1 for k in i.knocks if k.get("in_visit")),
             "at": [local(k["at"]) for k in i.knocks],
+            # Each knock's score and where it was heard, for tuning KNOCK_THRESHOLD (#169).
+            "list": [
+                {
+                    "at": local(k["at"]),
+                    "score": k.get("score"),
+                    "on_camera": bool(k.get("on_camera")),
+                    "in_visit": bool(k.get("in_visit")),
+                }
+                for k in i.knocks
+            ],
             "listener": i.knock_listener,
             **knock_stats(sources.get("gatekeeper", [])),
         },
@@ -1676,7 +1746,7 @@ def summary_lines(report: dict) -> list[str]:
             + f": {kn['heard']}"
             + (
                 f" ({kn['nobody_on_camera']} with nobody on camera, {kn['during_visit']} during "
-                f"a visit): {', '.join(kn['at'][:10])}"
+                f"a visit): {', '.join(knock_text(k) for k in kn['list'][:10])}"
                 if kn["heard"]
                 else ""
             )
@@ -1889,6 +1959,18 @@ def summary_lines(report: dict) -> list[str]:
     lines.append("Recording audio: " + audio)
     if opened := (report.get("web_app") or {}).get("opened"):
         lines.append(f"Web app: opened from the home screen {opened} time(s)")
+    if page := (report.get("web_app") or {}).get("settings_page"):
+        done = []
+        if page["saved"]:
+            changed = f" ({', '.join(page['changed'])})" if page["changed"] else ""
+            done.append(f"saved {page['saved']} time(s){changed}")
+        if page["forgotten"]:
+            done.append(f"forgotten {page['forgotten']} time(s)")
+        if page["restarts"]:
+            done.append(f"restarted Gatekeeper {page['restarts']} time(s) (on purpose)")
+        if page["in_use"]:
+            done.append("in use at the last start: " + ", ".join(page["in_use"]))
+        lines.append("Settings page: " + "; ".join(done))
     if mem := report.get("host_memory"):
         # A host short of memory swaps out what idles between visits (Gatekeeper#142).
         lines.append(

@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **The name service for hub names** (`cloud/hubnames`), the first step to remote access.
+  Each hub gets `<id>.<zone>`, pointing at its address on the home network, so the app can
+  install from a Let's Encrypt certificate that the hub gets itself. The service publishes
+  only the hub's A record (private addresses only), the DNS-01 challenge and a CAA record
+  naming the hub's own ACME account, through PowerDNS's API. Hubs register once with a
+  claim code and sign every change with their own key. Gatekeeper's own runs on
+  `gatekeeperhome.net`. `cloud/README.md` has the API and a step-by-step deploy guide: the
+  server, the services, glue records and nameservers, checks, updates and moving servers.
 - **Settings page** (`settings/` on the web page, in every page's menu): threat levels, the
   911 buttons and the address *Text 911* sends, and Halloween (on or off, hours, treats,
   press sound), without editing `.env`. What it saves (`LOG_DIR/settings.json`, mode 600)
@@ -338,6 +346,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   check disappeared (a listener down since before the window would have stayed green).
   `daily-report.sh` now sends those lines from the container's whole log, and the report
   takes the last of each before the window as how the day began.
+- **Daily report: the settings page's saves, and its restarts aren't hangs** (#163). Saving
+  or forgetting the settings page restarts Gatekeeper on purpose, which the report counted
+  as a hang (`no_hangs` red). Those restarts are now left out, and a *Settings page* line
+  says what was saved (which settings), forgotten, how many restarts it caused, and what's
+  in use from the page at the last start (`web_app.settings_page`).
+- **Daily report: tracebacks and native crashes say when** (#162). A traceback that
+  doesn't follow a logged error (one at startup, say) and faulthandler's *Fatal Python
+  error* have no time of their own, so the report listed them as `( – )` and couldn't tell
+  a crash on the way out during a deploy from one mid-day. They now get the time of the last
+  line logged before them, in the log kinds' first and last times.
 - **Daily report: the *Notified* line gives each backend** (#158). With the app's
   notifications (web push) next to ntfy, *Notified: N/N* counted a visit notified if any
   backend got through, so the app's notifications could stop with the report green. The
@@ -557,6 +575,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   MQTT) was listed as "nothing logged", the same as an event Gatekeeper dropped silently.
   The report now says `not listening yet (Gatekeeper starting)`, `not listening (MQTT
   disconnected)` or `before Gatekeeper's log starts (container recreated)` instead.
+- **Daily report: each knock heard gives its score** (#169). The *Knocks heard* line listed
+  only the knocks' times; it now gives each one's classifier score and says which had
+  nobody on camera or came during a visit (*0.61 (nobody on camera)*), and the JSON has
+  them as `knocks.list`. The data for tuning `KNOCK_THRESHOLD`.
 
 ## [0.3.0] - 2026-10-14
 

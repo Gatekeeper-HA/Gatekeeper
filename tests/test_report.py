@@ -119,6 +119,64 @@ def test_a_watchdog_exit_and_the_restart_it_causes_are_one_hang():
     assert failing(r)["no_hangs"] == "2 hang/restart(s)"
 
 
+SETTINGS_LOG = """\
+### gatekeeper
+2026-10-01 09:00:00,000 INFO    gatekeeper.app [-] Gatekeeper 0.3.0 starting: camera=front_door
+2026-10-01 10:00:00,000 INFO    gatekeeper.settings_page [-] web: settings saved \
+(threat_levels, emergency_buttons); restarting to use them
+2026-10-01 10:00:01,000 INFO    gatekeeper.health [-] restarting to use the settings page's settings
+2026-10-01 10:00:30,000 INFO    gatekeeper.app [-] Gatekeeper 0.3.0 starting: camera=front_door
+2026-10-01 10:00:30,000 INFO    gatekeeper.app [-] from the settings page: threat_levels, \
+emergency_buttons
+2026-10-01 11:00:00,000 INFO    gatekeeper.settings_page [-] web: settings saved \
+(threat_levels); restarting to use them
+2026-10-01 11:00:01,000 INFO    gatekeeper.health [-] restarting to use the settings page's settings
+2026-10-01 11:00:30,000 INFO    gatekeeper.app [-] Gatekeeper 0.3.0 starting: camera=front_door
+2026-10-01 11:00:30,000 INFO    gatekeeper.app [-] from the settings page: threat_levels, \
+emergency_buttons
+"""
+
+
+def test_the_settings_page_restarts_on_purpose_are_not_hangs():
+    r = build(inputs(log_text=SETTINGS_LOG, host={**HOST, "restarts": 2}))
+
+    assert "no_hangs" not in failing(r)
+    assert r["web_app"]["settings_page"] == {
+        "saved": 2,
+        "changed": ["threat_levels", "emergency_buttons"],
+        "forgotten": 0,
+        "restarts": 2,
+        "in_use": ["threat_levels", "emergency_buttons"],
+    }
+    assert r["hangs"]["settings_page_restarts"] == 2
+    assert (
+        "Settings page: saved 2 time(s) (threat_levels, emergency_buttons); restarted "
+        "Gatekeeper 2 time(s) (on purpose); in use at the last start: threat_levels, "
+        "emergency_buttons"
+    ) in render_text(r)
+
+    # A restart beyond the page's still counts.
+    r = build(inputs(log_text=SETTINGS_LOG, host={**HOST, "restarts": 3}))
+    assert failing(r)["no_hangs"] == "1 hang/restart(s)"
+
+
+def test_settings_forgotten_and_a_start_with_nothing_from_the_page():
+    log = SETTINGS_LOG + (
+        "2026-10-01 12:00:00,000 INFO    gatekeeper.settings_page [-] web: the settings "
+        "page's settings forgotten; restarting\n"
+        "2026-10-01 12:00:01,000 INFO    gatekeeper.health [-] restarting to use the "
+        "settings page's settings\n"
+        "2026-10-01 12:00:30,000 INFO    gatekeeper.app [-] Gatekeeper 0.3.0 starting: x\n"
+    )
+    page = build(inputs(log_text=log, host={**HOST, "restarts": 3}))["web_app"]["settings_page"]
+
+    assert (page["forgotten"], page["restarts"], page["in_use"]) == (1, 3, [])
+    # Not used at all: nothing said.
+    r = build(inputs())
+    assert "settings_page" not in r["web_app"]
+    assert "Settings page" not in render_text(r)
+
+
 def test_a_stall_says_where_its_stuck():
     lines = [
         "2026-10-30 12:22:29,001 CRITICAL gatekeeper.own_perception [-] own perception "
@@ -178,6 +236,35 @@ def test_a_native_crash_is_a_critical_error_where_the_current_thread_was():
     assert crash["message"] == "Fatal Python error: Segmentation fault"
     assert crash["where"].endswith('own_perception.py", line 547 in look_forever')
     assert crash["level"] in report.ERROR_LEVELS
+    # faulthandler's lines have no time: the crash came right after the last logged line.
+    assert crash["time"] == "2026-10-01 10:00:00"
+
+
+def test_a_traceback_or_crash_on_its_own_gets_the_time_of_the_line_before_it():
+    log = (
+        "### gatekeeper\n"
+        "2026-10-01 09:00:00,000 INFO    gatekeeper.app [-] Gatekeeper 0.3.0 starting\n"
+        "Traceback (most recent call last):\n"
+        '  File "/app/src/gatekeeper/app.py", line 744, in main\n'
+        "TypeError: serve() got an unexpected keyword argument 'x'\n"
+        "2026-10-01 09:00:30,000 INFO    gatekeeper.app [-] Gatekeeper 0.3.0 starting\n"
+        "Traceback (most recent call last):\n"
+        '  File "/app/src/gatekeeper/app.py", line 744, in main\n'
+        "TypeError: serve() got an unexpected keyword argument 'x'\n" + FATAL_LOG
+    )
+    top = report.summarize_logs(log)["sources"]["gatekeeper"]["top"]
+
+    crash = next(g for g in top if g["level"] == "CRITICAL")
+    assert (crash["first"], crash["last"]) == ("2026-10-01 10:00:00",) * 2
+    traceback = next(g for g in top if g["level"] == "TRACEBACK")
+    assert traceback["count"] == 2
+    assert (traceback["first"], traceback["last"]) == (
+        "2026-10-01 09:00:00",
+        "2026-10-01 09:00:30",
+    )
+    # Before any line with a time, there's none to give.
+    alone = report.log_events(["Traceback (most recent call last):", "  File x", "OSError: y"])
+    assert alone[0]["time"] == ""
 
 
 def test_whisper_model_device_and_transcription_times():
@@ -1684,10 +1771,24 @@ def test_knocks_are_counted():
     assert r["knocks"]["heard"] == 2 and r["knocks"]["nobody_on_camera"] == 1
     assert (
         f"Knocks heard (shadow): 2 (1 with nobody on camera, 1 during a visit): "
-        f"{report.local(NOW - 3600)}, {report.local(NOW - 1800)}" in render_text(r)
+        f"{report.local(NOW - 3600)} 0.90 (nobody on camera), "
+        f"{report.local(NOW - 1800)} 0.70 (during a visit)" in render_text(r)
     )
+    assert r["knocks"]["list"][0] == {
+        "at": report.local(NOW - 3600),
+        "score": 0.9,
+        "on_camera": False,
+        "in_visit": False,
+    }
+    assert r["knocks"]["at"] == [report.local(NOW - 3600), report.local(NOW - 1800)]
     assert "Knocks heard (shadow): 0; no checks logged" in render_text(build(inputs(knocks=[])))
     assert "Knocks heard" not in render_text(build(inputs()))  # the listener is off
+
+
+def test_a_knock_with_no_score_or_place_is_just_its_time():
+    knocks = [{"at": NOW - 600, "on_camera": True}]
+    r = build(inputs(knocks=knocks))
+    assert f"0 during a visit): {report.local(NOW - 600)}; " in render_text(r)
 
 
 def test_a_knock_listener_that_starts_visits_says_so():
@@ -1727,6 +1828,7 @@ def test_the_knock_listeners_checks_show_it_listening():
         "nobody_on_camera": 0,
         "during_visit": 0,
         "at": [],
+        "list": [],
         "listener": "shadow",
         "stats_hours": 3,
         "checks": 37,
