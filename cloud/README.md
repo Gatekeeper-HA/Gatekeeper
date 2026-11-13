@@ -76,6 +76,8 @@ rest (`pytest`).
 
 ## Deploying
 
+Gatekeeper's own runs on `gatekeeperhome.net`, with the API at `api.gatekeeperhome.net`.
+
 One small server with a fixed IPv4 and IPv6 address runs everything (`compose.yml`):
 
 - **PowerDNS** answers for the zone, on port 53.
@@ -83,22 +85,36 @@ One small server with a fixed IPv4 and IPv6 address runs everything (`compose.ym
 - **Caddy** gives the API HTTPS (`api.<zone>`), with a Let's Encrypt certificate.
 
 Only ports 53, 80 and 443 are open to the internet. PowerDNS's API and hubnames' own port
-stay on the compose network.
+stay on the compose network. 1 CPU and 1 GB of memory is plenty.
 
-**1. The server.** On a new Ubuntu 24.04 server, as root:
+**How the zone finds its server.** The zone's nameservers, `ns1.<zone>` and `ns2.<zone>`, are
+inside the zone they answer for. So the registry also keeps their addresses, the **glue
+records**, and hands them out with the referral. Without them a lookup would go round in
+circles.
+
+### 1. The server
+
+On a new Ubuntu 24.04 server, as root:
 
 ```sh
 sh setup-server.sh <admin user>
+reboot
 ```
 
 It does the following:
 - adds the admin user, with root's SSH keys, sudo and Docker;
 - turns off password and root logins over SSH;
 - sets up a firewall (SSH, DNS and HTTP(S) only);
-- turns on automatic security updates;
-- installs Docker.
+- turns on automatic security updates, rebooting at 04:00 (the server's time) when an update
+  needs it;
+- installs Docker, with its logs capped.
 
-**2. The services.** As the admin user:
+The first updates usually include a new kernel, hence the reboot. Log in as the admin user
+from then on.
+
+### 2. The services
+
+As the admin user:
 
 ```sh
 git clone https://github.com/Gatekeeper-HA/Gatekeeper && cd Gatekeeper/cloud
@@ -108,21 +124,57 @@ docker compose exec hubnames python -m hubnames zone
 ```
 
 `zone` creates the zone and sets its own records:
-- `ns1`, `ns2` and `api`: this server's addresses;
-- CAA: Let's Encrypt only;
-- no email: a null MX record, SPF `-all` and DMARC `reject`.
+
+| Name | Records |
+|---|---|
+| the zone | SOA; NS `ns1` and `ns2` |
+| `ns1`, `ns2`, `api` | A and AAAA: this server's addresses |
+| the zone | CAA: Let's Encrypt only, no wildcards |
+| the zone, `_dmarc` | No email: a null MX, SPF `-all` and DMARC `reject`, so nobody can send phishing in the zone's name |
 
 It's safe to run again after an address change.
 
-**3. The domain.** At the registrar, set two things:
-- **Glue records:** `ns1` and `ns2`, with the server's addresses;
-- **Nameservers:** `ns1.<zone>` and `ns2.<zone>`.
+The DNS server already answers before the domain points at it, so check it directly:
 
-Once that's live (`dig NS <zone> @1.1.1.1`), Caddy gets the API's certificate by itself.
+```sh
+dig +norec @<server's IPv4> <zone> NS        # ns1 and ns2, with the "aa" flag
+dig +norec @<server's IPv4> api.<zone> A     # the server's address
+dig +norec @<server's IPv4> example.com A    # REFUSED: it only answers for the zone
+```
 
-**Claim codes:** `docker compose exec hubnames python -m hubnames claims 1`.
+### 3. The domain
 
-**Backups:** the hubs are in the `hubnames` volume (`hubnames.db`), the records in the
-`pdns` volume. Losing them would cut every hub off from its name, so back up the server.
+At the registrar, set two things, in this order:
+1. **Glue records** for `ns1` and `ns2`, each with the server's IPv4 and IPv6 address. Most
+   registrars keep these apart from their DNS editor (for example "Glue records", "Host
+   names" or "Child nameservers"). Records added in the DNS editor don't count.
+2. **Nameservers:** replace the registrar's own with `ns1.<zone>` and `ns2.<zone>`.
+
+The registrar has to let you use your own nameservers. Cloudflare Registrar, for one,
+doesn't. Changes usually show within minutes:
+
+```sh
+dig @a.gtld-servers.net <zone> NS            # the registry's referral and glue (.com/.net)
+dig +short NS <zone> @1.1.1.1                # a public resolver
+curl https://api.<zone>/v1/health            # {"ok": true}
+```
+
+Caddy gets the API's certificate by itself once the name resolves. Its attempts before then
+fail, and it backs off; `docker compose restart caddy` makes it try again at once.
+
+### Running it
+
+- **Claim codes:** `docker compose exec hubnames python -m hubnames claims 1`.
+- **Updating:** `git pull && docker compose up -d --build`, then `zone` if the zone's own
+  records changed. Nothing deploys the server by itself.
+- **Reboots:** every service restarts by itself, including after the nightly update reboot.
+- **Logs:** `docker compose logs --tail 50 <service>`.
+- **Backups:** the hubs are in the `hubnames` volume (`hubnames.db`), the records in the
+  `pdns` volume. Losing them would cut every hub off from its name, so back up the server.
+- **Moving the server:**
+  1. Copy the volumes over.
+  2. Update `.env` and run `zone`.
+  3. Change the glue records.
+  4. Keep the old server running for 2 days, the TTL of the glue at the .com/.net registry.
 
 **Later:** a second nameserver on another server (`ns2`), before customers depend on it.
