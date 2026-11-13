@@ -1137,7 +1137,9 @@ from cron, as a user in the `docker` group:
   recordings can lose their audio until Frigate restarts. The hourly check restarts it
   then, once no visit is in progress, and sends a quiet notification when that brings the
   audio back. If it doesn't, the camera's own stream is likely broken, and you get an
-  alert. It restarts Frigate at most every 6 h, and alerts at most every 6 h.
+  alert. It restarts Frigate at most every 6 h, and alerts at most every 6 h. The daily
+  report's `recording_audio` check stays green for up to 2 silent hours that the check fixed
+  (every restart brought the audio back); more, or an alert, fail it.
 - **Publishing** (`publish-report.sh`): with `RIG_REPORTS_REPO` in `.env` (the SSH URL of a
   **private** repository), each report is pushed there with a deploy key
   (`~/.ssh/gatekeeper-reports`, or `RIG_REPORTS_KEY`). Reports hold visit times and what
