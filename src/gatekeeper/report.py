@@ -429,6 +429,20 @@ def faces_page(lines: list[str]) -> dict:
     return page if any(page.values()) else {}
 
 
+def last_before(lines: list[str], since: float, *patterns: re.Pattern) -> list[str]:
+    """The last of Gatekeeper's ``lines`` logged before ``since`` whose message one of
+    ``patterns`` matches, as a list of at most one: the state the window started in. A
+    state line (the doorbell button's listener, own perception's mode) is logged when
+    Gatekeeper starts or the state changes, so on a day with no restart it comes before
+    the window (daily-report.sh sends them from the container's whole log as ``startup``)."""
+    found: list[str] = []
+    for line in lines:
+        m = GATEKEEPER_LINE.match(line)
+        if m and any(p.search(m["message"]) for p in patterns) and log_time(m["time"]) < since:
+            found = [line]
+    return found
+
+
 def doorbell_info(lines: list[str]) -> dict | None:
     """The doorbell button's listener (button.py): the firmware it reported on each
     connection (a change is an update), each time it stopped and how long until it was
@@ -523,6 +537,7 @@ def own_perception_info(
     window_start: float = 0.0,
     visits_since: float | None = None,
     visits: list[dict] | None = None,
+    mode: str = "shadow",
 ) -> dict | None:
     """Our own perception in shadow mode next to Frigate (own_perception.py): of Frigate's
     porch arrivals since it started, those it saw in the same zones, saw elsewhere, or
@@ -530,8 +545,10 @@ def own_perception_info(
     ``visits_since`` (it starts the visits since then), ``missed_visits`` counts the
     misses since then: arrivals nobody greeted. ``visits`` (the window's visit records)
     say which of the extra tracks started a visit: a track's id is its visit's event id.
-    None when it logged nothing (off)."""
-    started, tracks, stats, mode = None, [], [], "shadow"
+    ``mode``: what it was doing when the window began (its last "on" line before it), until
+    an "on" line in ``lines`` says otherwise. None when it logged nothing (off)."""
+    started, tracks = None, []
+    stats: list[dict] = []
     for line in lines:
         m = GATEKEEPER_LINE.match(line)
         message = m["message"] if m else line
@@ -1075,7 +1092,9 @@ def summarize_logs(text: str) -> dict:
     """Warnings and errors per container, grouped by kind, most severe and frequent first."""
     out: dict = {"sources": {}, "ignored": 0}
     for source, lines in split_sources(text).items():
-        if source == "whisper":  # Whisper's lines from Gatekeeper's whole log, see build()
+        # Lines from Gatekeeper's whole log (Whisper's, and the state lines logged when it
+        # starts): read on their own in build(), not the window's warnings and errors.
+        if source in ("whisper", "startup"):
             continue
         groups: dict[tuple, dict] = {}
         for e in log_events(lines):
@@ -1430,6 +1449,10 @@ def build(i: Inputs) -> dict:
         failed = quick["results"].get("failed", 0)
         check("quick_replies", not failed, f"{failed} quick reply(ies) couldn't be said")
     # Own perception against Frigate's arrivals (when there's a Frigate to compare with).
+    # The state lines logged when Gatekeeper started: with no restart in the window, the
+    # last one before it says how the day began (Gatekeeper#166).
+    startup = sources.get("startup", [])
+    own_on = last_before(startup, since, OWN_ON)
     own = own_perception_info(
         i.arrivals or [],
         sources.get("gatekeeper", []),
@@ -1438,8 +1461,14 @@ def build(i: Inputs) -> dict:
         since,
         visits_since=arrivals_since if own_visits else None,
         visits=i.visits,
+        mode=OWN_ON.match(GATEKEEPER_LINE.match(own_on[0])["message"])["mode"]
+        if own_on
+        else "shadow",
     )
-    doorbell = doorbell_info(sources.get("gatekeeper", []))
+    doorbell = doorbell_info(
+        last_before(startup, since, BUTTON_LISTENING, BUTTON_STOPPED)
+        + sources.get("gatekeeper", [])
+    )
     if doorbell:
         stopped = doorbell["stops"][-1]["at"] if doorbell["stops"] else "?"
         check(

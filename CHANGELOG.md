@@ -339,6 +339,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **Daily report: a day with no restart keeps the state Gatekeeper started in** (#166). The
+  doorbell button's listener and own perception's mode are logged when Gatekeeper starts, so
+  on a day with no deploy or restart they were before the report's 24 h: own perception read
+  *shadow* although it started the visits, and the *Doorbell* line and its `doorbell_button`
+  check disappeared (a listener down since before the window would have stayed green).
+  `daily-report.sh` now sends those lines from the container's whole log, and the report
+  takes the last of each before the window as how the day began.
 - **Daily report: the settings page's saves, and its restarts aren't hangs** (#163). Saving
   or forgetting the settings page restarts Gatekeeper on purpose, which the report counted
   as a hang (`no_hangs` red). Those restarts are now left out, and a *Settings page* line
