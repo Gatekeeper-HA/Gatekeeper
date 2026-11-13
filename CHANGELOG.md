@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **The name service for hub names** (`cloud/hubnames`), the first step to remote access.
+  Each hub gets `<id>.<zone>`, pointing at its address on the home network, so the app can
+  install from a Let's Encrypt certificate that the hub gets itself. The service publishes
+  only the hub's A record (private addresses only), the DNS-01 challenge and a CAA record
+  naming the hub's own ACME account, through PowerDNS's API. Hubs register once with a
+  claim code and sign every change with their own key. `cloud/README.md`.
 - **Settings page** (`settings/` on the web page, in every page's menu): threat levels, the
   911 buttons and the address *Text 911* sends, and Halloween (on or off, hours, treats,
   press sound), without editing `.env`. What it saves (`LOG_DIR/settings.json`, mode 600)
@@ -336,6 +342,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   as a hang (`no_hangs` red). Those restarts are now left out, and a *Settings page* line
   says what was saved (which settings), forgotten, how many restarts it caused, and what's
   in use from the page at the last start (`web_app.settings_page`).
+- **Daily report: tracebacks and native crashes say when** (#162). A traceback that
+  doesn't follow a logged error (one at startup, say) and faulthandler's *Fatal Python
+  error* have no time of their own, so the report listed them as `( – )` and couldn't tell
+  a crash on the way out during a deploy from one mid-day. They now get the time of the last
+  line logged before them, in the log kinds' first and last times.
 - **Daily report: the *Notified* line gives each backend** (#158). With the app's
   notifications (web push) next to ntfy, *Notified: N/N* counted a visit notified if any
   backend got through, so the app's notifications could stop with the report green. The
