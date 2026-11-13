@@ -77,6 +77,8 @@ rest (`pytest`).
 ## Deploying
 
 Gatekeeper's own runs on `gatekeeperhome.net`, with the API at `api.gatekeeperhome.net`.
+Registering a hub there needs a claim code from us, so it isn't open to anyone's use. To run
+your own, follow these steps with a domain of your own.
 
 One small server with a fixed IPv4 and IPv6 address runs everything (`compose.yml`):
 
