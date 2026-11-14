@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Daily report: labels that disagree with a face recognition** (#175). A visit Gatekeeper
+  took for an enrolled person that the owner labelled as something else (a courier, a guest)
+  is a possible false face match. The report now lists each one with the visit's start, the
+  name it recognized and the label (*Labelled otherwise after a face recognition …*,
+  `counts.labels_face_disputed`), so the visit and its snapshot can be found. Before, the
+  *Your labels* line gave only a tally.
 - **The name service for hub names** (`cloud/hubnames`), the first step to remote access.
   Each hub gets `<id>.<zone>`, pointing at its address on the home network, so the app can
   install from a Let's Encrypt certificate that the hub gets itself. The service publishes

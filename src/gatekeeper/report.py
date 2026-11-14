@@ -901,6 +901,22 @@ def label_info(labelled: list[dict]) -> dict:
     return out
 
 
+def label_face_disputes(labelled: list[dict]) -> list[dict]:
+    """Labels added in the window on visits Gatekeeper took for an enrolled person (a
+    ``household`` record) where the owner said otherwise: a possible false face match, the
+    worst mistake face recognition can make. Each with the visit's start, the name it
+    recognized and the owner's label, so the reviewer can find the visit and its snapshot."""
+    return [
+        {
+            "at": local(visit_start(r)),
+            "name": (r.get("details") or {}).get("name", ""),
+            "label": r["label"],
+        }
+        for r in labelled
+        if r.get("outcome") == "household" and r["label"] != "household"
+    ]
+
+
 def utc_timestamp(iso: str) -> float | None:
     """A UTC time from ``docker inspect`` (``2026-10-14T01:36``, maybe with seconds)."""
     try:
@@ -1547,6 +1563,7 @@ def build(i: Inputs) -> dict:
             "recognized": recognized_info(household, sources.get("gatekeeper", [])),
             "return_gaps": return_gaps(i.visits),
             "labels": label_info(i.labelled),
+            "labels_face_disputed": label_face_disputes(i.labelled),
             "greeting_lines": line_info(i.visits, "greeting"),
             "no_answer_lines": line_info(i.visits, "no_answer"),
             "walked_away": sum(1 for v in visits if (v.get("details") or {}).get("walked_away")),
@@ -1788,6 +1805,17 @@ def summary_lines(report: dict) -> list[str]:
                 + ", ".join(f"{c} {n}" for c, n in calls.items())
                 + ")"
                 for label, calls in counts["labels"].items()
+            )
+        )
+    if counts.get("labels_face_disputed"):
+        from gatekeeper.visits import LABEL_NAMES
+
+        lines.append(
+            "Labelled otherwise after a face recognition (a false face match? check the "
+            "snapshot): "
+            + "; ".join(
+                f"{d['at']} {d['name'] or '?'} → {LABEL_NAMES.get(d['label'], d['label'])}"
+                for d in counts["labels_face_disputed"]
             )
         )
     if counts.get("went_inside"):
