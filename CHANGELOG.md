@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **The hub's own name** (`HUB_NAME_CLAIM`): `<id>.gatekeeperhome.net`, with a Let's
+  Encrypt certificate phones trust, so the app installs at home with no warning. Gatekeeper
+  registers with a claim code and keeps its home address published through the name
+  service. It gets the certificate with its own small ACME client (DNS-01, its own keys and
+  account, named in the name's CAA record), and renews it at two thirds of its life. A
+  browser asking for the name gets that certificate; the IP address keeps the self-signed
+  one, and a renewed certificate is used without a restart.
+  `docker-compose.hubname.yml` serves the page on port 443. The daily report gives the
+  name, the days the certificate has left and failed tries, and fails a check under 14 days.
+  README, *Hub name*.
 - **The name service for hub names** (`cloud/hubnames`), the first step to remote access.
   Each hub gets `<id>.<zone>`, pointing at its address on the home network, so the app can
   install from a Let's Encrypt certificate that the hub gets itself. The service publishes

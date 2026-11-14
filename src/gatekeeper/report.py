@@ -172,6 +172,19 @@ RECORDED = re.compile(
     r"^recorded \S+: (?P<seconds>\d+) s, (?P<people>\d+) person\(s\), (?P<mb>[\d.]+) MB"
 )
 RECORDING_FAILED = re.compile(r"^recording failed")
+# hubname.py's lines: its state at every check, a new certificate, a failure, giving up, and
+# a home network whose DNS drops the name.
+HUB_NAME = re.compile(
+    r"^hub name: (?P<name>\S+) points at (?P<address>\S+); certificate until "
+    r"(?P<until>\d{4}-\d\d-\d\d)(?P<staging> \(Let's Encrypt staging\))?$"
+)
+HUB_NAME_NEW = re.compile(r"^hub name: new certificate for ")
+HUB_NAME_FAILED = re.compile(r"^hub name: couldn't ")
+HUB_NAME_GAVE_UP = re.compile(r"^hub name: .*; giving up until Gatekeeper restarts$")
+HUB_NAME_UNRESOLVED = re.compile(r"^hub name: \S+ doesn't resolve to ")
+# A certificate this close to running out isn't being renewed: that's due with a third of its
+# life left (30 days of 90, 15 of the 45 Let's Encrypt plans for 2028).
+HUB_NAME_MIN_DAYS = 14
 # knock.py's hourly line: how many sounds the classifier checked, and the top score.
 KNOCK_STATS = re.compile(
     r"^knock listener stats: (?P<checks>\d+) check\(s\) in \d+ s, top score (?P<top>[\d.]+)"
@@ -531,6 +544,49 @@ def recording_info(lines: list[str]) -> dict | None:
         "mb": round(mb),
         "failed": failed,
     }
+
+
+def hub_name_info(lines: list[str], now: float) -> dict | None:
+    """The hub's own name (hubname.py) in the window: its last state (the name, the address
+    it points at, the day its certificate runs out and the days left), new certificates,
+    failed tries, giving up, and whether the home network's DNS dropped the name. None when
+    it logged nothing (off)."""
+    info: dict = {
+        "name": None,
+        "address": None,
+        "until": None,
+        "days_left": None,
+        "staging": False,
+        "new_certificates": 0,
+        "failures": 0,
+        "gave_up": False,
+        "dns_drops_it": False,
+    }
+    seen = False
+    for line in lines:
+        m = GATEKEEPER_LINE.match(line)
+        message = m["message"] if m else line
+        if not message.startswith("hub name: "):
+            continue
+        seen = True
+        if h := HUB_NAME.match(message):
+            until = datetime.datetime.strptime(h["until"], "%Y-%m-%d").replace(tzinfo=datetime.UTC)
+            info.update(
+                name=h["name"],
+                address=h["address"],
+                until=h["until"],
+                days_left=int((until.timestamp() - now) // 86400),
+                staging=bool(h["staging"]),
+            )
+        elif HUB_NAME_NEW.match(message):
+            info["new_certificates"] += 1
+        elif HUB_NAME_FAILED.match(message):
+            info["failures"] += 1
+        elif HUB_NAME_GAVE_UP.match(message):
+            info["gave_up"] = True
+        elif HUB_NAME_UNRESOLVED.match(message):
+            info["dns_drops_it"] = True
+    return info if seen else None
 
 
 def own_perception_info(
@@ -1511,6 +1567,18 @@ def build(i: Inputs) -> dict:
     recording = recording_info(sources.get("gatekeeper", []))
     if recording:
         check("recording", not recording["failed"], f"{recording['failed']} recording(s) failed")
+    hub_name = hub_name_info(sources.get("gatekeeper", []), i.now)
+    if hub_name:
+        days = hub_name["days_left"]
+        check(
+            "hub_name",
+            not hub_name["gave_up"] and days is not None and days >= HUB_NAME_MIN_DAYS,
+            "the hub name gave up (its claim code or name refused)"
+            if hub_name["gave_up"]
+            else "the hub name has no certificate"
+            if days is None
+            else f"the hub name's certificate runs out in {days} day(s)",
+        )
     failed_deploys = [d for d in deploys if d.get("result") not in ("deployed", "moved")]
     check("deploys", not failed_deploys, f"{len(failed_deploys)} failed deploy(s)")
 
@@ -1587,6 +1655,7 @@ def build(i: Inputs) -> dict:
         "frigate": frigate,
         "own_perception": own,
         "recording": recording,
+        "hub_name": hub_name,
         "delivery_guess": i.delivery_guess,
         "conversation_model": i.conversation_model,
         "threats": threat_info(visits),
@@ -1741,6 +1810,21 @@ def summary_lines(report: dict) -> list[str]:
             f"{rec['people']} person(s) pictured"
             + (f"; {rec['failed']} failed" if rec["failed"] else "")
         )
+    if hub := report.get("hub_name"):
+        staging = ", Let's Encrypt staging" if hub["staging"] else ""
+        state = (
+            f"{hub['name']} → {hub['address']}, certificate until {hub['until']} "
+            f"({hub['days_left']} days{staging})"
+            if hub["name"]
+            else "no certificate yet"
+        )
+        extra = [
+            f"{hub['new_certificates']} new certificate(s)" if hub["new_certificates"] else "",
+            f"{hub['failures']} failed try(ies)" if hub["failures"] else "",
+            "gave up" if hub["gave_up"] else "",
+            "the home network's DNS drops the name" if hub["dns_drops_it"] else "",
+        ]
+        lines.append(f"Hub name: {state}" + "".join(f"; {x}" for x in extra if x))
     if (th := report.get("threats")) and th["visits"]:
         levels = ", ".join(
             f"{LEVEL_NAMES[int(level)]} {n}" for level, n in sorted(th["levels"].items())

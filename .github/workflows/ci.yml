@@ -32,6 +32,8 @@ jobs:
           docker compose config --quiet
           # The NVIDIA GPU override (docker-compose.gpu.yml) on top.
           docker compose -f docker-compose.yml -f docker-compose.gpu.yml config --quiet
+          # The hub name's port 443 (docker-compose.hubname.yml) on top.
+          docker compose -f docker-compose.yml -f docker-compose.hubname.yml config --quiet
       - name: Validate and build cloud/ (the name service's server)
         working-directory: cloud
         run: |
