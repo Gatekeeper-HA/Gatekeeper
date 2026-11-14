@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Daily report: labels that disagree with a face recognition** (#175). A visit Gatekeeper
+  took for an enrolled person that the owner labelled as something else (a courier, a guest)
+  is a possible false face match. The report now lists each one with the visit's start, the
+  name it recognized and the label (*Labelled otherwise after a face recognition …*,
+  `counts.labels_face_disputed`), so the visit and its snapshot can be found. Before, the
+  *Your labels* line gave only a tally.
 - **The hub's own name** (`HUB_NAME_CLAIM`): `<id>.gatekeeperhome.net`, with a Let's
   Encrypt certificate phones trust, so the app installs at home with no warning. Gatekeeper
   registers with a claim code and keeps its home address published through the name
