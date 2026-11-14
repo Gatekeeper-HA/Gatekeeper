@@ -182,7 +182,8 @@ HUB_NAME_NEW = re.compile(r"^hub name: new certificate for ")
 HUB_NAME_FAILED = re.compile(r"^hub name: couldn't ")
 HUB_NAME_GAVE_UP = re.compile(r"^hub name: .*; giving up until Gatekeeper restarts$")
 HUB_NAME_UNRESOLVED = re.compile(r"^hub name: \S+ doesn't resolve to ")
-# A certificate this close to running out isn't being renewed (that's due 30 days before).
+# A certificate this close to running out isn't being renewed: that's due with a third of its
+# life left (30 days of 90, 15 of the 45 Let's Encrypt plans for 2028).
 HUB_NAME_MIN_DAYS = 14
 # knock.py's hourly line: how many sounds the classifier checked, and the top score.
 KNOCK_STATS = re.compile(

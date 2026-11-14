@@ -702,8 +702,9 @@ on the home network, with no certificate to install and no warning.
   account, and proves the name is its own with a DNS-01 challenge that Gatekeeper's name
   service publishes. Nothing secret leaves your server. The name's CAA record names
   Gatekeeper's Let's Encrypt account, so no one else can get a certificate for it, not
-  even the name service. It's renewed by itself 30 days before it runs out, and the new
-  one is used without a restart.
+  even the name service. It's renewed by itself once two thirds of its life has passed
+  (day 60 of 90; Let's Encrypt's lifetimes are getting shorter, and this follows), and the
+  new one is used without a restart.
 - **The address `https://SERVER_IP:8098/`** keeps its own self-signed certificate, so
   what's already installed from it keeps working.
 

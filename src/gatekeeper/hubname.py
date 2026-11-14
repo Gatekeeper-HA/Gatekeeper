@@ -39,7 +39,8 @@ LETS_ENCRYPT = "https://acme-v02.api.letsencrypt.org/directory"
 LETS_ENCRYPT_STAGING = "https://acme-staging-v02.api.letsencrypt.org/directory"
 USER_AGENT = f"Gatekeeper/{__version__}"
 TIMEOUT = 30.0
-# Renew once this share of the certificate's life has passed (60 of Let's Encrypt's 90 days).
+# Renew once this share of the certificate's life has passed: day 60 of 90. Let's Encrypt's
+# lifetimes are shrinking (64 days on its staging server in 2026, 45 by 2028); this follows.
 RENEW_AT = 2 / 3
 # How often the address is published again, and the certificate checked.
 CHECK_SECONDS = 12 * 3600
