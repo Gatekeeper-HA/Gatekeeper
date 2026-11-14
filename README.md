@@ -84,6 +84,7 @@ Only services that require a login are published, on `SERVER_IP`:
 | 1883 | MQTT | Per-account passwords (see [MQTT](#mqtt)) |
 | 8090 | ntfy notifications | Gatekeeper token / `phone` user; anyone may post a quick reply (signed, see [Quick replies](#quick-replies)) |
 | 8098 | Gatekeeper's web page: [visits](#visits), [household faces](#household-faces), [zones](#zones) and [settings](#settings) | `GATEKEEPER_WEB_PASSWORD` (HTTPS with `WEB_TLS`; off without a password). Without it: the [app's](#the-app) files, a notification's snapshot (at an unguessable address, for 12 hours) and a quick reply (signed) |
+| 443 | The same web page at the [hub's name](#hub-name) (optional `docker-compose.hubname.yml`) | As 8098 |
 | 8123 | Home Assistant (optional `ha` profile) | Home Assistant login |
 
 Frigate's unauthenticated API (5000) and go2rtc (API/UI, RTSP restream, WebRTC) are used
@@ -119,6 +120,10 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `WEB_TLS` | `false` | The web page over HTTPS with its own self-signed certificate, for [talking back](#live) from the Live page. The compose stack reads it from `.env` |
 | `WEB_PUBLIC_URL` | `http(s)://<WEB_TLS_NAMES' first>:<WEB_PORT>/` | The web page's address as your phone reaches it: tapping a notification opens its [Live page](#live). The compose stack's `WEB_TLS_NAMES` (`SERVER_IP`) makes the default |
 | `WEB_TLS_NAMES` | | The addresses the page is reached at, comma-separated, named in the certificate. The compose stack sets `SERVER_IP` |
+| `HUB_NAME_CLAIM` | | A claim code from Gatekeeper: turns on the [hub's own name](#hub-name), with a Let's Encrypt certificate. Needs `WEB_TLS`. The compose stack reads it from `.env` |
+| `HUB_NAME_ADDRESS` | the first private IPv4 of `WEB_TLS_NAMES` | The address on the home network the name points at |
+| `HUB_NAME_API` | `https://api.gatekeeperhome.net` | The name service ([cloud/](cloud/README.md)); run your own with your own domain |
+| `HUB_NAME_ACME` | Let's Encrypt | The ACME directory the certificate comes from. Let's Encrypt's staging directory (`https://acme-staging-v02.api.letsencrypt.org/directory`) for tests: its certificates aren't trusted |
 | `LIVE_STREAM`, `LIVE_HD_STREAM` | `<CAMERA_NAME>_live`, `<CAMERA_NAME>_live_hd` | go2rtc's streams for the [Live page](#live): the video as it is, the audio as Opus |
 | `GO2RTC_TALK_STREAM` | `front_door_talk` | go2rtc stream name for talkback |
 | `AUDIO_RTSP_URL` | `rtsp://go2rtc:8554/<CAMERA_NAME>` | RTSP stream for capturing visitor audio |
@@ -663,9 +668,9 @@ app says it can't reach Gatekeeper instead of showing the browser's error. It ge
 Gatekeeper's notifications too ([In the app](#in-the-app)).
 
 A phone installs it only from a page over HTTPS whose certificate it trusts:
-1. Turn on `WEB_TLS` ([Live](#live)). Then either install `web-cert.pem` on the phone as
-   trusted, or reach the page by a name that has a real certificate (Tailscale's HTTPS
-   names, for example).
+1. Turn on `WEB_TLS` ([Live](#live)). Then reach the page by a name that has a real
+   certificate: the [hub's own name](#hub-name), or Tailscale's HTTPS names. Or install
+   `web-cert.pem` on the phone as trusted.
 2. Open the page. On Android, choose *Install and create shortcut* from Chrome's menu
    (*Add to home screen* before Chrome 150), then *Install*. On an iPhone, choose *Add to
    Home Screen* from Safari's share menu.
@@ -682,6 +687,51 @@ it would put the page on the public internet. The app's address is then
 `https://<server name>.<tailnet name>.ts.net/`.
 
 The daily report counts how often the app was opened from the home screen.
+
+### Hub name
+
+Gatekeeper can have a name of its own, `<id>.gatekeeperhome.net`, with a Let's Encrypt
+certificate that phones already trust. The app then installs from `https://<id>.gatekeeperhome.net/`
+on the home network, with no certificate to install and no warning.
+
+- **The name** is 10 random characters, never anything about your home: every
+  certificate's names are published (Certificate Transparency). It points at Gatekeeper's
+  address on your home network (`SERVER_IP`), and only a home address is allowed, so it
+  works on your home network. Away from home, [Tailscale](#the-app) still works as before.
+- **The certificate** is Gatekeeper's own. It makes the key and its own Let's Encrypt
+  account, and proves the name is its own with a DNS-01 challenge that Gatekeeper's name
+  service publishes. Nothing secret leaves your server. The name's CAA record names
+  Gatekeeper's Let's Encrypt account, so no one else can get a certificate for it, not
+  even the name service. It's renewed by itself 30 days before it runs out, and the new
+  one is used without a restart.
+- **The address `https://SERVER_IP:8098/`** keeps its own self-signed certificate, so
+  what's already installed from it keeps working.
+
+**Turning it on:**
+1. Get a claim code from Gatekeeper. Hubs come with one.
+2. In `.env`, with `WEB_TLS=1`:
+   ```
+   HUB_NAME_CLAIM=<your claim code>
+   COMPOSE_FILE=docker-compose.yml:docker-compose.hubname.yml
+   ```
+   (With the GPU: `docker-compose.yml:docker-compose.gpu.yml:docker-compose.hubname.yml`.)
+   The second file serves the page on port 443 of `SERVER_IP` too, so the address needs
+   no port. Nothing else may use that port.
+3. `docker compose up -d`. In a minute or two, Gatekeeper's log says
+   `hub name: <id>.gatekeeperhome.net points at <SERVER_IP>; certificate until <date>`.
+4. Open `https://<id>.gatekeeperhome.net/` on the phone and install the app from there
+   ([The app](#the-app)). Log in once more: the new address is a new site to the phone.
+
+To have notifications open it too, set `WEB_PUBLIC_URL=https://<id>.gatekeeperhome.net/`.
+
+**If the phone can't find the name:** some routers drop public names that point at a home
+address (DNS rebinding protection), and Gatekeeper's log warns that the name `doesn't
+resolve`. Allow `gatekeeperhome.net` in the router's DNS settings (on pfSense and
+OPNsense, as a private domain of the DNS resolver: `private-domain: "gatekeeperhome.net"`).
+
+Everything it keeps is in `LOG_DIR/hub-name`, readable only by Gatekeeper: its keys, the
+name and the certificate. The daily report gives the name, the address, the days the
+certificate has left, and any failed tries.
 
 ## Visits
 

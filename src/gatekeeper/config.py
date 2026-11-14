@@ -212,6 +212,15 @@ class Settings(BaseSettings):
     # The web page's address as the phone reaches it: tapping a notification opens its
     # Live page. Default: http(s)://<the first of web_tls_names>:<web_port>/, when set.
     web_public_url: str = ""
+    # The hub's own name, <id>.gatekeeperhome.net, with a Let's Encrypt certificate
+    # (hubname.py): on with a claim code from Gatekeeper's name service, and WEB_TLS.
+    # hub_name_address: the address on the home network it points at (default: the first
+    # private IPv4 of web_tls_names). hub_name_api, hub_name_acme: the name service and the
+    # ACME directory (Let's Encrypt; its staging directory for tests).
+    hub_name_claim: SecretStr = SecretStr("")
+    hub_name_address: str = ""
+    hub_name_api: str = "https://api.gatekeeperhome.net"
+    hub_name_acme: str = "https://acme-v02.api.letsencrypt.org/directory"
     # Defaults to rtsp://go2rtc:8554/<camera_name> when unset.
     audio_rtsp_url: str = ""
 
