@@ -1975,6 +1975,81 @@ def test_gatekeepers_own_clips_are_reported():
     assert build(inputs())["recording"] is None
 
 
+HUB = "abcdefghij.gatekeeperhome.net"
+
+
+def day(days_from_now):
+    return datetime.datetime.fromtimestamp(NOW + days_from_now * 86400, datetime.UTC).date()
+
+
+def test_the_hub_name_and_its_certificate_are_reported():
+    log = own_log(
+        (NOW - 9000, "hubname", f"hub name: new certificate for {HUB} until {day(90)}"),
+        (
+            NOW - 9000,
+            "hubname",
+            f"hub name: {HUB} points at 192.168.40.199; certificate until {day(90)}",
+        ),
+    )
+    r = build(inputs(log_text=log))
+    hub = r["hub_name"]
+    assert (hub["name"], hub["address"], hub["new_certificates"]) == (HUB, "192.168.40.199", 1)
+    assert hub["days_left"] == 89  # it runs out at the start of that day, in UTC
+    assert "hub_name" not in failing(r)
+    assert (
+        f"Hub name: {HUB} → 192.168.40.199, certificate until {day(90)} (89 days); "
+        "1 new certificate(s)"
+    ) in render_text(r)
+    assert build(inputs())["hub_name"] is None
+
+
+def test_a_hub_name_certificate_not_renewed_fails_its_check():
+    log = own_log(
+        (
+            NOW - 9000,
+            "hubname",
+            "hub name: couldn't get the name or its certificate: Let's Encrypt refused "
+            "(rateLimited); trying again in 24 h",
+        ),
+        (
+            NOW - 8000,
+            "hubname",
+            f"hub name: {HUB} points at 192.168.40.199; certificate until {day(11)} "
+            "(Let's Encrypt staging)",
+        ),
+    )
+    r = build(inputs(log_text=log))
+    assert r["hub_name"]["staging"] and r["hub_name"]["failures"] == 1
+    assert failing(r)["hub_name"] == "the hub name's certificate runs out in 10 day(s)"
+    assert "(10 days, Let's Encrypt staging); 1 failed try(ies)" in render_text(r)
+
+
+def test_a_hub_name_that_gave_up_or_has_no_certificate_fails_its_check():
+    gave_up = own_log(
+        (
+            NOW - 9000,
+            "hubname",
+            "hub name: the name service refused: unknown or used claim code; giving up until "
+            "Gatekeeper restarts",
+        ),
+    )
+    r = build(inputs(log_text=gave_up))
+    assert failing(r)["hub_name"] == "the hub name gave up (its claim code or name refused)"
+    assert "Hub name: no certificate yet; gave up" in render_text(r)
+    dropped = own_log(
+        (
+            NOW - 9000,
+            "hubname",
+            f"hub name: {HUB} doesn't resolve to 192.168.40.199 on this network (no address); "
+            "a router that blocks DNS rebinding needs it allowed (README, Hub name)",
+        ),
+    )
+    r = build(inputs(log_text=dropped))
+    assert r["hub_name"]["dns_drops_it"]
+    assert failing(r)["hub_name"] == "the hub name has no certificate"
+    assert "the home network's DNS drops the name" in render_text(r)
+
+
 def test_with_own_perception_starting_the_visits_its_tracks_are_the_arrivals():
     visit_start = NOW - 5000
     greeted = visit(visit_start, visit_start + 30)

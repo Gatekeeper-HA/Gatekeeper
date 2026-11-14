@@ -1,0 +1,12 @@
+# The hub's own name (README, "Hub name"): the web page on port 443 as well, so the app
+# installs from https://<id>.gatekeeperhome.net/ with no port in the address. Add it to
+# COMPOSE_FILE in .env, with HUB_NAME_CLAIM:
+#
+#     COMPOSE_FILE=docker-compose.yml:docker-compose.hubname.yml
+#
+# Port 443 on SERVER_IP must be free (no other web server on it).
+
+services:
+  gatekeeper:
+    ports:
+      - "${SERVER_IP:?set SERVER_IP in .env}:443:8098"

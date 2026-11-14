@@ -5,6 +5,9 @@ Gatekeeper makes a self-signed certificate once and keeps it next to the visit l
 browser asks to trust it once, not at every restart. It names the addresses the page is
 reached at (``WEB_TLS_NAMES``, e.g. the server's IP); it's made again only when those
 change. Installing it as trusted on a phone stops the warning altogether.
+
+With a hub name (hubname.py), the page is also reached at that name, with a Let's Encrypt
+certificate the phone already trusts (``NamedCertificate``).
 """
 
 from __future__ import annotations
@@ -89,3 +92,22 @@ def server_context(cert_file: Path, key_file: Path) -> ssl.SSLContext:
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(cert_file, key_file)
     return context
+
+
+class NamedCertificate:
+    """A certificate for one name (the hub's name, hubname.py), served to browsers that ask
+    for that name (SNI) instead of ``base``'s self-signed one. Anything else, like the
+    server's IP address, still gets the self-signed one. ``use`` swaps a renewed
+    certificate in for new connections, without a restart."""
+
+    def __init__(self, base: ssl.SSLContext) -> None:
+        self._current: tuple[str, ssl.SSLContext] | None = None
+        base.sni_callback = self._pick
+
+    def _pick(self, sock: ssl.SSLObject, server_name: str | None, _base: ssl.SSLContext) -> None:
+        current = self._current
+        if current is not None and server_name and server_name.lower() == current[0]:
+            sock.context = current[1]
+
+    def use(self, cert_file: Path, key_file: Path, name: str) -> None:
+        self._current = (name.lower(), server_context(cert_file, key_file))
