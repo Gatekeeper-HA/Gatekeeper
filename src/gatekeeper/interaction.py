@@ -406,6 +406,11 @@ class Interaction:
             if event_id in self._in_progress:
                 self._pressed.add(event_id)
 
+    def _was_pressed(self, visit: Visit) -> bool:
+        """Whether the doorbell started ``visit`` or was pressed while it ran."""
+        with self._stops_lock:
+            return visit.trigger == "button" or visit.event_id in self._pressed
+
     def went_inside(self, event_id: str) -> None:
         """``SessionTracker``: the person visit ``event_id`` is for went in by the front
         door. The visit stops at its next chance, unless they've said something."""
@@ -671,9 +676,7 @@ class Interaction:
         if visit.details.get("occasion") == "halloween" and kind in HALLOWEEN_KINDS:
             kind = f"halloween_{kind}"
         texts = getattr(self.settings, f"{kind}_texts")
-        with self._stops_lock:
-            pressed = visit.trigger == "button" or visit.event_id in self._pressed
-        lines = texts(pressed=pressed)
+        lines = texts(pressed=self._was_pressed(visit))
         lines = {k: t for k, t in lines.items() if k in self._presynth} or lines
         keys = [k for k in lines if k != self._last.get(kind)] or list(lines)
         key = self._random.choice(keys)
@@ -861,6 +864,7 @@ class Interaction:
             # The no-answer reply asks again, in Gatekeeper's voice (one of
             # NO_ANSWER_LINES): listen once more after it.
             key, line = self._line("no_answer", visit)
+            pressed_before = self._was_pressed(visit)
             question = await self._say(talk, visit, key, line)
             if question is None:
                 visit.response = None
@@ -872,6 +876,12 @@ class Interaction:
                 self._check_stop(visit)
                 # Still silent: the question was the reply.
                 visit.response = line
+                if self._was_pressed(visit) and not pressed_before:
+                    # They rang after the line was picked (acknowledge_press can't speak
+                    # mid-visit): tell them the press was heard rather than go quiet.
+                    said = await self._say(talk, visit, "pressed", s.replies["pressed"])
+                    if said is not None:
+                        visit.response = s.replies["pressed"]
                 self._notify(visit)
                 visit.outcome = "completed"
                 return

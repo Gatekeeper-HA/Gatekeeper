@@ -349,6 +349,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **A doorbell press during a visit's last listening turn is answered** (#178). A press
+  merged into a running visit only changed the lines picked after it, and the press reply
+  can't speak mid-visit, so someone who rang after the no-answer line heard nothing at all.
+  When the visit ends silent after such a press, Gatekeeper now says `REPLY_PRESSED`.
 - **Daily report: a day with no restart keeps the state Gatekeeper started in** (#166). The
   doorbell button's listener and own perception's mode are logged when Gatekeeper starts, so
   on a day with no deploy or restart they were before the report's 24 h: own perception read
