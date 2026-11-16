@@ -1,3 +1,4 @@
+import base64
 import json
 import urllib.error
 import urllib.parse
@@ -114,3 +115,73 @@ def test_logins_end(tmp_path):
     (tmp_path / "broken.json").write_text("{not json")
     assert Logins(tmp_path / "broken.json")._ends == {}
     assert json.loads((tmp_path / "l.json").read_text())  # hashes and their ends
+
+
+def test_wrong_passwords_are_limited_per_address_and_in_all(caplog):
+    now = [1000.0]
+    guard = logins.Guard(clock=lambda: now[0])
+    for _ in range(4):
+        guard.wrong("192.0.2.1")
+    assert guard.wait("192.0.2.1") == 0
+    guard.wrong("192.0.2.1")  # the fifth in 15 min
+    assert guard.wait("192.0.2.1") == 900 and guard.wait("192.0.2.2") == 0
+    assert "web: 5 wrong passwords from 192.0.2.1; its passwords are refused" in caplog.text
+    now[0] += 600
+    assert guard.wait("192.0.2.1") == 300
+    now[0] += 300  # the oldest is 15 min old
+    assert guard.wait("192.0.2.1") == 0
+
+    guard.right("192.0.2.1")  # the right password forgets that address's wrong ones
+    for i in range(19):
+        guard.wrong(f"198.51.100.{i}")
+    assert guard.wait("203.0.113.9") == 0
+    guard.wrong("198.51.100.99")  # the 20th in 15 min, from everywhere together
+    assert guard.wait("203.0.113.9") == 900
+    assert "web: 20 wrong passwords in 15 min; every password is refused" in caplog.text
+
+
+def test_too_many_wrong_passwords_refuse_even_the_right_one(tmp_path, monkeypatch):
+    monkeypatch.setattr(web.time, "sleep", lambda s: None)
+    now = [1000.0]
+    faces = web.FacesPage(tmp_path / "faces", enabled=True, candidate_days=14)
+    guard = logins.Guard(clock=lambda: now[0])
+    server = web.serve(faces, PASSWORD, port=0, logged_in=Logins(None), guard=guard)
+    base = f"http://127.0.0.1:{server.server_address[1]}/"
+    try:
+        already = Browser(base)
+        assert already.log_in(PASSWORD, "faces/")[0] == 303
+        b = Browser(base)
+        for _ in range(5):
+            assert b.log_in("guess")[0] == 401
+        status, body, headers = b.log_in(PASSWORD, "faces/")
+        assert status == 429 and "Too many wrong passwords. Try again in 15 min." in body
+        assert headers["Retry-After"] == "900" and not b.cookies
+        # HTTP Basic is a password too: refused the same way.
+        basic = base64.b64encode(f"x:{PASSWORD}".encode()).decode()
+        req = urllib.request.Request(base + "faces/", headers={"Authorization": f"Basic {basic}"})
+        with pytest.raises(urllib.error.HTTPError) as refused:
+            urllib.request.urlopen(req)
+        assert refused.value.code == 429
+        # Logged in before: still in.
+        assert already.request("faces/")[0] == 200
+        now[0] += 15 * 60
+        assert b.log_in(PASSWORD, "faces/")[0] == 303
+    finally:
+        server.shutdown()
+
+
+def test_a_wrong_http_basic_password_counts(tmp_path, monkeypatch):
+    monkeypatch.setattr(web.time, "sleep", lambda s: None)
+    faces = web.FacesPage(tmp_path / "faces", enabled=True, candidate_days=14)
+    guard = logins.Guard()
+    server = web.serve(faces, PASSWORD, port=0, logged_in=Logins(None), guard=guard)
+    base = f"http://127.0.0.1:{server.server_address[1]}/"
+    try:
+        wrong = base64.b64encode(b"x:guess").decode()
+        req = urllib.request.Request(base + "faces/", headers={"Authorization": f"Basic {wrong}"})
+        with pytest.raises(urllib.error.HTTPError) as answer:
+            urllib.request.build_opener(NoRedirect).open(req)
+        assert answer.value.code == 303  # sent to the login page, and counted
+        assert guard.wait("127.0.0.1") == 0 and len(guard._wrong) == 1
+    finally:
+        server.shutdown()

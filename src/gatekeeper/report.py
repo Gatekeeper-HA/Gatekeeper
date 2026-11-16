@@ -182,6 +182,8 @@ HUB_NAME_NEW = re.compile(r"^hub name: new certificate for ")
 HUB_NAME_FAILED = re.compile(r"^hub name: couldn't ")
 HUB_NAME_GAVE_UP = re.compile(r"^hub name: .*; giving up until Gatekeeper restarts$")
 HUB_NAME_UNRESOLVED = re.compile(r"^hub name: \S+ doesn't resolve to ")
+# logins.Guard's line for each wrong password, from the login page or HTTP Basic.
+WRONG_PASSWORD = re.compile(r"^web: a wrong password from (?P<address>\S+) ")
 # A certificate this close to running out isn't being renewed: that's due with a third of its
 # life left (30 days of 90, 15 of the 45 Let's Encrypt plans for 2028).
 HUB_NAME_MIN_DAYS = 14
@@ -544,6 +546,19 @@ def recording_info(lines: list[str]) -> dict | None:
         "mb": round(mb),
         "failed": failed,
     }
+
+
+def wrong_password_info(lines: list[str]) -> dict | None:
+    """Wrong passwords given to the web page in the window, and the addresses they came
+    from. None when there were none."""
+    addresses: dict[str, int] = {}
+    for line in lines:
+        m = GATEKEEPER_LINE.match(line)
+        if w := WRONG_PASSWORD.match(m["message"] if m else line):
+            addresses[w["address"]] = addresses.get(w["address"], 0) + 1
+    if not addresses:
+        return None
+    return {"count": sum(addresses.values()), "addresses": addresses}
 
 
 def hub_name_info(lines: list[str], now: float) -> dict | None:
@@ -1567,6 +1582,7 @@ def build(i: Inputs) -> dict:
     recording = recording_info(sources.get("gatekeeper", []))
     if recording:
         check("recording", not recording["failed"], f"{recording['failed']} recording(s) failed")
+    wrong_passwords = wrong_password_info(sources.get("gatekeeper", []))
     hub_name = hub_name_info(sources.get("gatekeeper", []), i.now)
     if hub_name:
         days = hub_name["days_left"]
@@ -1656,6 +1672,7 @@ def build(i: Inputs) -> dict:
         "own_perception": own,
         "recording": recording,
         "hub_name": hub_name,
+        "wrong_passwords": wrong_passwords,
         "delivery_guess": i.delivery_guess,
         "conversation_model": i.conversation_model,
         "threats": threat_info(visits),
@@ -1825,6 +1842,9 @@ def summary_lines(report: dict) -> list[str]:
             "the home network's DNS drops the name" if hub["dns_drops_it"] else "",
         ]
         lines.append(f"Hub name: {state}" + "".join(f"; {x}" for x in extra if x))
+    if wrong := report.get("wrong_passwords"):
+        sources = ", ".join(f"{a} ×{n}" for a, n in sorted(wrong["addresses"].items()))
+        lines.append(f"Wrong passwords on the web page: {wrong['count']} (from {sources})")
     if (th := report.get("threats")) and th["visits"]:
         levels = ", ".join(
             f"{LEVEL_NAMES[int(level)]} {n}" for level, n in sorted(th["levels"].items())

@@ -33,6 +33,7 @@ import html
 import http.cookies
 import json
 import logging
+import math
 import re
 import secrets
 import shutil
@@ -421,14 +422,17 @@ def handler(
     push=None,
     replies: Callable[[str], None] | None = None,
     settings_page=None,
+    guard: logins.Guard | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     """``visits``: the Visits page (visits.VisitsPage) at ``/``, with the faces at
     ``faces/``; without it the faces are at ``/``. ``zones``: the Zones page
     (zones.ZonesPage) at ``zones/``. ``push``: the app's notifications, at ``push/``.
     ``replies``: their quick reply buttons' text (quick_reply.QuickReplies.from_button).
-    ``settings_page``: the settings page (settings_page.SettingsPage) at ``settings/``."""
+    ``settings_page``: the settings page (settings_page.SettingsPage) at ``settings/``.
+    ``guard``: the limit on wrong passwords (logins.Guard)."""
     expected = password.encode()
     sessions = logged_in or logins.Logins(None)
+    guard = guard or logins.Guard()
 
     class Handler(BaseHTTPRequestHandler):
         def setup(self) -> None:
@@ -474,8 +478,18 @@ def handler(
                     _, _, given = base64.b64decode(header[6:]).partition(b":")
                 except ValueError:
                     given = b""
-                if hmac.compare_digest(given, expected):
+                checked = self._check(given)
+                if checked == "right":
                     return True
+                if checked == "refused":
+                    minutes = self._minutes_refused()
+                    self._send(
+                        429,
+                        f"Too many wrong passwords. Try again in {minutes} min.".encode(),
+                        "text/plain",
+                        {"Retry-After": str(minutes * 60)},
+                    )
+                    return False
             url = urllib.parse.urlsplit(self.path)
             if self.command == "GET" and url.path.endswith("/"):
                 target = url.path.lstrip("/") + (f"?{url.query}" if url.query else "")
@@ -500,20 +514,47 @@ def handler(
                 f"{secure}"
             )
 
+        def _check(self, given: bytes) -> str:
+            """A password given: "right", "wrong", or "refused" (not checked, after too
+            many wrong ones: logins.Guard)."""
+            address = self.client_address[0]
+            if guard.wait(address) > 0:
+                return "refused"
+            if hmac.compare_digest(given, expected):
+                guard.right(address)
+                return "right"
+            guard.wrong(address)
+            time.sleep(1.0)  # one guess a second per connection
+            return "wrong"
+
+        def _minutes_refused(self) -> int:
+            return max(1, math.ceil(guard.wait(self.client_address[0]) / 60))
+
         def _login(self, length: int) -> None:
             form = urllib.parse.parse_qs(self.rfile.read(length).decode("utf-8", "replace"))
             target = logins.safe_next(form.get("next", [""])[0])
             given = form.get("password", [""])[0].encode()
-            if not hmac.compare_digest(given, expected):
-                time.sleep(1.0)  # one guess a second, at most
-                log.info("web: a wrong password")
+            checked = self._check(given)
+            if checked == "wrong":
                 body = logins.page("That's not the password.", target).encode()
                 self._send(401, body, "text/html; charset=utf-8")
                 return
+            if checked == "refused":
+                minutes = self._minutes_refused()
+                error = f"Too many wrong passwords. Try again in {minutes} min."
+                body = logins.page(error, target).encode()
+                self._send(
+                    429, body, "text/html; charset=utf-8", {"Retry-After": str(minutes * 60)}
+                )
+                return
             self._redirect(target, self._cookie(sessions.start(), logins.DAYS * 86400))
 
-        def _send(self, status: int, body: bytes, kind: str) -> None:
+        def _send(
+            self, status: int, body: bytes, kind: str, headers: dict[str, str] | None = None
+        ) -> None:
             self.send_response(status)
+            for name, value in (headers or {}).items():
+                self.send_header(name, value)
             self.send_header("Content-Type", kind)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
@@ -780,6 +821,7 @@ def serve(
     push=None,
     replies: Callable[[str], None] | None = None,
     settings_page=None,
+    guard: logins.Guard | None = None,
 ) -> ThreadingHTTPServer:
     """Serve the pages on ``port`` in a daemon thread; over HTTPS with ``tls``. ``push``:
     the app's notifications (webpush.WebPush), switched on from the Visits page, and
@@ -791,7 +833,9 @@ def serve(
         visits.push_key = push.public_key
     server = _Server(
         ("0.0.0.0", port),
-        handler(page, password, visits, zones, live, logged_in, push, replies, settings_page),
+        handler(
+            page, password, visits, zones, live, logged_in, push, replies, settings_page, guard
+        ),
     )
     server.ssl_context = tls
     threading.Thread(target=server.serve_forever, name="web", daemon=True).start()
