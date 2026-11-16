@@ -419,13 +419,16 @@ class _Server(ThreadingHTTPServer):
 
     def process_request(self, request, client_address) -> None:
         if not self._slots.acquire(blocking=False):
-            self.shutdown_request(request)
-            if time.monotonic() - self._refused_at >= 60:
-                self._refused_at = time.monotonic()
+            # Logged before the connection is closed, so it's in the log by the time the
+            # client sees the close.
+            now = time.monotonic()
+            if now - self._refused_at >= 60:
+                self._refused_at = now
                 log.warning(
                     "web: %d connections open at once; refusing more for now",
                     self.MAX_CONNECTIONS,
                 )
+            self.shutdown_request(request)
             return
         try:
             super().process_request(request, client_address)
