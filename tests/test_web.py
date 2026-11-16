@@ -1,7 +1,9 @@
 import base64
 import json
 import re
+import socket
 import struct
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -262,3 +264,56 @@ def test_the_page_shows_the_sharper_picture_when_there_is_one(tmp_path):
         )
     page = web.FacesPage(face_dir, enabled=True, candidate_days=14, encode=lambda bgr: b"SMALL")
     assert page.face_jpeg("e9.npz", 0) == b"SHARP"
+
+
+def _raw(port, data, wait=5.0):
+    """Send ``data`` on a new connection, left open, and return the first answer."""
+    with socket.create_connection(("127.0.0.1", port), timeout=wait) as s:
+        s.sendall(data)
+        return s.recv(4096)
+
+
+def _closed(sock):
+    try:
+        return sock.recv(100) == b""
+    except (ConnectionResetError, ConnectionAbortedError):
+        return True
+
+
+def test_a_bad_content_length_is_refused_at_once(tmp_path):
+    page = web.FacesPage(tmp_path / "faces", enabled=True, candidate_days=14)
+    server = web.serve(page, PASSWORD, port=0)
+    port = server.server_address[1]
+    try:
+        # The connection stays open: a negative length would read until it closed.
+        for length in ("-1", "lots"):
+            head = f"POST /login HTTP/1.1\r\nHost: x\r\nContent-Length: {length}\r\n\r\n"
+            assert _raw(port, head.encode()).startswith(b"HTTP/1.0 400")
+        head = b"POST /login HTTP/1.1\r\nHost: x\r\nContent-Length: 999999\r\n\r\n"
+        assert _raw(port, head).startswith(b"HTTP/1.0 413")
+    finally:
+        server.shutdown()
+
+
+def test_connections_are_capped_and_silent_ones_closed(tmp_path, monkeypatch, caplog):
+    monkeypatch.setattr(web._Server, "MAX_CONNECTIONS", 2)
+    page = web.FacesPage(tmp_path / "faces", enabled=True, candidate_days=14)
+    server = web.serve(page, PASSWORD, port=0)
+    server.RequestHandlerClass.timeout = 1
+    port = server.server_address[1]
+    try:
+        silent = [socket.create_connection(("127.0.0.1", port), timeout=5) for _ in range(2)]
+        time.sleep(0.3)
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as third:
+            third.sendall(b"GET /login HTTP/1.0\r\n\r\n")
+            assert _closed(third)  # no slot: closed straight away
+        assert "web: 2 connections open at once; refusing more for now" in caplog.text
+        for s in silent:  # closed after a second of silence, freeing their slots
+            assert _closed(s)
+            s.close()
+        time.sleep(0.3)
+        answer = _raw(port, b"GET /login HTTP/1.0\r\n\r\n")
+        assert answer.startswith(b"HTTP/1.0 200")
+        assert b"X-Content-Type-Options: nosniff" in answer
+    finally:
+        server.shutdown()
