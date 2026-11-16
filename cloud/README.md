@@ -47,8 +47,12 @@ the service's clock.
 - 400 for a bad body;
 - 403 for an unknown or used claim code, or a bad signature;
 - 404 for an unknown hub;
-- 429 past 60 changes an hour;
+- 429 past 60 changes an hour, or for an address whose requests were refused 20 times in
+  the last hour (any 400, 403 or 404), with `Retry-After`;
 - 502 when PowerDNS can't be reached.
+
+The address is the last one in `X-Forwarded-For`, which Caddy sets. Only Caddy can reach
+the API, so it can't be forged.
 
 ### Running it
 

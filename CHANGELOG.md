@@ -356,6 +356,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **The name service limits clients that keep getting refused.** An address with 20
+  refused or malformed requests in an hour gets 429 (with `Retry-After`) until the oldest
+  is an hour old; the address is the one Caddy puts last in `X-Forwarded-For`. Its errors
+  no longer pass on Python's own wording for a bad length, body or key.
 - **`WEB_PUBLIC_URL` reaches Gatekeeper in the compose stack.** It wasn't passed to the
   container, so setting it in `.env` did nothing, and ntfy's notifications always opened
   the page at `SERVER_IP`. Empty (the default) keeps that address.
