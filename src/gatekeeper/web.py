@@ -404,8 +404,40 @@ def _chosen(values: list[str]) -> set[tuple[str, int]]:
 
 
 class _Server(ThreadingHTTPServer):
+    """One thread per connection, at most ``MAX_CONNECTIONS`` at once: past that, a new
+    one is closed straight away, so clients that hold connections open (slowly, or many
+    at once) can't use up the server."""
+
     daemon_threads = True
     ssl_context: ssl.SSLContext | None = None  # HTTPS (WEB_TLS)
+    MAX_CONNECTIONS = 64
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._slots = threading.BoundedSemaphore(self.MAX_CONNECTIONS)
+        self._refused_at = 0.0
+
+    def process_request(self, request, client_address) -> None:
+        if not self._slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            if time.monotonic() - self._refused_at >= 60:
+                self._refused_at = time.monotonic()
+                log.warning(
+                    "web: %d connections open at once; refusing more for now",
+                    self.MAX_CONNECTIONS,
+                )
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
 
     def handle_error(self, request, client_address) -> None:
         # A browser that gave up on the certificate, a closed tab: not worth a traceback.
@@ -435,13 +467,16 @@ def handler(
     guard = guard or logins.Guard()
 
     class Handler(BaseHTTPRequestHandler):
+        # Seconds a connection may stay silent, with or without HTTPS.
+        timeout = 15
+
         def setup(self) -> None:
             """With HTTPS: the TLS handshake here, in this connection's own thread; a
             plain http:// request (an old bookmark) is sent to https:// instead."""
             self._to_https = False
             context = self.server.ssl_context
             if context is not None:
-                self.request.settimeout(15)
+                self.request.settimeout(self.timeout)
                 if self.request.recv(1, socket.MSG_PEEK) == b"\x16":  # a TLS handshake
                     self.request = context.wrap_socket(self.request, server_side=True)
                 else:
@@ -559,6 +594,7 @@ def handler(
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Frame-Options", "SAMEORIGIN")
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "no-referrer")
             self.end_headers()
             self.wfile.write(body)
@@ -630,6 +666,7 @@ def handler(
             if status == 206:
                 self.send_header("Content-Range", f"bytes {first}-{last}/{size}")
             self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "no-referrer")
             self.end_headers()
             with path.open("rb") as f:
@@ -719,9 +756,13 @@ def handler(
         def do_POST(self) -> None:
             if self._redirected_to_https():
                 return
-            length = int(self.headers.get("Content-Length") or 0)
-            if length > MAX_BODY:
-                self.send_error(413)
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = -1
+            if not 0 <= length <= MAX_BODY:
+                # A negative length would read until the connection closes.
+                self.send_error(413 if length > MAX_BODY else 400)
                 return
             if urllib.parse.urlsplit(self.path).path.endswith("/login"):
                 self._login(length)

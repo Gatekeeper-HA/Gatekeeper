@@ -67,6 +67,8 @@ class QuickReplies:
         self._lock = threading.Lock()
         self._notified: dict[str, float] = {}  # event id -> when it was first notified
         self._said: set[tuple[str, str]] = set()
+        self._ignored = 0  # bad button presses since the last warning
+        self._warned_at = float("-inf")
 
     def sign(self, event_id: str, reply: str) -> str:
         message = f"{event_id} {reply}".encode()
@@ -101,13 +103,24 @@ class QuickReplies:
         or the app's ``push/reply``)."""
         parts = text.split()
         if len(parts) != 3:
-            log.warning("ignoring a quick reply that isn't from a notification button")
+            self._ignore("that aren't from a notification button")
             return
         event_id, reply, signature = parts
         if not hmac.compare_digest(signature, self.sign(event_id, reply)):
-            log.warning("ignoring a quick reply with a bad signature (from before a restart?)")
+            self._ignore("with a bad signature (from before a restart?)")
             return
         self.request(event_id, reply)
+
+    def _ignore(self, why: str) -> None:
+        """A button press ignored: logged at most once a minute, with how many. The app's
+        reply address needs no login, so a flood of them mustn't flood the log."""
+        with self._lock:
+            self._ignored += 1
+            now = self._clock()
+            if now - self._warned_at < 60:
+                return
+            count, self._ignored, self._warned_at = self._ignored, 0, now
+        log.warning("ignoring %d quick reply(ies) %s", count, why)
 
     def from_mqtt(self, payload: bytes) -> None:
         """``<reply>`` or ``{"reply": ..., "event_id": ...}``; without an event id,

@@ -187,3 +187,18 @@ def test_no_buttons_for_someone_who_went_inside():
 def test_no_buttons_for_someone_recognized():
     q = quick(FakeClock(), [])
     assert q.buttons(Visit(EID, "front_door", outcome="household")) == []
+
+
+def test_bad_button_presses_are_logged_at_most_once_a_minute(caplog):
+    clock, said = FakeClock(1000.0), []
+    q = quick(clock, said)
+    for _ in range(5):
+        q.from_button(f"{EID} coming 0000000000000000")
+    clock.advance(61)
+    q.from_button("not-a-button")
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert warnings == [
+        "ignoring 1 quick reply(ies) with a bad signature (from before a restart?)",
+        "ignoring 5 quick reply(ies) that aren't from a notification button",
+    ]
+    assert not said
