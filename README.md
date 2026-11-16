@@ -643,6 +643,19 @@ visit (a cookie; only its hash is kept, in `LOG_DIR/web-logins.json`, so a resta
 log you out). *Log out* is at the end of the menu. Scripts can send the password with each
 request instead (HTTP Basic, any user name).
 
+**Wrong passwords are limited**, on the login page and HTTP Basic alike:
+- Each wrong one waits a second.
+- After 5 wrong ones in 15 minutes from one address, its passwords are refused, even the
+  right one, until 15 minutes after the first of them.
+- After 20 wrong ones in 15 minutes from all addresses together, everyone's are. Behind
+  Tailscale every phone arrives from the same address.
+- A browser that's already logged in stays logged in throughout, so guesses can't lock you
+  out of a phone you already use.
+- The log warns when passwords are refused, and the daily report counts the wrong ones by
+  address.
+
+Use a password nobody would guess: a few unrelated words is plenty.
+
 ### Settings
 
 *Settings* (`settings/`) turns the opt-in features on without editing `.env`:

@@ -2210,3 +2210,21 @@ def test_threat_signs_are_counted():
         "acted": 1,
         "at": ["Tue 14:05", "Tue 14:05"],
     }
+
+
+def test_wrong_passwords_are_counted_by_address():
+    log = own_log(
+        (NOW - 9000, "logins", "web: a wrong password from 192.168.40.31 (1 in 15 min)"),
+        (NOW - 8990, "logins", "web: a wrong password from 192.168.40.31 (2 in 15 min)"),
+        (NOW - 5000, "logins", "web: a wrong password from 172.18.0.1 (1 in 15 min)"),
+    )
+    r = build(inputs(log_text=log))
+    assert r["wrong_passwords"] == {
+        "count": 3,
+        "addresses": {"192.168.40.31": 2, "172.18.0.1": 1},
+    }
+    assert (
+        "Wrong passwords on the web page: 3 (from 172.18.0.1 ×1, 192.168.40.31 ×2)"
+        in render_text(r)
+    )
+    assert build(inputs())["wrong_passwords"] is None

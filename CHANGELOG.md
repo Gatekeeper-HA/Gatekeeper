@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Wrong passwords are limited** on the web page (`logins.Guard`), on the login page and
+  HTTP Basic alike. HTTP Basic had no limit at all, and the login page's one-second wait
+  didn't slow guesses sent in parallel. Five wrong ones in 15 minutes from one address, or
+  20 from all addresses together (behind Tailscale or a relay everyone shares one), and
+  passwords are refused, the right one too, with 429 and `Retry-After`. Browsers already
+  logged in stay logged in. The log warns when it starts, and the daily report counts wrong
+  passwords by address. README, *The web page*.
 - **The hub's own name** (`HUB_NAME_CLAIM`): `<id>.gatekeeperhome.net`, with a Let's
   Encrypt certificate phones trust, so the app installs at home with no warning. Gatekeeper
   registers with a claim code and keeps its home address published through the name
