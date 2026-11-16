@@ -349,6 +349,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **`WEB_PUBLIC_URL` reaches Gatekeeper in the compose stack.** It wasn't passed to the
+  container, so setting it in `.env` did nothing, and ntfy's notifications always opened
+  the page at `SERVER_IP`. Empty (the default) keeps that address.
 - **Daily report: a day with no restart keeps the state Gatekeeper started in** (#166). The
   doorbell button's listener and own perception's mode are logged when Gatekeeper starts, so
   on a day with no deploy or restart they were before the report's 24 h: own perception read
