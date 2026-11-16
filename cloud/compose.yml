@@ -58,6 +58,16 @@ services:
       - hubnames
     logging: *logging
 
+# IPv6 too, so Docker forwards IPv6 clients straight to Caddy and PowerDNS (as it does IPv4
+# ones) instead of through its own proxy, which hides their addresses from the name
+# service's limit (hubnames/api.py).
+networks:
+  default:
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: fd48:6b6e:6d73::/64
+
 volumes:
   pdns:
   hubnames:

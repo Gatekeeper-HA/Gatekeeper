@@ -356,6 +356,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **The name service's limit sees IPv6 clients one by one.**
+  - Its compose network had no IPv6, so Docker carried IPv6 connections through its own
+    proxy, and every IPv6 client showed up as the same private address. 20 bad requests
+    from one could have locked them all out for an hour.
+  - The network has IPv6 now, so Docker forwards those clients directly, with their own
+    addresses.
+  - Only internet addresses are counted, and an IPv4 address written as IPv6 counts as the
+    IPv4 one.
 - **The name service limits clients that keep getting refused.** An address with 20
   refused or malformed requests in an hour gets 429 (with `Retry-After`) until the oldest
   is an hour old; the address is the one Caddy puts last in `X-Forwarded-For`. Its errors
