@@ -27,7 +27,7 @@ from hubnames.service import NameService  # noqa: E402
 from hubnames.store import Store  # noqa: E402
 
 ZONE = "hubs.example"
-HOME = "192.168.40.199"
+HOME = "192.168.1.20"
 START = 1_800_000_000.0
 DAY = 86400
 STAGING_ACCOUNTS = "https://acme-staging-v02.api.letsencrypt.org/acme/acct/"
