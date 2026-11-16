@@ -360,6 +360,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   refused or malformed requests in an hour gets 429 (with `Retry-After`) until the oldest
   is an hour old; the address is the one Caddy puts last in `X-Forwarded-For`. Its errors
   no longer pass on Python's own wording for a bad length, body or key.
+- **The web page holds up to misbehaving clients.**
+  - A request whose `Content-Length` is negative or not a number is refused at once.
+  - At most 64 connections are open at once. Past that, new ones are closed straight away,
+    with a warning at most once a minute.
+  - A connection silent for 15 s is closed, over plain HTTP as well as HTTPS.
+  - Ignored quick-reply presses (bad signature or format) are logged at most once a
+    minute, with how many.
+  - Every answer has `X-Content-Type-Options: nosniff`.
 - **`WEB_PUBLIC_URL` reaches Gatekeeper in the compose stack.** It wasn't passed to the
   container, so setting it in `.env` did nothing, and ntfy's notifications always opened
   the page at `SERVER_IP`. Empty (the default) keeps that address.
