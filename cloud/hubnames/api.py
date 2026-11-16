@@ -113,6 +113,14 @@ def serve(
                 return False
             wait = strikes.wait(self._address())
             if wait > 0:
+                # Read the body first: closing with it unread resets the connection, and
+                # the client (or Caddy) would see that instead of the 429.
+                try:
+                    length = int(self.headers.get("Content-Length") or 0)
+                except ValueError:
+                    length = 0
+                if 0 < length <= MAX_BODY:
+                    self.rfile.read(length)
                 self._send(
                     429,
                     {"error": "too many refused requests from this address; try again later"},
