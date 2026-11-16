@@ -723,7 +723,8 @@ on the home network, with no certificate to install and no warning.
 4. Open `https://<id>.gatekeeperhome.net/` on the phone and install the app from there
    ([The app](#the-app)). Log in once more: the new address is a new site to the phone.
 
-To have notifications open it too, set `WEB_PUBLIC_URL=https://<id>.gatekeeperhome.net/`.
+To have ntfy's notifications open it too, set `WEB_PUBLIC_URL=https://<id>.gatekeeperhome.net/`
+in `.env`. The app's own notifications already open in the app.
 
 **If the phone can't find the name:** some routers drop public names that point at a home
 address (DNS rebinding protection), and Gatekeeper's log warns that the name `doesn't
