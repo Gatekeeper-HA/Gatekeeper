@@ -297,6 +297,8 @@ def test_a_bad_content_length_is_refused_at_once(tmp_path):
 
 def test_connections_are_capped_and_silent_ones_closed(tmp_path, monkeypatch, caplog):
     monkeypatch.setattr(web._Server, "MAX_CONNECTIONS", 2)
+    # As on a machine booted under a minute ago (a CI runner): the warning still comes.
+    monkeypatch.setattr(web.time, "monotonic", lambda: 5.0)
     page = web.FacesPage(tmp_path / "faces", enabled=True, candidate_days=14)
     server = web.serve(page, PASSWORD, port=0)
     server.RequestHandlerClass.timeout = 1

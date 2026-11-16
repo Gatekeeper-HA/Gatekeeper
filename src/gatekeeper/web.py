@@ -415,7 +415,7 @@ class _Server(ThreadingHTTPServer):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._slots = threading.BoundedSemaphore(self.MAX_CONNECTIONS)
-        self._refused_at = 0.0
+        self._refused_at = float("-inf")  # monotonic time starts near 0 at boot
 
     def process_request(self, request, client_address) -> None:
         if not self._slots.acquire(blocking=False):
