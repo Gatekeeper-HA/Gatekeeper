@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from hubnames import __main__ as cli
-from hubnames.api import serve
+from hubnames.api import Strikes, serve
 from hubnames.powerdns import PowerDNS
 from hubnames.service import NameService, TooMany, b64, message, zone_records
 from hubnames.store import Refused, Store
@@ -309,3 +309,35 @@ def test_claim_codes_from_the_command_line(tmp_path, pdns, monkeypatch, capsys):
     monkeypatch.delenv("PDNS_API_KEY")
     with pytest.raises(SystemExit, match="PDNS_API_KEY"):
         cli.main([])
+
+
+def test_an_address_with_many_refused_requests_gets_429(names):
+    now = [0.0]
+    server = serve(names, "127.0.0.1", 0, strikes=Strikes(clock=lambda: now[0]))
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+
+    def post(body, address="203.0.113.7"):
+        # Caddy puts the client's address last.
+        headers = {"X-Forwarded-For": f"10.9.9.9, {address}"}
+        req = urllib.request.Request(base + "/v1/hubs", data=body, method="POST", headers=headers)
+        try:
+            with urllib.request.urlopen(req) as r:
+                return r.status, json.loads(r.read() or b"null"), r.headers
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read() or b"null"), e.headers
+
+    try:
+        # Plain errors, not Python's own wording.
+        assert post(b"{nope")[1] == {"error": "the body: a JSON object"}
+        bad_key = json.dumps({"claim": "AAAA-BBBB-CCCC", "key": "a"}).encode()
+        assert post(bad_key)[1] == {"error": "key: an Ed25519 public key, base64url"}
+        for _ in range(Strikes.LIMIT - 2):
+            assert post(b"[]")[0] == 400
+        status, answer, headers = post(b"{}")
+        assert status == 429 and "too many refused requests" in answer["error"]
+        assert headers["Retry-After"] == "3601"
+        assert post(b"{}", address="198.51.100.2")[0] == 400  # another address is answered
+        now[0] += 3600  # the first strike is an hour old
+        assert post(b"{}")[0] == 400
+    finally:
+        server.shutdown()
