@@ -356,6 +356,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **The app's notifications go only to push services on the internet.**
+  - A phone's subscription names the address to send to, so it has to be a name now, not
+    an IP address or a name without a dot.
+  - Gatekeeper looks the name up when it connects and connects only to an internet
+    address, never one on the home network, the machine itself or a VPN.
+  - It connects directly, without a proxy, and a redirect counts as a failure.
+  - Google's, Apple's and Mozilla's push services all work as before.
 - **The name service's limit sees IPv6 clients one by one.**
   - Its compose network had no IPv6, so Docker carried IPv6 connections through its own
     proxy, and every IPv6 client showed up as the same private address. 20 bad requests
