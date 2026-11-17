@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **A Content Security Policy on every page** (`csp.py`), as a second line behind escaping.
+  - Scripts run only from Gatekeeper's own files. The service worker's registration and the
+    Zones and Live pages' scripts moved from the pages into `webapp/` (`app.js`, `zones.js`,
+    `live.js`). Nothing runs from the page itself, an attribute or `eval`.
+  - Each page's `<style>` is allowed by its hash. The Zones page's colour swatches are
+    classes now, not `style` attributes.
+  - Pictures, clips, requests, the manifest and the service worker come only from
+    Gatekeeper, and forms post only to it. Only its own pages may frame it, which includes
+    Home Assistant's ingress. No `<base>`, no plugins.
+  - Checked in Chrome with the policy enforced: no violations on any page, and every
+    page's scripts run.
 - **The web page answers only to its own names**, against DNS rebinding (a website
   pointing a name of its own at Gatekeeper, to reach the page through a browser at home).
   - It answers to addresses, names only the home network or Tailscale answers for (no

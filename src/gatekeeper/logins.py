@@ -159,6 +159,7 @@ def safe_next(target: str) -> str:
 
 
 def page(error: str = "", target: str = "") -> str:
+    from gatekeeper.csp import style
     from gatekeeper.web import STYLE, app_head
 
     e = html.escape
@@ -166,7 +167,7 @@ def page(error: str = "", target: str = "") -> str:
         [
             "<!doctype html><html lang=en><head><meta charset=utf-8>",
             '<meta name=viewport content="width=device-width, initial-scale=1">',
-            f"<title>Gatekeeper</title><style>{STYLE}</style>{app_head('login')}</head><body>",
+            f"<title>Gatekeeper</title>{style(STYLE)}{app_head('login')}</head><body>",
             "<h1>Gatekeeper</h1>",
             *([f"<p class=error role=alert>{e(error)}</p>"] if error else []),
             '<form method=post action="login">',

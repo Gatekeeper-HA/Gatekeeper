@@ -18,10 +18,12 @@ Faces are biometric data:
 - nothing is cached.
 
 It's plain HTML with relative links, so it works on a phone and behind a proxy that adds
-a path prefix (Home Assistant's ingress). Only the Zones page has a script of its own (to
-draw by clicking), and works without it. Every page also registers the app's service worker
-(``app_head``): with it the pages install as an app on a phone's home screen. The Visits
-page's ``push.js`` turns the app's notifications on (``push/``, webpush.py).
+a path prefix (Home Assistant's ingress). Scripts are files in ``webapp/``, never inline,
+and every page is sent with a Content Security Policy that holds them to that (csp.py).
+Every page registers the app's service worker (``app.js``, from ``app_head``): with it the
+pages install as an app on a phone's home screen. The Zones page draws by clicking
+(``zones.js``) and works without it, the Live page plays the door (``live.js``), and the
+Visits page's ``push.js`` turns the app's notifications on (``push/``, webpush.py).
 """
 
 from __future__ import annotations
@@ -49,7 +51,7 @@ from pathlib import Path
 
 import numpy as np
 
-from gatekeeper import face_admin, logins
+from gatekeeper import csp, face_admin, logins
 from gatekeeper.faces import Gallery
 
 log = logging.getLogger(__name__)
@@ -71,6 +73,9 @@ APP_FILES = {
     "manifest.webmanifest": "application/manifest+json",
     "sw.js": "text/javascript; charset=utf-8",
     "push.js": "text/javascript; charset=utf-8",
+    "app.js": "text/javascript; charset=utf-8",
+    "live.js": "text/javascript; charset=utf-8",
+    "zones.js": "text/javascript; charset=utf-8",
     "icon-192.png": "image/png",
     "badge-96.png": "image/png",
     "icon-512.png": "image/png",
@@ -257,7 +262,7 @@ class FacesPage:
         out = [
             "<!doctype html><html lang=en><head><meta charset=utf-8>",
             '<meta name=viewport content="width=device-width, initial-scale=1">',
-            f"<title>Household faces</title><style>{STYLE}</style>{app_head('faces')}",
+            f"<title>Household faces</title>{csp.style(STYLE)}{app_head('faces')}",
             "</head><body>",
             nav("faces"),
             "<h1>Household faces</h1>",
@@ -390,8 +395,7 @@ def app_head(current: str) -> str:
         f'<link rel=apple-touch-icon href="{up}icon-192.png">'
         '<meta name=theme-color content="#fafafa" media="(prefers-color-scheme: light)">'
         '<meta name=theme-color content="#17171a" media="(prefers-color-scheme: dark)">'
-        '<script>if ("serviceWorker" in navigator) '
-        f'navigator.serviceWorker.register("{up}sw.js").catch(() => {{}});</script>'
+        f'<script src="{up}app.js" defer></script>'
     )
 
 
@@ -694,6 +698,8 @@ def handler(
             self.send_header("X-Frame-Options", "SAMEORIGIN")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "no-referrer")
+            if kind.startswith("text/html"):
+                self.send_header("Content-Security-Policy", csp.policy())
             self.end_headers()
             self.wfile.write(body)
 

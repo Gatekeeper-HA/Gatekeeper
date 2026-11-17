@@ -104,6 +104,7 @@ class SettingsPage:
     # -- the page ----------------------------------------------------------------
 
     def render(self, message: str = "", error: str = "") -> str:
+        from gatekeeper.csp import style
         from gatekeeper.web import STYLE, app_head, nav
 
         e = html.escape
@@ -111,7 +112,7 @@ class SettingsPage:
         out = [
             "<!doctype html><html lang=en><head><meta charset=utf-8>",
             '<meta name=viewport content="width=device-width, initial-scale=1">',
-            f"<title>Settings</title><style>{STYLE}{SETTINGS_STYLE}</style>{app_head('settings')}",
+            f"<title>Settings</title>{style(STYLE + SETTINGS_STYLE)}{app_head('settings')}",
             "</head><body>",
             nav("settings"),
             "<h1>Settings</h1>",

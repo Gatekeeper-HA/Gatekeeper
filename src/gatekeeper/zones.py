@@ -148,45 +148,6 @@ def format_points(polygon: list[Point] | None) -> str:
 
 COLOURS = ["#ffb300", "#00b0ff", "#76ff03", "#ff4081", "#e040fb"]
 
-# Drawing on the picture: pick a zone, click its corners in order. Without scripts the
-# outlines still show, and the points can be typed.
-SCRIPT = """
-const svg = document.getElementById('shapes');
-const inputs = [...document.querySelectorAll('input[data-zone]')];
-function pick() { return document.querySelector('input[name=draw]:checked')?.value; }
-function points(text) {
-  return text.trim().split(/[\\s;]+/).filter(Boolean).map(p => p.split(',').map(Number))
-    .filter(p => p.length === 2 && p.every(v => v >= 0 && v <= 1));
-}
-function redraw() {
-  for (const input of inputs) {
-    const shape = document.getElementById('shape-' + input.dataset.zone);
-    const text = input.value.trim() || input.placeholder;  // blank: Frigate's
-    shape.setAttribute('points', points(text).map(p => p.join(',')).join(' '));
-    shape.classList.toggle('picked', input.dataset.zone === pick());
-  }
-}
-document.getElementById('frame').addEventListener('click', e => {
-  const zone = pick(); if (!zone) return;
-  const r = e.currentTarget.getBoundingClientRect();
-  const x = ((e.clientX - r.left) / r.width).toFixed(3);
-  const y = ((e.clientY - r.top) / r.height).toFixed(3);
-  const input = inputs.find(i => i.dataset.zone === zone);
-  input.value = (input.value.trim() + ' ' + x + ',' + y).trim(); redraw();
-});
-for (const b of document.querySelectorAll('button[data-undo]')) b.addEventListener('click', () => {
-  const input = inputs.find(i => i.dataset.zone === b.dataset.undo);
-  input.value = input.value.trim().split(/\\s+/).slice(0, -1).join(' '); redraw();
-});
-for (const b of document.querySelectorAll('button[data-clear]')) b.addEventListener('click', () => {
-  inputs.find(i => i.dataset.zone === b.dataset.clear).value = ''; redraw();
-});
-for (const el of [...inputs, ...document.querySelectorAll('input[name=draw]')])
-  el.addEventListener('input', redraw);
-for (const b of document.querySelectorAll('.drawonly')) b.hidden = false;
-redraw();
-"""
-
 ZONE_STYLE = """
 .frame { position: relative; max-width: 640px; cursor: crosshair; }
 .frame img { width: 100%; display: block; border-radius: 6px; }
@@ -197,7 +158,7 @@ ZONE_STYLE = """
   margin: 8px 0; } .zone input[type=text] { width: 100%; box-sizing: border-box; }
 .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
 @media (prefers-color-scheme: dark) { .zone { background: #222226; border-color: #3a3a40; } }
-"""
+""" + "".join(f".swatch.c{n} {{ background: {c}; }}\n" for n, c in enumerate(COLOURS))
 
 
 class ZonesPage:
@@ -241,13 +202,14 @@ class ZonesPage:
         return f"Saved {len(changes)} zone(s)." if changes else "Nothing changed."
 
     def render(self, message: str = "", error: str = "") -> str:
+        from gatekeeper.csp import style
         from gatekeeper.web import STYLE, app_head, nav
 
         e = html.escape
         out = [
             "<!doctype html><html lang=en><head><meta charset=utf-8>",
             '<meta name=viewport content="width=device-width, initial-scale=1">',
-            f"<title>Zones</title><style>{STYLE}{ZONE_STYLE}</style>{app_head('zones')}",
+            f"<title>Zones</title>{style(STYLE + ZONE_STYLE)}{app_head('zones')}",
             "</head><body>",
             nav("zones"),
             "<h1>Zones</h1>",
@@ -284,11 +246,10 @@ class ZonesPage:
                 "frigate": "Frigate's (blank: keep using it)",
                 None: "not known yet",
             }[zone.source]
-            colour = COLOURS[n % len(COLOURS)]
             out.append(
                 f'<div class=zone><label><input type=radio name=draw value="{e(name)}"'
-                f"{' checked' if n == 0 else ''}> <span class=swatch "
-                f'style="background:{colour}"></span> <strong>{e(name)}</strong></label>: '
+                f'{" checked" if n == 0 else ""}> <span class="swatch c{n % len(COLOURS)}">'
+                f"</span> <strong>{e(name)}</strong></label>: "
                 f"{e(purpose)}. <span class=note>Now {source}.</span><br>"
                 f'<input type=text name="zone:{e(name)}" data-zone="{e(name)}" '
                 f'value="{format_points(own)}" placeholder="{format_points(zone.polygon)}" '
@@ -300,6 +261,6 @@ class ZonesPage:
             )
         out.append(
             "<div class=savebar><button type=submit>Save zones</button></div></form>"
-            f"<script>{SCRIPT}</script></body></html>"
+            '<script src="../zones.js"></script></body></html>'
         )
         return "\n".join(out)
