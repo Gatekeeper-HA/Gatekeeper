@@ -212,6 +212,10 @@ class Settings(BaseSettings):
     # The web page's address as the phone reaches it: tapping a notification opens its
     # Live page. Default: http(s)://<the first of web_tls_names>:<web_port>/, when set.
     web_public_url: str = ""
+    # More names the web page answers to, comma-separated (web.Hosts): a domain of your own
+    # behind a reverse proxy, say. Addresses, home network names (gatekeeper.local), Tailscale
+    # names, web_tls_names, web_public_url's and the hub name need no listing.
+    web_hosts: str = ""
     # The hub's own name, <id>.gatekeeperhome.net, with a Let's Encrypt certificate
     # (hubname.py): on with a claim code from Gatekeeper's name service, and WEB_TLS.
     # hub_name_address: the address on the home network it points at (default: the first

@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **The web page answers only to its own names**, against DNS rebinding (a website
+  pointing a name of its own at Gatekeeper, to reach the page through a browser at home).
+  - It answers to addresses, names only the home network or Tailscale answers for (no
+    dot, `.local`, `.lan`, `.home`, `.home.arpa`, `.internal`, `.ts.net`), the names in
+    `WEB_TLS_NAMES` and `WEB_PUBLIC_URL`, the hub name, and the new `WEB_HOSTS`.
+  - As a Home Assistant add-on (`SUPERVISOR_TOKEN`), everything from Home Assistant's
+    ingress proxy, which passes on whatever name Home Assistant was reached by.
+  - Other names get a 403 that says to add the name to `WEB_HOSTS`, and a warning in the
+    log at most once a minute. Passwords sent through them aren't checked or counted.
+  - README, *The web page*.
 - **Wrong passwords are limited** on the web page (`logins.Guard`), on the login page and
   HTTP Basic alike. HTTP Basic had no limit at all, and the login page's one-second wait
   didn't slow guesses sent in parallel. Five wrong ones in 15 minutes from one address, or

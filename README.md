@@ -120,6 +120,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `WEB_TLS` | `false` | The web page over HTTPS with its own self-signed certificate, for [talking back](#live) from the Live page. The compose stack reads it from `.env` |
 | `WEB_PUBLIC_URL` | `http(s)://<WEB_TLS_NAMES' first>:<WEB_PORT>/` | The web page's address as your phone reaches it: tapping a notification opens its [Live page](#live). The compose stack's `WEB_TLS_NAMES` (`SERVER_IP`) makes the default |
 | `WEB_TLS_NAMES` | | The addresses the page is reached at, comma-separated, named in the certificate. The compose stack sets `SERVER_IP` |
+| `WEB_HOSTS` | | More names the page answers to, comma-separated, such as a domain of your own behind a reverse proxy ([The web page](#the-web-page)). The compose stack reads it from `.env` |
 | `HUB_NAME_CLAIM` | | A claim code from Gatekeeper: turns on the [hub's own name](#hub-name), with a Let's Encrypt certificate. Needs `WEB_TLS`. The compose stack reads it from `.env` |
 | `HUB_NAME_ADDRESS` | the first private IPv4 of `WEB_TLS_NAMES` | The address on the home network the name points at |
 | `HUB_NAME_API` | `https://api.gatekeeperhome.net` | The name service ([cloud/](cloud/README.md)); run your own with your own domain |
@@ -655,6 +656,21 @@ request instead (HTTP Basic, any user name).
   address.
 
 Use a password nobody would guess: a few unrelated words is plenty.
+
+**The page answers only to its own names.** Otherwise a website could point a name of its
+own at Gatekeeper's address and use a browser at home to reach the page (DNS rebinding).
+It answers to:
+- addresses, like `SERVER_IP`;
+- names only your home network or Tailscale answers for: without a dot (`gatekeeper`), or
+  ending in `.local`, `.lan`, `.home`, `.home.arpa`, `.internal` or `.ts.net`;
+- the names in `WEB_TLS_NAMES` and `WEB_PUBLIC_URL`, and the [hub's own name](#hub-name);
+- as the Home Assistant add-on, everything through Home Assistant (Nabu Casa's address,
+  or Home Assistant's own domain), which has already logged you in.
+
+Any other name gets *Gatekeeper doesn't answer to ...*, and the log says which name.
+**With a domain of your own** (a reverse proxy in front of Gatekeeper, say), put it in
+`WEB_PUBLIC_URL`, so notifications open it too, or add it to `WEB_HOSTS` in `.env`:
+`WEB_HOSTS=gatekeeper.example.com`.
 
 ### Settings
 

@@ -31,6 +31,7 @@ import datetime
 import hmac
 import html
 import http.cookies
+import ipaddress
 import json
 import logging
 import math
@@ -403,6 +404,85 @@ def _chosen(values: list[str]) -> set[tuple[str, int]]:
     return out
 
 
+# Home Assistant's ingress proxy: an add-on's page is reached only through it, from here.
+HA_INGRESS = "172.30.32.2"
+# Names only the home network (or Tailscale's MagicDNS) answers for, so a site elsewhere
+# can't point them here.
+HOME_NAMES = (
+    ".local",
+    ".lan",
+    ".home",
+    ".home.arpa",
+    ".internal",
+    ".localdomain",
+    ".localhost",
+    ".ts.net",
+)
+
+
+class Hosts:
+    """The names the page answers to, against DNS rebinding: a site elsewhere whose name
+    is made to point at Gatekeeper's address can't use a browser at home to reach it.
+
+    Always: IP addresses, and names only the home network or Tailscale answers for
+    (``HOME_NAMES``, or no dot at all). Also ``names``: the server's own (``WEB_TLS_NAMES``,
+    ``WEB_PUBLIC_URL``, ``WEB_HOSTS``), and the hub name once its certificate is served
+    (``add``). With ``ingress`` (a Home Assistant add-on), everything from Home Assistant's
+    ingress proxy: it asks with Home Assistant's own name, whatever that is, and Home
+    Assistant has logged the user in."""
+
+    def __init__(self, names=(), ingress: bool = False) -> None:
+        self.names = frozenset(n for n in map(self._name, names) if n)
+        self.ingress = ingress
+        self._refused_at = float("-inf")
+
+    @staticmethod
+    def _name(given: str) -> str:
+        """The name in a Host header or setting, without its port: lower case, no final
+        dot; "" if there's none."""
+        given = given.strip()
+        if "://" in given:
+            given = given.split("://", 1)[1]
+        try:
+            name = urllib.parse.urlsplit("//" + given).hostname or ""
+        except ValueError:
+            return ""
+        return name.split("%")[0].rstrip(".")
+
+    def add(self, name: str) -> None:
+        self.names = self.names | {self._name(name)}
+
+    def allows(self, host: str, peer: str) -> bool:
+        if self.ingress and peer == HA_INGRESS:
+            return True
+        if not host:
+            return True  # not a browser: they all send it
+        name = self._name(host)
+        if not name:
+            return False
+        try:
+            ipaddress.ip_address(name)
+            return True
+        except ValueError:
+            pass
+        if not re.fullmatch(r"[a-z0-9_-]+(\.[a-z0-9_-]+)*", name):
+            return False
+        return "." not in name or name.endswith(HOME_NAMES) or name in self.names
+
+    def refused(self, host: str) -> str:
+        """The name asked for, safe to show; the log says so at most once a minute."""
+        shown = re.sub(r"[^\w.:\[\]-]", "", host)[:100] or "(no name)"
+        now = time.monotonic()
+        if now - self._refused_at >= 60:
+            self._refused_at = now
+            log.warning(
+                "web: refused a request for %s; if that's how you reach Gatekeeper, add it "
+                "to WEB_HOSTS",
+                shown,
+            )
+        return shown
+
+
 class _Server(ThreadingHTTPServer):
     """One thread per connection, at most ``MAX_CONNECTIONS`` at once: past that, a new
     one is closed straight away, so clients that hold connections open (slowly, or many
@@ -458,16 +538,19 @@ def handler(
     replies: Callable[[str], None] | None = None,
     settings_page=None,
     guard: logins.Guard | None = None,
+    hosts: Hosts | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     """``visits``: the Visits page (visits.VisitsPage) at ``/``, with the faces at
     ``faces/``; without it the faces are at ``/``. ``zones``: the Zones page
     (zones.ZonesPage) at ``zones/``. ``push``: the app's notifications, at ``push/``.
     ``replies``: their quick reply buttons' text (quick_reply.QuickReplies.from_button).
     ``settings_page``: the settings page (settings_page.SettingsPage) at ``settings/``.
-    ``guard``: the limit on wrong passwords (logins.Guard)."""
+    ``guard``: the limit on wrong passwords (logins.Guard). ``hosts``: the names the
+    page answers to (Hosts)."""
     expected = password.encode()
     sessions = logged_in or logins.Logins(None)
     guard = guard or logins.Guard()
+    hosts = hosts or Hosts()
 
     class Handler(BaseHTTPRequestHandler):
         # Seconds a connection may stay silent, with or without HTTPS.
@@ -485,6 +568,18 @@ def handler(
                 else:
                     self._to_https = True
             super().setup()
+
+        def _wrong_name(self) -> bool:
+            """Asked for by a name the page doesn't answer to (Hosts): refused."""
+            given = self.headers.get("Host", "")
+            if hosts.allows(given, self.client_address[0]):
+                return False
+            body = (
+                f"Gatekeeper doesn't answer to {hosts.refused(given)}. If that's how you "
+                "reach it, add it to WEB_HOSTS (README, The web page).\n"
+            )
+            self._send(403, body.encode(), "text/plain; charset=utf-8")
+            return True
 
         def _redirected_to_https(self) -> bool:
             if not self._to_https:
@@ -687,7 +782,7 @@ def handler(
             self._send(status, body, "text/html; charset=utf-8")
 
         def do_GET(self) -> None:
-            if self._redirected_to_https():
+            if self._wrong_name() or self._redirected_to_https():
                 return
             url_path = urllib.parse.urlsplit(self.path).path
             if url_path.endswith("/login"):
@@ -766,6 +861,10 @@ def handler(
             if not 0 <= length <= MAX_BODY:
                 # A negative length would read until the connection closes.
                 self.send_error(413 if length > MAX_BODY else 400)
+                return
+            if not hosts.allows(self.headers.get("Host", ""), self.client_address[0]):
+                self.rfile.read(length)  # so the client reads the answer, not a reset
+                self._wrong_name()
                 return
             if urllib.parse.urlsplit(self.path).path.endswith("/login"):
                 self._login(length)
@@ -866,10 +965,12 @@ def serve(
     replies: Callable[[str], None] | None = None,
     settings_page=None,
     guard: logins.Guard | None = None,
+    hosts: Hosts | None = None,
 ) -> ThreadingHTTPServer:
     """Serve the pages on ``port`` in a daemon thread; over HTTPS with ``tls``. ``push``:
     the app's notifications (webpush.WebPush), switched on from the Visits page, and
-    ``replies``: their quick reply buttons. ``settings_page``: at ``settings/``."""
+    ``replies``: their quick reply buttons. ``settings_page``: at ``settings/``.
+    ``hosts``: the names it answers to (Hosts; addresses and home names only without)."""
     for other in (visits, zones, live, settings_page):
         if other is not None:
             other.token = page.token  # one token proves a form came from any page
@@ -878,7 +979,17 @@ def serve(
     server = _Server(
         ("0.0.0.0", port),
         handler(
-            page, password, visits, zones, live, logged_in, push, replies, settings_page, guard
+            page,
+            password,
+            visits,
+            zones,
+            live,
+            logged_in,
+            push,
+            replies,
+            settings_page,
+            guard,
+            hosts,
         ),
     )
     server.ssl_context = tls
