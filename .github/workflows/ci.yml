@@ -42,3 +42,14 @@ jobs:
             -e 's/^SERVER_IPV6=$/SERVER_IPV6=2001:db8::1/' -e 's/^PDNS_API_KEY=$/PDNS_API_KEY=ci/' .env
           docker compose config --quiet
           docker build --quiet .
+      - name: Validate and build cloud/relay (the relay's server), and check it end to end
+        working-directory: cloud/relay
+        run: |
+          cp .env.example .env
+          sed -i -E -e 's/^ZONE=$/ZONE=hubs.example/' -e 's/^RELAY_IPV4=$/RELAY_IPV4=192.0.2.2/' \
+            -e 's/^RELAY_IPV6=$/RELAY_IPV6=2001:db8::2/' \
+            -e 's/^RELAY_FERNET_KEYS=$/RELAY_FERNET_KEYS=ci/' -e 's/^TURN_SECRET=$/TURN_SECRET=ci/' .env
+          docker compose config --quiet
+          docker build --quiet -t relay .
+          # SniTun's own relay and client, with the name service's passes (relay/check.py).
+          docker run --rm -v "$PWD/..:/cloud:ro" -e PYTHONPATH=/cloud relay python -m relay.check

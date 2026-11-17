@@ -6,6 +6,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **The relay's server** (`cloud/relay`): SniTun 0.47 on port 443, and coturn 4.18 for Live.
+  - It closes tunnels whose pass has run out (SniTun checks passes only when a tunnel
+    connects).
+  - SniTun logs only warnings, and coturn nothing: no names or addresses are kept.
+  - coturn relays only to internet addresses, never to private, special or its own. This was
+    checked live with coturn's own test client.
+  - CI builds the image and runs `relay/check.py` in it, end to end with SniTun's own relay
+    and client:
+    - a pass opens a tunnel, and a phone reaches the hub through it by name;
+    - other names, a pass without its key, a forged pass and an expired pass are refused;
+    - the sweep closes a tunnel once its pass has run out.
+- **The name service gives out passes for the relay** (step 2 of remote access, Cloud Plus).
+  - **Cloud Plus** is a date per hub, set with `python -m hubnames plus <id> <days>` until
+    there's billing.
+  - **`POST /v1/hubs/<id>/tunnel`** gives a hub with Cloud Plus a one-hour pass for the relay
+    (SniTun). It's a Fernet token naming only the hub's own name, with a new AES key each
+    time, AES-GCM-SIV and protocol 2. It's tested end to end with SniTun 0.47's own relay
+    and client.
+  - **`POST /v1/hubs/<id>/turn`** gives coturn REST credentials for Live (4 hours), made with
+    a secret that stays on our servers.
+  - **`zone`** adds `relay.<zone>`. The settings are `RELAY_IPV4`, `RELAY_IPV6`,
+    `RELAY_FERNET_KEYS` and `TURN_SECRET`.
 - **A Content Security Policy on every page** (`csp.py`), as a second line behind escaping.
   - Scripts run only from Gatekeeper's own files. The service worker's registration and the
     Zones and Live pages' scripts moved from the pages into `webapp/` (`app.js`, `zones.js`,

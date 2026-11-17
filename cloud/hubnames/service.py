@@ -6,6 +6,15 @@ Every request after registration is signed with the hub's Ed25519 key:
 way with the key it registers, which proves the hub holds it. A signed request is good for
 five minutes either side of the service's clock; each one sets values outright, so replaying
 it within that window changes nothing.
+
+With Cloud Plus (store.py), a hub also gets passes for the relay (``Relay``):
+
+- **a tunnel pass** for SniTun, the relay: a Fernet token only the relay can read, naming the
+  hub's own name and holding a new AES key, good for ``PASS_SECONDS``. The hub asks for a new
+  one every time it connects: the cipher's nonces start again with each connection, so a key
+  is never used twice. The relay closes a tunnel once its pass has run out.
+- **TURN credentials** for Live (coturn's REST format), good for ``TURN_SECONDS``. The secret
+  stays on our servers, so only we can make them.
 """
 
 from __future__ import annotations
@@ -13,14 +22,19 @@ from __future__ import annotations
 import base64
 import collections
 import hashlib
+import hmac
 import ipaddress
+import json
 import logging
 import re
+import secrets
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from cryptography.exceptions import InvalidSignature
+from cryptography.fernet import Fernet, MultiFernet
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from hubnames.powerdns import PowerDNS
@@ -39,15 +53,40 @@ CHALLENGE = re.compile(r"^[A-Za-z0-9_-]{43}$")  # base64url of a SHA-256 (RFC 85
 HOME_NETWORKS = tuple(
     ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
 )
+PASS_SECONDS = 3600
+TURN_SECONDS = 4 * 3600  # a Live view that's still open needs its TURN allocation refreshed
+# SniTun's cipher and protocol: AES-GCM-SIV (authenticated, and safe even if a nonce came
+# round twice), and protocol 2 (the phone's address encrypted inside the tunnel, IPv6 too).
+CIPHER = "aes-gcm-siv"
+PROTOCOL = 2
+TURN_PORT = 3478
 
 
-def zone_records(zone: str, ipv4: str, ipv6: str = "") -> list[tuple[str, str, int, list[str]]]:
-    """The zone's own records. Its nameservers and the API are this server. Only Let's
-    Encrypt may issue certificates in it (a hub's own CAA record narrows that to its
-    account), and it sends no email, so nobody can send any in its name."""
+@dataclass(frozen=True)
+class Relay:
+    """The relay this service gives passes for: its name, the Fernet keys it shares with
+    SniTun (the first makes new passes; more let a key be changed without cutting tunnels),
+    and coturn's secret."""
+
+    name: str
+    keys: tuple[str, ...]
+    turn_secret: str
+    port: int = 443
+
+
+def zone_records(
+    zone: str, ipv4: str, ipv6: str = "", relay_ipv4: str = "", relay_ipv6: str = ""
+) -> list[tuple[str, str, int, list[str]]]:
+    """The zone's own records. Its nameservers and the API are this server, ``relay`` the
+    relay's (when it has one). Only Let's Encrypt may issue certificates in it (a hub's own
+    CAA record narrows that to its account), and it sends no email, so nobody can send any in
+    its name."""
     ipaddress.IPv4Address(ipv4)
-    if ipv6:
-        ipaddress.IPv6Address(ipv6)
+    if relay_ipv4:
+        ipaddress.IPv4Address(relay_ipv4)
+    for address in (ipv6, relay_ipv6):
+        if address:
+            ipaddress.IPv6Address(address)
     z = zone.rstrip(".") + "."
     records = [
         ("@", "SOA", 3600, [f"ns1.{z} hostmaster.{z} 1 10800 3600 604800 60"]),
@@ -61,6 +100,10 @@ def zone_records(zone: str, ipv4: str, ipv6: str = "") -> list[tuple[str, str, i
         records.append((name, "A", 3600, [ipv4]))
         if ipv6:
             records.append((name, "AAAA", 3600, [ipv6]))
+    if relay_ipv4:
+        records.append(("relay", "A", 3600, [relay_ipv4]))
+    if relay_ipv6:
+        records.append(("relay", "AAAA", 3600, [relay_ipv6]))
     return records
 
 
@@ -100,10 +143,17 @@ def verify(key: bytes, header: str, method: str, path: str, body: bytes, now: fl
 
 
 class NameService:
-    def __init__(self, store: Store, dns: PowerDNS, clock: Callable[[], float] = time.time) -> None:
+    def __init__(
+        self,
+        store: Store,
+        dns: PowerDNS,
+        clock: Callable[[], float] = time.time,
+        relay: Relay | None = None,
+    ) -> None:
         self.store = store
         self.dns = dns
         self.zone = dns.zone.rstrip(".")
+        self.relay = relay
         self._clock = clock
         self._writes: dict[str, collections.deque] = {}
         self._writes_lock = threading.Lock()
@@ -161,6 +211,59 @@ class NameService:
             raise ValueError("account: a Let's Encrypt account URL")
         issue = f'0 issue "letsencrypt.org; accounturi={account}; validationmethods=dns-01"'
         self.dns.change([(hub_id, "CAA", CAA_TTL, [issue, '0 issuewild ";"'])])
+
+    def _plus(self, hub_id: str) -> Relay:
+        """The relay, if this hub has Cloud Plus now; else LookupError (no relay here) or
+        Refused."""
+        if self.relay is None:
+            raise LookupError("this service has no relay")
+        until = self.store.plus_until(hub_id)
+        if until is None or until <= self._clock():
+            raise Refused("this hub has no Cloud Plus")
+        return self.relay
+
+    def tunnel(self, hub_id: str) -> dict:
+        """A pass for the relay (SniTun): a token only it can read, for the hub's own name,
+        and the new AES key the hub proves it holds. Asked for each time the hub connects."""
+        relay = self._plus(hub_id)
+        now = self._clock()
+        until = int(now + PASS_SECONDS)
+        aes_key, aes_iv = secrets.token_bytes(32), secrets.token_bytes(16)
+        content = {
+            "valid": until,
+            "hostname": f"{hub_id}.{self.zone}",
+            "aes_key": aes_key.hex(),
+            "aes_iv": aes_iv.hex(),
+            "protocol_version": PROTOCOL,
+            "cipher": CIPHER,
+        }
+        fernet = MultiFernet([Fernet(k) for k in relay.keys])
+        token = fernet.encrypt_at_time(json.dumps(content).encode(), int(now))
+        return {
+            "relay": relay.name,
+            "port": relay.port,
+            "token": token.decode(),
+            "aes_key": aes_key.hex(),
+            "aes_iv": aes_iv.hex(),
+            "protocol_version": PROTOCOL,
+            "cipher": CIPHER,
+            "until": until,
+        }
+
+    def turn(self, hub_id: str) -> dict:
+        """TURN credentials for the hub's Live page, in coturn's REST format: the user
+        name is ``<until>:<hub>``, the password its HMAC-SHA1 with the secret."""
+        relay = self._plus(hub_id)
+        until = int(self._clock() + TURN_SECONDS)
+        username = f"{until}:{hub_id}"
+        digest = hmac.new(relay.turn_secret.encode(), username.encode(), hashlib.sha1).digest()
+        where = f"{relay.name}:{TURN_PORT}"
+        return {
+            "urls": [f"stun:{where}", f"turn:{where}?transport=udp", f"turn:{where}?transport=tcp"],
+            "username": username,
+            "credential": base64.b64encode(digest).decode(),
+            "until": until,
+        }
 
     def remove(self, hub_id: str) -> None:
         self.dns.change(

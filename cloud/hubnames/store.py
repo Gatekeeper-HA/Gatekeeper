@@ -3,6 +3,10 @@
 A claim code lets one hub register. We issue them (printed with a Hub, or asked for by a
 do-it-yourself user), so the zone can't be used as a free name service. Only each code's
 SHA-256 is kept.
+
+Cloud Plus (the relay, for the app away from home) is a date per hub: until then, the hub
+gets the relay's passes. We set it by hand until there's billing (``python -m hubnames
+plus``); billing will set the same date.
 """
 
 from __future__ import annotations
@@ -54,6 +58,8 @@ class Store:
             CREATE TABLE IF NOT EXISTS claims (
                 hash TEXT PRIMARY KEY, created REAL NOT NULL, hub TEXT);
             CREATE TABLE IF NOT EXISTS challenges (
+                hub TEXT PRIMARY KEY, until REAL NOT NULL);
+            CREATE TABLE IF NOT EXISTS plus (
                 hub TEXT PRIMARY KEY, until REAL NOT NULL);
             """
         )
@@ -126,6 +132,7 @@ class Store:
         with self._lock:
             self._db.execute("DELETE FROM hubs WHERE id = ?", (hub_id,))
             self._db.execute("DELETE FROM challenges WHERE hub = ?", (hub_id,))
+            self._db.execute("DELETE FROM plus WHERE hub = ?", (hub_id,))
 
     def challenge_until(self, hub_id: str, until: float | None) -> None:
         """When the hub's challenge record is to be removed (None: it's gone)."""
@@ -137,6 +144,26 @@ class Store:
                     "INSERT OR REPLACE INTO challenges (hub, until) VALUES (?, ?)",
                     (hub_id, until),
                 )
+
+    def plus_until(self, hub_id: str) -> float | None:
+        """When the hub's Cloud Plus ends (None: it has none)."""
+        with self._lock:
+            row = self._db.execute("SELECT until FROM plus WHERE hub = ?", (hub_id,)).fetchone()
+        return row[0] if row else None
+
+    def set_plus(self, hub_id: str, until: float | None) -> None:
+        """Cloud Plus for the hub until ``until`` (None: none)."""
+        with self._lock:
+            if until is None:
+                self._db.execute("DELETE FROM plus WHERE hub = ?", (hub_id,))
+            else:
+                self._db.execute(
+                    "INSERT OR REPLACE INTO plus (hub, until) VALUES (?, ?)", (hub_id, until)
+                )
+
+    def plus_hubs(self) -> list[tuple[str, float]]:
+        with self._lock:
+            return self._db.execute("SELECT hub, until FROM plus ORDER BY until").fetchall()
 
     def challenges_due(self) -> list[str]:
         with self._lock:
