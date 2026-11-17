@@ -52,7 +52,11 @@ the service's clock.
 - 502 when PowerDNS can't be reached.
 
 The address is the last one in `X-Forwarded-For`, which Caddy sets. Only Caddy can reach
-the API, so it can't be forged.
+the API, so it can't be forged. Only internet addresses are counted.
+
+`compose.yml` gives its network IPv6, so Docker forwards IPv6 clients to Caddy directly, as
+it does IPv4 ones. Without that, Docker's proxy would carry them, and every IPv6 client would
+show up as one private address.
 
 ### Running it
 

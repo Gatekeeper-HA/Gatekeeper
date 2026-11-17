@@ -11,11 +11,13 @@ Every request but the health check is signed (service.py). Errors are ``{"error"
 
 An address whose requests were refused or malformed ``Strikes.LIMIT`` times in an hour gets
 429 until the oldest is an hour old. Behind Caddy, the address is the one it puts last in
-``X-Forwarded-For``: the API itself isn't published, so only Caddy reaches it.
+``X-Forwarded-For``: the API itself isn't published, so only Caddy reaches it. Only internet
+addresses count: a private one (Docker's proxy) would stand for many clients at once.
 """
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import re
@@ -33,8 +35,30 @@ MAX_BODY = 4096
 HUB_PATH = re.compile(r"^/v1/hubs/([a-z2-7]{10})(?:/(address|challenge|caa))?$")
 
 
+def _counted(address: str) -> bool:
+    """Only an internet address is counted. A private one stands for everyone behind it:
+    Docker's own proxy (IPv6 clients, if the network has no IPv6), or a local test."""
+    try:
+        return ipaddress.ip_address(address).is_global
+    except ValueError:
+        return False
+
+
+def client(forwarded: str, peer: str) -> str:
+    """The client's address: the last in ``X-Forwarded-For`` (Caddy's), else the peer's.
+    An IPv4 address written as IPv6 (``::ffff:a.b.c.d``) is the IPv4 one."""
+    address = forwarded.split(",")[-1].strip() or peer
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return address
+    if ip.version == 6 and ip.ipv4_mapped:
+        return str(ip.ipv4_mapped)
+    return str(ip)
+
+
 class Strikes:
-    """Requests refused or malformed (4xx), per address, over the last hour."""
+    """Requests refused or malformed (4xx), per internet address, over the last hour."""
 
     LIMIT = 20
     WINDOW = 3600.0
@@ -46,6 +70,8 @@ class Strikes:
 
     def wait(self, address: str) -> float:
         """Seconds until ``address`` is answered again; 0: now."""
+        if not _counted(address):
+            return 0.0
         with self._lock:
             now = self._clock()
             times = [t for t in self._seen.get(address, []) if t > now - self.WINDOW]
@@ -54,6 +80,8 @@ class Strikes:
             return times[-self.LIMIT] + self.WINDOW - now
 
     def add(self, address: str) -> None:
+        if not _counted(address):
+            return
         with self._lock:
             now = self._clock()
             if len(self._seen) > 10_000:  # forget addresses quiet for an hour
@@ -85,6 +113,14 @@ def serve(
                 return False
             wait = strikes.wait(self._address())
             if wait > 0:
+                # Read the body first: closing with it unread resets the connection, and
+                # the client (or Caddy) would see that instead of the 429.
+                try:
+                    length = int(self.headers.get("Content-Length") or 0)
+                except ValueError:
+                    length = 0
+                if 0 < length <= MAX_BODY:
+                    self.rfile.read(length)
                 self._send(
                     429,
                     {"error": "too many refused requests from this address; try again later"},
@@ -94,8 +130,7 @@ def serve(
             return True
 
         def _address(self) -> str:
-            forwarded = self.headers.get("X-Forwarded-For", "")
-            return forwarded.split(",")[-1].strip() or self.client_address[0]
+            return client(self.headers.get("X-Forwarded-For", ""), self.client_address[0])
 
         def do_GET(self):
             if self.path == "/v1/health":
