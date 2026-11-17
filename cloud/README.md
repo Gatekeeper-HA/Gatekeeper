@@ -115,7 +115,17 @@ The name service decides who may use it:
   direct path does. They're coturn's REST format, last 4 hours, and are made with a secret
   that never leaves our servers.
 
-The relay itself runs on a server of its own, set up separately.
+The relay itself runs on a server of its own ([4. The relay](#4-the-relay-optional)), with
+two parts:
+- **SniTun's server** on port 443 (`relay/`). It takes the hubs' tunnels and the phones'
+  connections on the same port, telling them apart by their first bytes. It adds one thing to
+  SniTun: every minute it closes tunnels whose pass has run out, since SniTun checks a pass
+  only when its tunnel connects. It keeps no logs of names or addresses, just a count of open
+  tunnels.
+- **coturn**, for TURN, on port 3478 with media on 49152–49999. It relays only to internet
+  addresses: never to private or special ones (`turnserver.conf`), nor to the server's own.
+  So it can't be used to reach a network, or the cloud provider's metadata service. It keeps
+  no session logs.
 
 ## Deploying
 
@@ -206,6 +216,35 @@ curl https://api.<zone>/v1/health            # {"ok": true}
 
 Caddy gets the API's certificate by itself once the name resolves. Its attempts before then
 fail, and it backs off; `docker compose restart caddy` makes it try again at once.
+
+### 4. The relay (optional)
+
+On a second small server (Ubuntu 24.04, a fixed IPv4 and IPv6), set up as in step 1. Then:
+
+1. **The firewall:** the relay needs no DNS and no plain HTTP, but it does need TURN.
+   ```sh
+   sudo ufw delete allow 53 && sudo ufw delete allow 80/tcp
+   sudo ufw allow 3478 && sudo ufw allow 49152:49999/udp
+   ```
+2. **The secrets,** made on the name service's server, go in both servers' `.env`:
+   - `RELAY_FERNET_KEYS`, made with
+     `python3 -c 'import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())'`;
+   - `TURN_SECRET`, made with `openssl rand -hex 32`.
+3. **The relay**, as the admin user:
+   ```sh
+   git clone https://github.com/Gatekeeper-HA/Gatekeeper && cd Gatekeeper/cloud/relay
+   cp .env.example .env && chmod 600 .env    # ZONE, the relay's addresses, the two secrets
+   docker compose up -d --build
+   ```
+4. **The name service:** add the relay's addresses and the two secrets to its `.env`, then
+   `docker compose up -d` and `docker compose exec hubnames python -m hubnames zone`
+   (`relay.<zone>`).
+5. **A hub:** `python -m hubnames plus <id> 90`.
+
+Before a new SniTun version: `docker compose build` with it, then run
+`docker run --rm -v "$PWD/..:/cloud:ro" -e PYTHONPATH=/cloud relay-snitun python -m
+relay.check`. The sweep reads SniTun's own tunnel list, so this checks that it still does
+(CI runs the same check).
 
 ### Running it
 
