@@ -13,15 +13,23 @@ A message holds at most 4 KB, so the visitor's snapshot isn't in it: the phone f
 from ``push/image/<id>.jpg``, an unguessable address kept in memory for as long as the
 notification is (``TTL``), and served without logging in (the phone's notification
 fetches it without the app's login).
+
+The phone's address is the one thing someone logged in chooses for Gatekeeper to connect
+to, so it has to be a push service on the internet: a name, never an address, and
+connected to only at an internet address (looked up when connecting, so a name can't
+lead to the home network), directly, without following redirects.
 """
 
 from __future__ import annotations
 
 import base64
+import http.client
+import ipaddress
 import json
 import logging
 import os
 import secrets
+import socket
 import threading
 import time
 import urllib.error
@@ -52,6 +60,67 @@ TEST = {
 
 class Gone(Exception):
     """The phone's subscription has ended (the app uninstalled, notifications turned off)."""
+
+
+def _on_the_internet(address: str) -> bool:
+    """An address on the internet: not the home network, this machine, a VPN's
+    (Tailscale's 100.64/10) or any other private or special one."""
+    try:
+        ip = ipaddress.ip_address(address.split("%")[0])
+    except ValueError:
+        return False
+    ip = getattr(ip, "ipv4_mapped", None) or ip
+    return ip.is_global and not ip.is_multicast
+
+
+def _a_name(host: str | None) -> bool:
+    """Push services are reached by name: an address, or a name without a dot (one on
+    the home network), isn't one."""
+    if not host or "." not in host.strip("."):
+        return False
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return True
+    return False
+
+
+def _connect(address: tuple[str, int], timeout, source_address=None) -> socket.socket:
+    """``socket.create_connection``, but only to an internet address. The name is looked
+    up once, here, and the connection made to what it gave, so a name that answers one
+    thing for a check and another for the connection can't lead anywhere else."""
+    host, port = address
+    error = OSError(f"{host} has no address on the internet")
+    for *_, where in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM):
+        if _on_the_internet(where[0]):
+            try:
+                return socket.create_connection(where[:2], timeout, source_address)
+            except OSError as e:
+                error = e
+    raise error
+
+
+class _Connection(http.client.HTTPSConnection):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._create_connection = _connect
+
+
+class _ToTheInternet(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_Connection, req, context=self._context)
+
+
+class _NoRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None  # the 3xx is an error (push services don't redirect)
+
+
+# How the phones are reached: HTTPS to an internet address only, directly (a proxy would
+# be on the home network), and a redirect is a failure (it could lead to plain HTTP).
+_OPENER = urllib.request.build_opener(
+    urllib.request.ProxyHandler({}), _ToTheInternet(), _NoRedirects()
+)
 
 
 def b64(data: bytes) -> str:
@@ -145,7 +214,7 @@ def phone(subscription) -> dict:
         p256dh, auth = subscription["keys"]["p256dh"], subscription["keys"]["auth"]
         url = urllib.parse.urlsplit(endpoint)
         ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), unb64(p256dh))
-        ok = url.scheme == "https" and url.netloc and len(endpoint) <= 1024
+        ok = url.scheme == "https" and _a_name(url.hostname) and len(endpoint) <= 1024
         ok = ok and len(unb64(auth)) == 16
     except (KeyError, TypeError, ValueError, AttributeError):
         ok = False
@@ -189,7 +258,8 @@ def payload(notification, image: str = "") -> bytes:
 
 class WebPush:
     """The phones that turned the app's notifications on, and sending to them: a
-    notify.py backend. ``opener`` is urllib's ``urlopen`` (tests replace it)."""
+    notify.py backend. ``opener`` sends a request, as urllib's ``urlopen`` does (tests
+    replace it); by default, only to the internet."""
 
     name = "web push"
 
@@ -198,14 +268,14 @@ class WebPush:
         folder: Path,
         clock: Callable[[], float] = time.time,
         timeout: float = 10.0,
-        opener: Callable = urllib.request.urlopen,
+        opener: Callable | None = None,
     ) -> None:
         self.file = folder / "web-push.json"
         self.key = server_key(folder / "web-push-key.pem")
         self.public_key = b64(_raw(self.key.public_key()))  # for the page's switch
         self._clock = clock
         self._timeout = timeout
-        self._open = opener
+        self._open = opener or _OPENER.open
         self._lock = threading.Lock()
         self._phones = self._load()
         self._images: dict[str, tuple[float, bytes]] = {}  # id -> (until, the JPEG)
