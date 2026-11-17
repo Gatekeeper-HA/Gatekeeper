@@ -299,6 +299,9 @@ def test_connections_are_capped_and_silent_ones_closed(tmp_path, monkeypatch, ca
     monkeypatch.setattr(web._Server, "MAX_CONNECTIONS", 2)
     # As on a machine booted under a minute ago (a CI runner): the warning still comes.
     monkeypatch.setattr(web.time, "monotonic", lambda: 5.0)
+    # A slow warning, as on a busy CI runner: it must be in the log before the close.
+    warning = web.log.warning
+    monkeypatch.setattr(web.log, "warning", lambda *a: (time.sleep(0.3), warning(*a)))
     page = web.FacesPage(tmp_path / "faces", enabled=True, candidate_days=14)
     server = web.serve(page, PASSWORD, port=0)
     server.RequestHandlerClass.timeout = 1
