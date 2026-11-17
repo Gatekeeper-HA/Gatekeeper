@@ -37,6 +37,12 @@ services:
       PDNS_API_KEY: ${PDNS_API_KEY}
       SERVER_IPV4: ${SERVER_IPV4}
       SERVER_IPV6: ${SERVER_IPV6}
+      # The relay (cloud/README.md, "The relay"): its addresses, and the secrets shared with
+      # it. Without RELAY_FERNET_KEYS there are no relay passes.
+      RELAY_IPV4: ${RELAY_IPV4:-}
+      RELAY_IPV6: ${RELAY_IPV6:-}
+      RELAY_FERNET_KEYS: ${RELAY_FERNET_KEYS:-}
+      TURN_SECRET: ${TURN_SECRET:-}
     volumes:
       - hubnames:/data
     depends_on:
