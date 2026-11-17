@@ -356,6 +356,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **The hub name's certificate is served as soon as Gatekeeper starts.** It used to wait
+  until the name service had answered, so while the service couldn't be reached (or had
+  refused), the name got the self-signed certificate and the app couldn't load. The
+  certificate already in `LOG_DIR/hub-name` is served first now, for as long as it's good.
 - **The app's notifications go only to push services on the internet.**
   - A phone's subscription names the address to send to, so it has to be a name now, not
     an IP address or a name without a dot.

@@ -368,6 +368,52 @@ def test_a_restart_serves_the_certificate_it_has(tmp_path, service, acme, clock)
     assert again.name == h.name and len(served) == 1
 
 
+class StopAtFirstWait(threading.Event):
+    def __init__(self):
+        super().__init__()
+        self.waits = []
+
+    def wait(self, timeout=None):
+        self.waits.append(timeout)
+        self.set()
+
+
+def test_the_kept_certificate_is_served_without_the_name_service(
+    tmp_path, service, acme, clock, monkeypatch, caplog
+):
+    h = hub(tmp_path, service, acme, clock)
+    h.step()
+
+    def unreachable(*args):
+        raise OSError("Connection refused")
+
+    with monkeypatch.context() as m:
+        m.setattr(hubname.NameService, "address", unreachable)
+        served = []
+        again = hub(tmp_path, service, acme, clock, claim="USED-CODE-XXXX", served=served)
+        again.run(StopAtFirstWait())
+    assert len(served) == 1 and served[0][1] == h.name  # before the name service was tried
+    assert "couldn't get the name or its certificate: Connection refused" in caplog.text
+    again.step()  # the service is back: the same certificate, not served twice
+    assert len(served) == 1 and acme.issued == 1
+
+    # Refused by the service (the hub taken down): still served, for as long as it's good.
+    served.clear()
+    gone = hub(tmp_path, service, acme, clock, claim="USED-CODE-XXXX", served=served)
+
+    def refused(*args):
+        raise hubname.Stop("the name service refused: unknown hub")
+
+    monkeypatch.setattr(hubname.NameService, "address", refused)
+    gone.run()
+    assert len(served) == 1
+
+    clock[0] += 91 * DAY  # expired: not served
+    served.clear()
+    hub(tmp_path, service, acme, clock, claim="USED-CODE-XXXX", served=served).run()
+    assert served == []
+
+
 def test_a_refused_nonce_is_tried_again(tmp_path, service, acme, clock):
     acme.bad_nonce = True
     h = hub(tmp_path, service, acme, clock)
