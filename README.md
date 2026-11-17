@@ -672,6 +672,13 @@ Any other name gets *Gatekeeper doesn't answer to ...*, and the log says which n
 `WEB_PUBLIC_URL`, so notifications open it too, or add it to `WEB_HOSTS` in `.env`:
 `WEB_HOSTS=gatekeeper.example.com`.
 
+**Every page is sent with a Content Security Policy.** Whatever reaches a page, such as a
+visitor's words or a name, is escaped, and the policy is a second line: a page runs only
+Gatekeeper's own script files, never a script written into the page, and loads pictures,
+clips and everything else only from Gatekeeper. Only Gatekeeper's own pages may show it in a
+frame. Home Assistant's ingress counts, since it serves the page from Home Assistant's own
+address.
+
 ### Settings
 
 *Settings* (`settings/`) turns the opt-in features on without editing `.env`:
@@ -798,8 +805,8 @@ saw.
 With [recordings](#recordings) on, each visit links to its clips: tap one to watch it,
 with sound, in the phone's or browser's own player.
 
-The page has no scripts and works on a phone, like the faces page (`faces/`, linked
-from it). Pictures come from the camera's snapshots of each visit while it keeps them; a
+The page needs no script of its own and works on a phone, like the faces page (`faces/`,
+linked from it). Pictures come from the camera's snapshots of each visit while it keeps them; a
 visit that started with a doorbell press, before anyone was seen, shows the frame sent
 with its notification (kept `AUDIO_RETENTION_DAYS`). A press during a visit is part of
 that visit, so it has no label of its own.

@@ -102,7 +102,7 @@ def test_the_kept_faces_are_shown_grouped_by_person(faces):
     assert groups == [("1", "2"), ("2", "1")]
     assert 'src="face/e1.npz/0.jpg"' in page
     # Its only script registers the app's service worker (web.app_head).
-    assert page.count("<script") == 1 and 'serviceWorker.register("../sw.js")' in page
+    assert page.count("<script") == 1 and '<script src="../app.js" defer></script>' in page
     status, jpeg, headers = faces.get("face/e1.npz/0.jpg")
     assert (status, jpeg, headers["Content-Type"]) == (200, b"JPEG", "image/jpeg")
 
@@ -194,10 +194,10 @@ def test_the_app_files_are_served_without_logging_in(faces):
 def test_every_page_links_the_app_relatively():
     for page in ("visits", "login"):
         head = web.app_head(page)
-        assert 'href="manifest.webmanifest"' in head and 'register("sw.js")' in head
+        assert 'href="manifest.webmanifest"' in head and 'src="app.js"' in head
     for page in ("faces", "live", "zones"):
         head = web.app_head(page)
-        assert 'href="../manifest.webmanifest"' in head and 'register("../sw.js")' in head
+        assert 'href="../manifest.webmanifest"' in head and 'src="../app.js"' in head
 
 
 def test_opening_the_app_from_the_home_screen_is_logged(faces, caplog):
