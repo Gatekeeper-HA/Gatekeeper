@@ -356,6 +356,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **The hub name's certificate is served as soon as Gatekeeper starts.** It used to wait
+  until the name service had answered, so while the service couldn't be reached (or had
+  refused), the name got the self-signed certificate and the app couldn't load. The
+  certificate already in `LOG_DIR/hub-name` is served first now, for as long as it's good.
 - **The name service's limit sees IPv6 clients one by one.**
   - Its compose network had no IPv6, so Docker carried IPv6 connections through its own
     proxy, and every IPv6 client showed up as the same private address. 20 bad requests

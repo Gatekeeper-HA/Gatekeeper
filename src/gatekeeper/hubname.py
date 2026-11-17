@@ -497,8 +497,21 @@ class HubName:
                 why,
             )
 
+    def _serve_kept(self) -> None:
+        """The certificate kept from before, served before anything else is tried: the name
+        works at home without the name service or Let's Encrypt, so it keeps working while
+        they can't be reached, or after the service refused."""
+        try:
+            hub = self._state("hub.json")
+            if hub.get("api") == self.api and hub.get("name"):
+                self.name = hub["name"]
+                self._certificate()
+        except OSError as e:
+            log.warning("hub name: couldn't read the certificate kept from before: %s", e)
+
     def run(self, stop: threading.Event | None = None) -> None:
         stop = stop or threading.Event()
+        self._serve_kept()
         while not stop.is_set():
             try:
                 wait = self.step()

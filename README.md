@@ -718,6 +718,9 @@ on the home network, with no certificate to install and no warning.
   even the name service. It's renewed by itself once two thirds of its life has passed
   (day 60 of 90; Let's Encrypt's lifetimes are getting shorter, and this follows), and the
   new one is used without a restart.
+- **Without the name service:** once it has a certificate, the name needs only DNS. If the name
+  service or Let's Encrypt can't be reached when Gatekeeper starts, it serves the
+  certificate it already has and tries them again later.
 - **The address `https://SERVER_IP:8098/`** keeps its own self-signed certificate, so
   what's already installed from it keeps working.
 
