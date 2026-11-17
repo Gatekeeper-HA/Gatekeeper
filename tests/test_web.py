@@ -322,3 +322,85 @@ def test_connections_are_capped_and_silent_ones_closed(tmp_path, monkeypatch, ca
         assert b"X-Content-Type-Options: nosniff" in answer
     finally:
         server.shutdown()
+
+
+@pytest.mark.parametrize(
+    ("host", "allowed"),
+    [
+        ("", True),  # not a browser
+        ("192.168.1.20:8098", True),
+        ("[fd00::20]:8098", True),
+        ("gatekeeper", True),  # a name without a dot: the home network's
+        ("gatekeeper.local", True),
+        ("Gatekeeper.LAN.", True),
+        ("hub.home.arpa:443", True),
+        ("hub.internal", True),
+        ("gk-rig.example-tailnet.ts.net", True),
+        ("door.example.com", True),  # in WEB_HOSTS
+        ("DOOR.example.com.:443", True),
+        ("abc.gatekeeperhome.net", True),  # the hub name, once its certificate is served
+        ("evil.example", False),
+        ("example.com", False),
+        ("door.example.com.evil.net", False),
+        ("other.gatekeeperhome.net", False),  # another hub's name
+        ("evil.example.local.evil.net", False),
+        (":8098", False),
+        ("ev il", False),
+    ],
+)
+def test_the_names_the_page_answers_to(host, allowed):
+    hosts = web.Hosts(["192.168.1.20", "", " door.example.com "])
+    hosts.add("abc.gatekeeperhome.net")
+    assert hosts.allows(host, "192.168.1.30") is allowed
+
+
+def test_through_home_assistant_any_name_is_its_own():
+    """Home Assistant's ingress passes the browser's Host on: Nabu Casa's name, or the
+    owner's own domain for Home Assistant."""
+    addon = web.Hosts(ingress=True)
+    assert addon.allows("abcdef.ui.nabu.casa", web.HA_INGRESS)
+    assert addon.allows("ha.example.com:8123", web.HA_INGRESS)
+    assert not addon.allows("evil.example", "192.168.1.30")  # not through the proxy
+    assert not web.Hosts().allows("ha.example.com", web.HA_INGRESS)  # not an add-on
+
+
+def test_a_page_asked_for_by_another_name_is_refused(tmp_path, caplog):
+    import http.client
+
+    from gatekeeper.logins import Guard
+
+    page = web.FacesPage(tmp_path / "faces", enabled=True, candidate_days=14)
+    guard = Guard()
+    server = web.serve(page, PASSWORD, port=0, guard=guard, hosts=web.Hosts(["door.example.com"]))
+    port = server.server_address[1]
+
+    def ask(method, host, body=b""):
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        try:
+            c.request(method, "/login" if method == "POST" else "/", body, {"Host": host})
+            r = c.getresponse()
+            return r.status, r.read().decode()
+        finally:
+            c.close()
+
+    try:
+        status, body = ask("GET", "evil.example:8098")
+        assert status == 403
+        assert body == (
+            "Gatekeeper doesn't answer to evil.example:8098. If that's how you reach it, "
+            "add it to WEB_HOSTS (README, The web page).\n"
+        )
+        # Passwords through another name aren't even tried, nor counted.
+        wrong = urllib.parse.urlencode({"password": "guess"}).encode()
+        for _ in range(Guard.PER_ADDRESS):
+            assert ask("POST", "evil.example", wrong)[0] == 403
+        assert guard.wait("127.0.0.1") == 0
+        warned = [r for r in caplog.records if "web: refused a request for" in r.getMessage()]
+        assert len(warned) == 1  # once a minute
+        assert "add it to WEB_HOSTS" in warned[0].getMessage()
+
+        assert ask("GET", "door.example.com:8098")[0] in (200, 303)  # the login page
+        assert ask("GET", f"127.0.0.1:{port}")[0] in (200, 303)
+    finally:
+        server.shutdown()
+        server.server_close()

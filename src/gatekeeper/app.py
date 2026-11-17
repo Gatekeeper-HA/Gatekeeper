@@ -130,9 +130,28 @@ def start_web_push(settings: Settings):
         return None
 
 
-def start_hub_name(settings: Settings, tls):
+def web_hosts(settings: Settings):
+    """The names the web page answers to (web.Hosts): its own, from the settings, and as
+    a Home Assistant add-on (the Supervisor gives every add-on SUPERVISOR_TOKEN), anything
+    through Home Assistant's ingress."""
+    from urllib.parse import urlsplit
+
+    from gatekeeper import web
+
+    return web.Hosts(
+        [
+            *settings.web_tls_names.split(","),
+            urlsplit(settings.web_public_url).hostname or "",
+            *settings.web_hosts.split(","),
+        ],
+        ingress=bool(os.environ.get("SUPERVISOR_TOKEN")),
+    )
+
+
+def start_hub_name(settings: Settings, tls, hosts=None):
     """The hub's own name and its Let's Encrypt certificate (hubname.py), with a claim code
-    (HUB_NAME_CLAIM). The certificate is served next to the self-signed one, on ``tls``."""
+    (HUB_NAME_CLAIM). The certificate is served next to the self-signed one, on ``tls``,
+    and the web page answers to the name from then on (``hosts``, web.Hosts)."""
     claim = settings.hub_name_claim.get_secret_value().strip()
     if not claim:
         return None
@@ -149,11 +168,18 @@ def start_hub_name(settings: Settings, tls):
             "(it's off)"
         )
         return None
+    named = NamedCertificate(tls)
+
+    def use(cert_file, key_file, name: str) -> None:
+        named.use(cert_file, key_file, name)
+        if hosts is not None:
+            hosts.add(name)
+
     return HubName(
         settings.log_dir / "hub-name",
         claim,
         address,
-        NamedCertificate(tls).use,
+        use,
         api=settings.hub_name_api,
         acme=settings.hub_name_acme,
     ).start()
@@ -752,7 +778,8 @@ def main() -> None:
 
             names = [n.strip() for n in settings.web_tls_names.split(",") if n.strip()]
             tls = server_context(*certificate(settings.log_dir / "web-tls", names))
-        start_hub_name(settings, tls)
+        hosts = web_hosts(settings)
+        start_hub_name(settings, tls, hosts)
         live = LivePage(
             settings.go2rtc_api,
             settings.live_stream,
@@ -801,6 +828,7 @@ def main() -> None:
             push=push,
             replies=quick.from_button if quick else None,
             settings_page=settings_page,
+            hosts=hosts,
         )
     start_thread(
         "sweep", tracker.sweep_forever, settings.sweep_interval_seconds, on_sweep=health.sweep_done

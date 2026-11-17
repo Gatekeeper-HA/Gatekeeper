@@ -222,6 +222,9 @@ services:
       # The address tapping an ntfy notification opens (its Live page). Empty: the page at
       # SERVER_IP; with the hub name, set https://<id>.gatekeeperhome.net/ in .env.
       WEB_PUBLIC_URL: "${WEB_PUBLIC_URL:-}"
+      # More names the page answers to, comma-separated: a domain of your own, say
+      # (README, "The web page"). SERVER_IP, home and Tailscale names need none.
+      WEB_HOSTS: "${WEB_HOSTS:-}"
       # The hub's own name, <id>.gatekeeperhome.net, pointing at SERVER_IP, with a Let's
       # Encrypt certificate: off unless HUB_NAME_CLAIM is set in .env (and WEB_TLS=1).
       # docker-compose.hubname.yml serves it on 443 (README, "Hub name").
