@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Daily report: own perception's misses say how close it came.** Each of Frigate's porch
+  arrivals own perception missed (`own_perception.missed_near`) gives Frigate's event
+  length and own perception's nearest track: seconds before or after, whether it was in a
+  trigger zone, and the visit it started. Someone just greeted whose track ended a few
+  seconds before Frigate's event no longer reads like a stranger nobody greeted (#193).
 - **A Content Security Policy on every page** (`csp.py`), as a second line behind escaping.
   - Scripts run only from Gatekeeper's own files. The service worker's registration and the
     Zones and Live pages' scripts moved from the pages into `webapp/` (`app.js`, `zones.js`,

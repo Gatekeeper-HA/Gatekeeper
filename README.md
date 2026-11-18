@@ -1086,6 +1086,9 @@ own perception: person track 1800000000.123456-own3 start=1800000000.1 end=18000
 Every hour it logs how many frames it looked at, how long the detector took and where it
 ran. The daily report compares the tracks with Frigate's porch arrivals: those it saw in
 the zone, saw elsewhere, or missed, and its porch tracks that Frigate had no arrival for.
+Each miss says how long Frigate saw the person and how close own perception's nearest
+track was (seconds before or after, and the visit it started), so someone just greeted
+whose track ended a moment early can be told from someone nobody saw.
 
 **Where the detector runs.** With the [GPU override](#gpu-nvidia) it runs on the NVIDIA GPU,
 at Frigate's 5 frames a second. On the rig's GTX 1660 Ti that's about 19 ms a frame, and
