@@ -1,9 +1,12 @@
 import base64
 import contextlib
+import http.server
 import json
 import os
 import re
+import socket
 import struct
+import threading
 import urllib.error
 import urllib.request
 
@@ -153,11 +156,78 @@ def test_phones_and_the_key_are_kept(tmp_path):
         {"keys": {"p256dh": "AAAA", "auth": b64(os.urandom(16))}},  # not a key
         {"keys": {"p256dh": b64(raw(ec.generate_private_key(ec.SECP256R1()))), "auth": "AA"}},
         {"keys": None},
+        # Push services are reached by name, never at an address or a home network's name.
+        {"endpoint": "https://192.168.1.20/push"},
+        {"endpoint": "https://[fd00::1]:8443/push"},
+        {"endpoint": "https://8.8.8.8/push"},
+        {"endpoint": "https://router/push"},
+        {"endpoint": "https://localhost./push"},
     ],
 )
 def test_what_isnt_a_subscription_is_refused(tmp_path, change):
     with pytest.raises(ValueError):
         WebPush(tmp_path).subscribe({**Phone().subscription, **change})
+
+
+def addresses(*ips):
+    """``socket.getaddrinfo``'s answer for a name with these addresses."""
+    return lambda host, port, **kw: [
+        (socket.AF_INET6 if ":" in ip else socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, port))
+        for ip in ips
+    ]
+
+
+@pytest.mark.parametrize(
+    "ip",
+    ["192.168.1.20", "10.0.0.5", "127.0.0.1", "100.100.4.2", "169.254.1.1", "0.0.0.0",
+     "fd00::1", "fe80::1%2", "::1", "::ffff:192.168.1.20"],
+)  # fmt: skip
+def test_the_push_service_is_only_reached_on_the_internet(monkeypatch, ip):
+    connected = []
+    monkeypatch.setattr(socket, "create_connection", lambda *a: connected.append(a))
+    monkeypatch.setattr(socket, "getaddrinfo", addresses(ip))
+    with pytest.raises(OSError, match="push.example has no address on the internet"):
+        webpush._connect(("push.example", 443), 5)
+    assert not connected
+    # Through the opener the phones are reached with: no connection, an error to log.
+    with pytest.raises(urllib.error.URLError, match="no address on the internet"):
+        webpush._OPENER.open("https://push.example/send/1", b"", timeout=5)
+    assert not connected
+
+    # A name with an internet address too is reached there, at the address looked up.
+    monkeypatch.setattr(socket, "getaddrinfo", addresses(ip, "2001:4860:4860::8888", "8.8.8.8"))
+    webpush._connect(("push.example", 443), 5)
+    assert connected == [(("2001:4860:4860::8888", 443), 5, None)]
+
+
+def test_the_push_service_is_reached_directly_and_never_redirects(monkeypatch):
+    handlers = webpush._OPENER.handlers
+    assert not any(isinstance(h, urllib.request.ProxyHandler) for h in handlers)
+    assert any(isinstance(h, webpush._ToTheInternet) for h in handlers)
+    assert any(isinstance(h, webpush._NoRedirects) for h in handlers)
+
+    class Redirect(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.send_response(302)
+            self.send_header("Location", "http://192.168.1.1/admin")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Redirect)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        direct = urllib.request.ProxyHandler({})
+        opener = urllib.request.build_opener(direct, webpush._NoRedirects())
+        url = f"http://127.0.0.1:{server.server_address[1]}/send/1"
+        with pytest.raises(urllib.error.HTTPError) as e:
+            opener.open(urllib.request.Request(url, b"", method="POST"), timeout=5)
+        assert e.value.code == 302
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_a_notification_goes_to_every_phone_encrypted(tmp_path):

@@ -269,3 +269,43 @@ def test_main_calls_with_keywords_that_exist():
             assert k.arg is None or k.arg in params, f"line {call.lineno}: no {k.arg}= parameter"
         checked += 1
     assert checked > 20
+
+
+def test_the_web_page_answers_to_its_own_names(tmp_path, monkeypatch):
+    from gatekeeper import app, tls
+
+    monkeypatch.delenv("SUPERVISOR_TOKEN", raising=False)
+    settings = Settings(
+        audio_dir=tmp_path / "a",
+        log_dir=tmp_path / "l",
+        web_tls=True,
+        web_tls_names="192.168.1.20,gk.example.net",
+        web_public_url="https://door.example.com/",
+        web_hosts="a.example.org, b.example.org",
+        hub_name_claim="ABCD-EFGH-JKLM",
+    )
+    hosts = app.web_hosts(settings)
+    for name in ("gk.example.net", "door.example.com", "a.example.org", "b.example.org:8098"):
+        assert hosts.allows(name, "192.168.1.30")
+    assert not hosts.allows("c.example.org", "192.168.1.30")
+    assert not hosts.ingress
+    monkeypatch.setenv("SUPERVISOR_TOKEN", "from-the-supervisor")
+    assert app.web_hosts(settings).ingress  # a Home Assistant add-on
+
+    # The hub name, from when its certificate is served.
+    started = {}
+
+    class HubName:
+        def __init__(self, folder, claim, address, use, **kw):
+            started["use"] = use
+
+        def start(self):
+            return self
+
+    monkeypatch.setattr("gatekeeper.hubname.HubName", HubName)
+    context = tls.server_context(*tls.certificate(tmp_path / "web-tls", ["192.168.1.20"]))
+    app.start_hub_name(settings, context, hosts)
+    assert not hosts.allows("abc.gatekeeperhome.net", "192.168.1.30")
+    cert, key = tls.certificate(tmp_path / "named", ["abc.gatekeeperhome.net"])
+    started["use"](cert, key, "abc.gatekeeperhome.net")
+    assert hosts.allows("abc.gatekeeperhome.net", "192.168.1.30")

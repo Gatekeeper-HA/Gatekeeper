@@ -1574,7 +1574,7 @@ def test_the_doorbell_restarting_isnt_a_log_error():
         (
             NOW - 600,
             "ERROR",
-            "Baichuan host 192.168.40.190: lost event subscription after 10.41 s and failed to "
+            "Baichuan host 192.168.1.30: lost event subscription after 10.41 s and failed to "
             "reestablished connection",
         ),
     )
@@ -1988,16 +1988,16 @@ def test_the_hub_name_and_its_certificate_are_reported():
         (
             NOW - 9000,
             "hubname",
-            f"hub name: {HUB} points at 192.168.40.199; certificate until {day(90)}",
+            f"hub name: {HUB} points at 192.168.1.20; certificate until {day(90)}",
         ),
     )
     r = build(inputs(log_text=log))
     hub = r["hub_name"]
-    assert (hub["name"], hub["address"], hub["new_certificates"]) == (HUB, "192.168.40.199", 1)
+    assert (hub["name"], hub["address"], hub["new_certificates"]) == (HUB, "192.168.1.20", 1)
     assert hub["days_left"] == 89  # it runs out at the start of that day, in UTC
     assert "hub_name" not in failing(r)
     assert (
-        f"Hub name: {HUB} → 192.168.40.199, certificate until {day(90)} (89 days); "
+        f"Hub name: {HUB} → 192.168.1.20, certificate until {day(90)} (89 days); "
         "1 new certificate(s)"
     ) in render_text(r)
     assert build(inputs())["hub_name"] is None
@@ -2014,7 +2014,7 @@ def test_a_hub_name_certificate_not_renewed_fails_its_check():
         (
             NOW - 8000,
             "hubname",
-            f"hub name: {HUB} points at 192.168.40.199; certificate until {day(11)} "
+            f"hub name: {HUB} points at 192.168.1.20; certificate until {day(11)} "
             "(Let's Encrypt staging)",
         ),
     )
@@ -2040,7 +2040,7 @@ def test_a_hub_name_that_gave_up_or_has_no_certificate_fails_its_check():
         (
             NOW - 9000,
             "hubname",
-            f"hub name: {HUB} doesn't resolve to 192.168.40.199 on this network (no address); "
+            f"hub name: {HUB} doesn't resolve to 192.168.1.20 on this network (no address); "
             "a router that blocks DNS rebinding needs it allowed (README, Hub name)",
         ),
     )
@@ -2232,3 +2232,21 @@ def test_threat_signs_are_counted():
         "acted": 1,
         "at": ["Tue 14:05", "Tue 14:05"],
     }
+
+
+def test_wrong_passwords_are_counted_by_address():
+    log = own_log(
+        (NOW - 9000, "logins", "web: a wrong password from 192.168.1.31 (1 in 15 min)"),
+        (NOW - 8990, "logins", "web: a wrong password from 192.168.1.31 (2 in 15 min)"),
+        (NOW - 5000, "logins", "web: a wrong password from 172.18.0.1 (1 in 15 min)"),
+    )
+    r = build(inputs(log_text=log))
+    assert r["wrong_passwords"] == {
+        "count": 3,
+        "addresses": {"192.168.1.31": 2, "172.18.0.1": 1},
+    }
+    assert (
+        "Wrong passwords on the web page: 3 (from 172.18.0.1 ×1, 192.168.1.31 ×2)"
+        in render_text(r)
+    )
+    assert build(inputs())["wrong_passwords"] is None

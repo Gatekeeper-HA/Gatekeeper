@@ -1,7 +1,9 @@
 import base64
 import json
 import re
+import socket
 import struct
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -100,7 +102,7 @@ def test_the_kept_faces_are_shown_grouped_by_person(faces):
     assert groups == [("1", "2"), ("2", "1")]
     assert 'src="face/e1.npz/0.jpg"' in page
     # Its only script registers the app's service worker (web.app_head).
-    assert page.count("<script") == 1 and 'serviceWorker.register("../sw.js")' in page
+    assert page.count("<script") == 1 and '<script src="../app.js" defer></script>' in page
     status, jpeg, headers = faces.get("face/e1.npz/0.jpg")
     assert (status, jpeg, headers["Content-Type"]) == (200, b"JPEG", "image/jpeg")
 
@@ -192,10 +194,10 @@ def test_the_app_files_are_served_without_logging_in(faces):
 def test_every_page_links_the_app_relatively():
     for page in ("visits", "login"):
         head = web.app_head(page)
-        assert 'href="manifest.webmanifest"' in head and 'register("sw.js")' in head
+        assert 'href="manifest.webmanifest"' in head and 'src="app.js"' in head
     for page in ("faces", "live", "zones"):
         head = web.app_head(page)
-        assert 'href="../manifest.webmanifest"' in head and 'register("../sw.js")' in head
+        assert 'href="../manifest.webmanifest"' in head and 'src="../app.js"' in head
 
 
 def test_opening_the_app_from_the_home_screen_is_logged(faces, caplog):
@@ -262,3 +264,143 @@ def test_the_page_shows_the_sharper_picture_when_there_is_one(tmp_path):
         )
     page = web.FacesPage(face_dir, enabled=True, candidate_days=14, encode=lambda bgr: b"SMALL")
     assert page.face_jpeg("e9.npz", 0) == b"SHARP"
+
+
+def _raw(port, data, wait=5.0):
+    """Send ``data`` on a new connection, left open, and return the first answer."""
+    with socket.create_connection(("127.0.0.1", port), timeout=wait) as s:
+        s.sendall(data)
+        return s.recv(4096)
+
+
+def _closed(sock):
+    try:
+        return sock.recv(100) == b""
+    except (ConnectionResetError, ConnectionAbortedError):
+        return True
+
+
+def test_a_bad_content_length_is_refused_at_once(tmp_path):
+    page = web.FacesPage(tmp_path / "faces", enabled=True, candidate_days=14)
+    server = web.serve(page, PASSWORD, port=0)
+    port = server.server_address[1]
+    try:
+        # The connection stays open: a negative length would read until it closed.
+        for length in ("-1", "lots"):
+            head = f"POST /login HTTP/1.1\r\nHost: x\r\nContent-Length: {length}\r\n\r\n"
+            assert _raw(port, head.encode()).startswith(b"HTTP/1.0 400")
+        head = b"POST /login HTTP/1.1\r\nHost: x\r\nContent-Length: 999999\r\n\r\n"
+        assert _raw(port, head).startswith(b"HTTP/1.0 413")
+    finally:
+        server.shutdown()
+
+
+def test_connections_are_capped_and_silent_ones_closed(tmp_path, monkeypatch, caplog):
+    monkeypatch.setattr(web._Server, "MAX_CONNECTIONS", 2)
+    # As on a machine booted under a minute ago (a CI runner): the warning still comes.
+    monkeypatch.setattr(web.time, "monotonic", lambda: 5.0)
+    # A slow warning, as on a busy CI runner: it must be in the log before the close.
+    warning = web.log.warning
+    monkeypatch.setattr(web.log, "warning", lambda *a: (time.sleep(0.3), warning(*a)))
+    page = web.FacesPage(tmp_path / "faces", enabled=True, candidate_days=14)
+    server = web.serve(page, PASSWORD, port=0)
+    server.RequestHandlerClass.timeout = 1
+    port = server.server_address[1]
+    try:
+        silent = [socket.create_connection(("127.0.0.1", port), timeout=5) for _ in range(2)]
+        time.sleep(0.3)
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as third:
+            third.sendall(b"GET /login HTTP/1.0\r\n\r\n")
+            assert _closed(third)  # no slot: closed straight away
+        assert "web: 2 connections open at once; refusing more for now" in caplog.text
+        for s in silent:  # closed after a second of silence, freeing their slots
+            assert _closed(s)
+            s.close()
+        time.sleep(0.3)
+        answer = _raw(port, b"GET /login HTTP/1.0\r\n\r\n")
+        assert answer.startswith(b"HTTP/1.0 200")
+        assert b"X-Content-Type-Options: nosniff" in answer
+    finally:
+        server.shutdown()
+
+
+@pytest.mark.parametrize(
+    ("host", "allowed"),
+    [
+        ("", True),  # not a browser
+        ("192.168.1.20:8098", True),
+        ("[fd00::20]:8098", True),
+        ("gatekeeper", True),  # a name without a dot: the home network's
+        ("gatekeeper.local", True),
+        ("Gatekeeper.LAN.", True),
+        ("hub.home.arpa:443", True),
+        ("hub.internal", True),
+        ("gk-rig.example-tailnet.ts.net", True),
+        ("door.example.com", True),  # in WEB_HOSTS
+        ("DOOR.example.com.:443", True),
+        ("abc.gatekeeperhome.net", True),  # the hub name, once its certificate is served
+        ("evil.example", False),
+        ("example.com", False),
+        ("door.example.com.evil.net", False),
+        ("other.gatekeeperhome.net", False),  # another hub's name
+        ("evil.example.local.evil.net", False),
+        (":8098", False),
+        ("ev il", False),
+    ],
+)
+def test_the_names_the_page_answers_to(host, allowed):
+    hosts = web.Hosts(["192.168.1.20", "", " door.example.com "])
+    hosts.add("abc.gatekeeperhome.net")
+    assert hosts.allows(host, "192.168.1.30") is allowed
+
+
+def test_through_home_assistant_any_name_is_its_own():
+    """Home Assistant's ingress passes the browser's Host on: Nabu Casa's name, or the
+    owner's own domain for Home Assistant."""
+    addon = web.Hosts(ingress=True)
+    assert addon.allows("abcdef.ui.nabu.casa", web.HA_INGRESS)
+    assert addon.allows("ha.example.com:8123", web.HA_INGRESS)
+    assert not addon.allows("evil.example", "192.168.1.30")  # not through the proxy
+    assert not web.Hosts().allows("ha.example.com", web.HA_INGRESS)  # not an add-on
+
+
+def test_a_page_asked_for_by_another_name_is_refused(tmp_path, caplog):
+    import http.client
+
+    from gatekeeper.logins import Guard
+
+    page = web.FacesPage(tmp_path / "faces", enabled=True, candidate_days=14)
+    guard = Guard()
+    server = web.serve(page, PASSWORD, port=0, guard=guard, hosts=web.Hosts(["door.example.com"]))
+    port = server.server_address[1]
+
+    def ask(method, host, body=b""):
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        try:
+            c.request(method, "/login" if method == "POST" else "/", body, {"Host": host})
+            r = c.getresponse()
+            return r.status, r.read().decode()
+        finally:
+            c.close()
+
+    try:
+        status, body = ask("GET", "evil.example:8098")
+        assert status == 403
+        assert body == (
+            "Gatekeeper doesn't answer to evil.example:8098. If that's how you reach it, "
+            "add it to WEB_HOSTS (README, The web page).\n"
+        )
+        # Passwords through another name aren't even tried, nor counted.
+        wrong = urllib.parse.urlencode({"password": "guess"}).encode()
+        for _ in range(Guard.PER_ADDRESS):
+            assert ask("POST", "evil.example", wrong)[0] == 403
+        assert guard.wait("127.0.0.1") == 0
+        warned = [r for r in caplog.records if "web: refused a request for" in r.getMessage()]
+        assert len(warned) == 1  # once a minute
+        assert "add it to WEB_HOSTS" in warned[0].getMessage()
+
+        assert ask("GET", "door.example.com:8098")[0] in (200, 303)  # the login page
+        assert ask("GET", f"127.0.0.1:{port}")[0] in (200, 303)
+    finally:
+        server.shutdown()
+        server.server_close()

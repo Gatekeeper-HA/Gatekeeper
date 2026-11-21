@@ -47,8 +47,16 @@ the service's clock.
 - 400 for a bad body;
 - 403 for an unknown or used claim code, or a bad signature;
 - 404 for an unknown hub;
-- 429 past 60 changes an hour;
+- 429 past 60 changes an hour, or for an address whose requests were refused 20 times in
+  the last hour (any 400, 403 or 404), with `Retry-After`;
 - 502 when PowerDNS can't be reached.
+
+The address is the last one in `X-Forwarded-For`, which Caddy sets. Only Caddy can reach
+the API, so it can't be forged. Only internet addresses are counted.
+
+`compose.yml` gives its network IPv6, so Docker forwards IPv6 clients to Caddy directly, as
+it does IPv4 ones. Without that, Docker's proxy would carry them, and every IPv6 client would
+show up as one private address.
 
 ### Running it
 
