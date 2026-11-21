@@ -377,6 +377,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **A doorbell press during a visit's last listening turn is answered** (#178). A press
+  merged into a running visit only changed the lines picked after it, and the press reply
+  can't speak mid-visit, so someone who rang after the no-answer line heard nothing at all.
+  When the visit ends silent after such a press, Gatekeeper now says `REPLY_PRESSED`.
 - **The hub name's certificate is served as soon as Gatekeeper starts.** It used to wait
   until the name service had answered, so while the service couldn't be reached (or had
   refused), the name got the self-signed certificate and the app couldn't load. The
