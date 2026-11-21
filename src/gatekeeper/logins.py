@@ -5,6 +5,9 @@ which can't be logged out of.
 Each login gets a random token, the browser's cookie. Only its SHA-256 is kept, in
 ``web-logins.json`` next to the visit log (mode 600), so a restart doesn't log anyone
 out; a login lasts ``DAYS`` from its last use.
+
+Wrong passwords are limited (``Guard``): a few from one address, or more from every
+address together, and passwords are refused for a while.
 """
 
 from __future__ import annotations
@@ -88,6 +91,65 @@ class Logins:
         tmp.replace(self.path)
 
 
+class Guard:
+    """Wrong passwords, to stop guessing (the login page's and HTTP Basic's alike). Past
+    ``PER_ADDRESS`` wrong ones from an address in ``WINDOW`` seconds, its passwords are
+    refused, the right one too, until the oldest is ``WINDOW`` old; past ``IN_ALL`` from
+    every address together, everyone's are, since behind Tailscale (and later the relay)
+    every phone arrives from the same address. Anyone logged in stays logged in: the
+    cookie isn't a password. Kept in memory: a restart forgets."""
+
+    WINDOW = 15 * 60.0
+    PER_ADDRESS = 5
+    IN_ALL = 20
+
+    def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
+        self._clock = clock
+        self._wrong: list[tuple[float, str]] = []  # (when, address), oldest first
+        self._lock = threading.Lock()
+
+    def _recent(self, now: float) -> list[tuple[float, str]]:
+        self._wrong = [w for w in self._wrong if w[0] > now - self.WINDOW]
+        return self._wrong
+
+    def wait(self, address: str) -> float:
+        """Seconds until a password from ``address`` is checked again; 0: now."""
+        with self._lock:
+            now = self._clock()
+            wrong = self._recent(now)
+            mine = [t for t, a in wrong if a == address]
+            if len(mine) >= self.PER_ADDRESS:
+                return mine[-self.PER_ADDRESS] + self.WINDOW - now
+            if len(wrong) >= self.IN_ALL:
+                return wrong[-self.IN_ALL][0] + self.WINDOW - now
+            return 0.0
+
+    def wrong(self, address: str) -> None:
+        with self._lock:
+            now = self._clock()
+            wrong = self._recent(now)
+            wrong.append((now, address))
+            mine = sum(1 for _, a in wrong if a == address)
+        log.info("web: a wrong password from %s (%d in 15 min)", address, mine)
+        if mine == self.PER_ADDRESS:
+            log.warning(
+                "web: %d wrong passwords from %s; its passwords are refused for 15 min",
+                mine,
+                address,
+            )
+        if len(wrong) == self.IN_ALL:
+            log.warning(
+                "web: %d wrong passwords in 15 min; every password is refused for a while "
+                "(logins already open still work)",
+                len(wrong),
+            )
+
+    def right(self, address: str) -> None:
+        """The right password: that address's wrong ones are forgotten."""
+        with self._lock:
+            self._wrong = [w for w in self._wrong if w[1] != address]
+
+
 def safe_next(target: str) -> str:
     """Where to go after logging in: a page of this site (relative, no ``..``), or the
     Visits page."""
@@ -97,6 +159,7 @@ def safe_next(target: str) -> str:
 
 
 def page(error: str = "", target: str = "") -> str:
+    from gatekeeper.csp import style
     from gatekeeper.web import STYLE, app_head
 
     e = html.escape
@@ -104,7 +167,7 @@ def page(error: str = "", target: str = "") -> str:
         [
             "<!doctype html><html lang=en><head><meta charset=utf-8>",
             '<meta name=viewport content="width=device-width, initial-scale=1">',
-            f"<title>Gatekeeper</title><style>{STYLE}</style>{app_head('login')}</head><body>",
+            f"<title>Gatekeeper</title>{style(STYLE)}{app_head('login')}</head><body>",
             "<h1>Gatekeeper</h1>",
             *([f"<p class=error role=alert>{e(error)}</p>"] if error else []),
             '<form method=post action="login">',

@@ -18,10 +18,12 @@ Faces are biometric data:
 - nothing is cached.
 
 It's plain HTML with relative links, so it works on a phone and behind a proxy that adds
-a path prefix (Home Assistant's ingress). Only the Zones page has a script of its own (to
-draw by clicking), and works without it. Every page also registers the app's service worker
-(``app_head``): with it the pages install as an app on a phone's home screen. The Visits
-page's ``push.js`` turns the app's notifications on (``push/``, webpush.py).
+a path prefix (Home Assistant's ingress). Scripts are files in ``webapp/``, never inline,
+and every page is sent with a Content Security Policy that holds them to that (csp.py).
+Every page registers the app's service worker (``app.js``, from ``app_head``): with it the
+pages install as an app on a phone's home screen. The Zones page draws by clicking
+(``zones.js``) and works without it, the Live page plays the door (``live.js``), and the
+Visits page's ``push.js`` turns the app's notifications on (``push/``, webpush.py).
 """
 
 from __future__ import annotations
@@ -31,8 +33,10 @@ import datetime
 import hmac
 import html
 import http.cookies
+import ipaddress
 import json
 import logging
+import math
 import re
 import secrets
 import shutil
@@ -47,7 +51,7 @@ from pathlib import Path
 
 import numpy as np
 
-from gatekeeper import face_admin, logins
+from gatekeeper import csp, face_admin, logins
 from gatekeeper.faces import Gallery
 
 log = logging.getLogger(__name__)
@@ -69,6 +73,9 @@ APP_FILES = {
     "manifest.webmanifest": "application/manifest+json",
     "sw.js": "text/javascript; charset=utf-8",
     "push.js": "text/javascript; charset=utf-8",
+    "app.js": "text/javascript; charset=utf-8",
+    "live.js": "text/javascript; charset=utf-8",
+    "zones.js": "text/javascript; charset=utf-8",
     "icon-192.png": "image/png",
     "badge-96.png": "image/png",
     "icon-512.png": "image/png",
@@ -255,7 +262,7 @@ class FacesPage:
         out = [
             "<!doctype html><html lang=en><head><meta charset=utf-8>",
             '<meta name=viewport content="width=device-width, initial-scale=1">',
-            f"<title>Household faces</title><style>{STYLE}</style>{app_head('faces')}",
+            f"<title>Household faces</title>{csp.style(STYLE)}{app_head('faces')}",
             "</head><body>",
             nav("faces"),
             "<h1>Household faces</h1>",
@@ -388,8 +395,7 @@ def app_head(current: str) -> str:
         f'<link rel=apple-touch-icon href="{up}icon-192.png">'
         '<meta name=theme-color content="#fafafa" media="(prefers-color-scheme: light)">'
         '<meta name=theme-color content="#17171a" media="(prefers-color-scheme: dark)">'
-        '<script>if ("serviceWorker" in navigator) '
-        f'navigator.serviceWorker.register("{up}sw.js").catch(() => {{}});</script>'
+        f'<script src="{up}app.js" defer></script>'
     )
 
 
@@ -402,9 +408,123 @@ def _chosen(values: list[str]) -> set[tuple[str, int]]:
     return out
 
 
+# Home Assistant's ingress proxy: an add-on's page is reached only through it, from here.
+HA_INGRESS = "172.30.32.2"
+# Names only the home network (or Tailscale's MagicDNS) answers for, so a site elsewhere
+# can't point them here.
+HOME_NAMES = (
+    ".local",
+    ".lan",
+    ".home",
+    ".home.arpa",
+    ".internal",
+    ".localdomain",
+    ".localhost",
+    ".ts.net",
+)
+
+
+class Hosts:
+    """The names the page answers to, against DNS rebinding: a site elsewhere whose name
+    is made to point at Gatekeeper's address can't use a browser at home to reach it.
+
+    Always: IP addresses, and names only the home network or Tailscale answers for
+    (``HOME_NAMES``, or no dot at all). Also ``names``: the server's own (``WEB_TLS_NAMES``,
+    ``WEB_PUBLIC_URL``, ``WEB_HOSTS``), and the hub name once its certificate is served
+    (``add``). With ``ingress`` (a Home Assistant add-on), everything from Home Assistant's
+    ingress proxy: it asks with Home Assistant's own name, whatever that is, and Home
+    Assistant has logged the user in."""
+
+    def __init__(self, names=(), ingress: bool = False) -> None:
+        self.names = frozenset(n for n in map(self._name, names) if n)
+        self.ingress = ingress
+        self._refused_at = float("-inf")
+
+    @staticmethod
+    def _name(given: str) -> str:
+        """The name in a Host header or setting, without its port: lower case, no final
+        dot; "" if there's none."""
+        given = given.strip()
+        if "://" in given:
+            given = given.split("://", 1)[1]
+        try:
+            name = urllib.parse.urlsplit("//" + given).hostname or ""
+        except ValueError:
+            return ""
+        return name.split("%")[0].rstrip(".")
+
+    def add(self, name: str) -> None:
+        self.names = self.names | {self._name(name)}
+
+    def allows(self, host: str, peer: str) -> bool:
+        if self.ingress and peer == HA_INGRESS:
+            return True
+        if not host:
+            return True  # not a browser: they all send it
+        name = self._name(host)
+        if not name:
+            return False
+        try:
+            ipaddress.ip_address(name)
+            return True
+        except ValueError:
+            pass
+        if not re.fullmatch(r"[a-z0-9_-]+(\.[a-z0-9_-]+)*", name):
+            return False
+        return "." not in name or name.endswith(HOME_NAMES) or name in self.names
+
+    def refused(self, host: str) -> str:
+        """The name asked for, safe to show; the log says so at most once a minute."""
+        shown = re.sub(r"[^\w.:\[\]-]", "", host)[:100] or "(no name)"
+        now = time.monotonic()
+        if now - self._refused_at >= 60:
+            self._refused_at = now
+            log.warning(
+                "web: refused a request for %s; if that's how you reach Gatekeeper, add it "
+                "to WEB_HOSTS",
+                shown,
+            )
+        return shown
+
+
 class _Server(ThreadingHTTPServer):
+    """One thread per connection, at most ``MAX_CONNECTIONS`` at once: past that, a new
+    one is closed straight away, so clients that hold connections open (slowly, or many
+    at once) can't use up the server."""
+
     daemon_threads = True
     ssl_context: ssl.SSLContext | None = None  # HTTPS (WEB_TLS)
+    MAX_CONNECTIONS = 64
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._slots = threading.BoundedSemaphore(self.MAX_CONNECTIONS)
+        self._refused_at = float("-inf")  # monotonic time starts near 0 at boot
+
+    def process_request(self, request, client_address) -> None:
+        if not self._slots.acquire(blocking=False):
+            # Logged before the connection is closed, so it's in the log by the time the
+            # client sees the close.
+            now = time.monotonic()
+            if now - self._refused_at >= 60:
+                self._refused_at = now
+                log.warning(
+                    "web: %d connections open at once; refusing more for now",
+                    self.MAX_CONNECTIONS,
+                )
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
 
     def handle_error(self, request, client_address) -> None:
         # A browser that gave up on the certificate, a closed tab: not worth a traceback.
@@ -421,28 +541,49 @@ def handler(
     push=None,
     replies: Callable[[str], None] | None = None,
     settings_page=None,
+    guard: logins.Guard | None = None,
+    hosts: Hosts | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     """``visits``: the Visits page (visits.VisitsPage) at ``/``, with the faces at
     ``faces/``; without it the faces are at ``/``. ``zones``: the Zones page
     (zones.ZonesPage) at ``zones/``. ``push``: the app's notifications, at ``push/``.
     ``replies``: their quick reply buttons' text (quick_reply.QuickReplies.from_button).
-    ``settings_page``: the settings page (settings_page.SettingsPage) at ``settings/``."""
+    ``settings_page``: the settings page (settings_page.SettingsPage) at ``settings/``.
+    ``guard``: the limit on wrong passwords (logins.Guard). ``hosts``: the names the
+    page answers to (Hosts)."""
     expected = password.encode()
     sessions = logged_in or logins.Logins(None)
+    guard = guard or logins.Guard()
+    hosts = hosts or Hosts()
 
     class Handler(BaseHTTPRequestHandler):
+        # Seconds a connection may stay silent, with or without HTTPS.
+        timeout = 15
+
         def setup(self) -> None:
             """With HTTPS: the TLS handshake here, in this connection's own thread; a
             plain http:// request (an old bookmark) is sent to https:// instead."""
             self._to_https = False
             context = self.server.ssl_context
             if context is not None:
-                self.request.settimeout(15)
+                self.request.settimeout(self.timeout)
                 if self.request.recv(1, socket.MSG_PEEK) == b"\x16":  # a TLS handshake
                     self.request = context.wrap_socket(self.request, server_side=True)
                 else:
                     self._to_https = True
             super().setup()
+
+        def _wrong_name(self) -> bool:
+            """Asked for by a name the page doesn't answer to (Hosts): refused."""
+            given = self.headers.get("Host", "")
+            if hosts.allows(given, self.client_address[0]):
+                return False
+            body = (
+                f"Gatekeeper doesn't answer to {hosts.refused(given)}. If that's how you "
+                "reach it, add it to WEB_HOSTS (README, The web page).\n"
+            )
+            self._send(403, body.encode(), "text/plain; charset=utf-8")
+            return True
 
         def _redirected_to_https(self) -> bool:
             if not self._to_https:
@@ -474,8 +615,18 @@ def handler(
                     _, _, given = base64.b64decode(header[6:]).partition(b":")
                 except ValueError:
                     given = b""
-                if hmac.compare_digest(given, expected):
+                checked = self._check(given)
+                if checked == "right":
                     return True
+                if checked == "refused":
+                    minutes = self._minutes_refused()
+                    self._send(
+                        429,
+                        f"Too many wrong passwords. Try again in {minutes} min.".encode(),
+                        "text/plain",
+                        {"Retry-After": str(minutes * 60)},
+                    )
+                    return False
             url = urllib.parse.urlsplit(self.path)
             if self.command == "GET" and url.path.endswith("/"):
                 target = url.path.lstrip("/") + (f"?{url.query}" if url.query else "")
@@ -500,25 +651,55 @@ def handler(
                 f"{secure}"
             )
 
+        def _check(self, given: bytes) -> str:
+            """A password given: "right", "wrong", or "refused" (not checked, after too
+            many wrong ones: logins.Guard)."""
+            address = self.client_address[0]
+            if guard.wait(address) > 0:
+                return "refused"
+            if hmac.compare_digest(given, expected):
+                guard.right(address)
+                return "right"
+            guard.wrong(address)
+            time.sleep(1.0)  # one guess a second per connection
+            return "wrong"
+
+        def _minutes_refused(self) -> int:
+            return max(1, math.ceil(guard.wait(self.client_address[0]) / 60))
+
         def _login(self, length: int) -> None:
             form = urllib.parse.parse_qs(self.rfile.read(length).decode("utf-8", "replace"))
             target = logins.safe_next(form.get("next", [""])[0])
             given = form.get("password", [""])[0].encode()
-            if not hmac.compare_digest(given, expected):
-                time.sleep(1.0)  # one guess a second, at most
-                log.info("web: a wrong password")
+            checked = self._check(given)
+            if checked == "wrong":
                 body = logins.page("That's not the password.", target).encode()
                 self._send(401, body, "text/html; charset=utf-8")
                 return
+            if checked == "refused":
+                minutes = self._minutes_refused()
+                error = f"Too many wrong passwords. Try again in {minutes} min."
+                body = logins.page(error, target).encode()
+                self._send(
+                    429, body, "text/html; charset=utf-8", {"Retry-After": str(minutes * 60)}
+                )
+                return
             self._redirect(target, self._cookie(sessions.start(), logins.DAYS * 86400))
 
-        def _send(self, status: int, body: bytes, kind: str) -> None:
+        def _send(
+            self, status: int, body: bytes, kind: str, headers: dict[str, str] | None = None
+        ) -> None:
             self.send_response(status)
+            for name, value in (headers or {}).items():
+                self.send_header(name, value)
             self.send_header("Content-Type", kind)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Frame-Options", "SAMEORIGIN")
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "no-referrer")
+            if kind.startswith("text/html"):
+                self.send_header("Content-Security-Policy", csp.policy())
             self.end_headers()
             self.wfile.write(body)
 
@@ -589,6 +770,7 @@ def handler(
             if status == 206:
                 self.send_header("Content-Range", f"bytes {first}-{last}/{size}")
             self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "no-referrer")
             self.end_headers()
             with path.open("rb") as f:
@@ -606,7 +788,7 @@ def handler(
             self._send(status, body, "text/html; charset=utf-8")
 
         def do_GET(self) -> None:
-            if self._redirected_to_https():
+            if self._wrong_name() or self._redirected_to_https():
                 return
             url_path = urllib.parse.urlsplit(self.path).path
             if url_path.endswith("/login"):
@@ -678,9 +860,17 @@ def handler(
         def do_POST(self) -> None:
             if self._redirected_to_https():
                 return
-            length = int(self.headers.get("Content-Length") or 0)
-            if length > MAX_BODY:
-                self.send_error(413)
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = -1
+            if not 0 <= length <= MAX_BODY:
+                # A negative length would read until the connection closes.
+                self.send_error(413 if length > MAX_BODY else 400)
+                return
+            if not hosts.allows(self.headers.get("Host", ""), self.client_address[0]):
+                self.rfile.read(length)  # so the client reads the answer, not a reset
+                self._wrong_name()
                 return
             if urllib.parse.urlsplit(self.path).path.endswith("/login"):
                 self._login(length)
@@ -780,10 +970,13 @@ def serve(
     push=None,
     replies: Callable[[str], None] | None = None,
     settings_page=None,
+    guard: logins.Guard | None = None,
+    hosts: Hosts | None = None,
 ) -> ThreadingHTTPServer:
     """Serve the pages on ``port`` in a daemon thread; over HTTPS with ``tls``. ``push``:
     the app's notifications (webpush.WebPush), switched on from the Visits page, and
-    ``replies``: their quick reply buttons. ``settings_page``: at ``settings/``."""
+    ``replies``: their quick reply buttons. ``settings_page``: at ``settings/``.
+    ``hosts``: the names it answers to (Hosts; addresses and home names only without)."""
     for other in (visits, zones, live, settings_page):
         if other is not None:
             other.token = page.token  # one token proves a form came from any page
@@ -791,7 +984,19 @@ def serve(
         visits.push_key = push.public_key
     server = _Server(
         ("0.0.0.0", port),
-        handler(page, password, visits, zones, live, logged_in, push, replies, settings_page),
+        handler(
+            page,
+            password,
+            visits,
+            zones,
+            live,
+            logged_in,
+            push,
+            replies,
+            settings_page,
+            guard,
+            hosts,
+        ),
     )
     server.ssl_context = tls
     threading.Thread(target=server.serve_forever, name="web", daemon=True).start()

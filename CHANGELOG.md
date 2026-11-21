@@ -6,6 +6,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **A Content Security Policy on every page** (`csp.py`), as a second line behind escaping.
+  - Scripts run only from Gatekeeper's own files. The service worker's registration and the
+    Zones and Live pages' scripts moved from the pages into `webapp/` (`app.js`, `zones.js`,
+    `live.js`). Nothing runs from the page itself, an attribute or `eval`.
+  - Each page's `<style>` is allowed by its hash. The Zones page's colour swatches are
+    classes now, not `style` attributes.
+  - Pictures, clips, requests, the manifest and the service worker come only from
+    Gatekeeper, and forms post only to it. Only its own pages may frame it, which includes
+    Home Assistant's ingress. No `<base>`, no plugins.
+  - Checked in Chrome with the policy enforced: no violations on any page, and every
+    page's scripts run.
+- **The web page answers only to its own names**, against DNS rebinding (a website
+  pointing a name of its own at Gatekeeper, to reach the page through a browser at home).
+  - It answers to addresses, names only the home network or Tailscale answers for (no
+    dot, `.local`, `.lan`, `.home`, `.home.arpa`, `.internal`, `.ts.net`), the names in
+    `WEB_TLS_NAMES` and `WEB_PUBLIC_URL`, the hub name, and the new `WEB_HOSTS`.
+  - As a Home Assistant add-on (`SUPERVISOR_TOKEN`), everything from Home Assistant's
+    ingress proxy, which passes on whatever name Home Assistant was reached by.
+  - Other names get a 403 that says to add the name to `WEB_HOSTS`, and a warning in the
+    log at most once a minute. Passwords sent through them aren't checked or counted.
+  - README, *The web page*.
+- **Wrong passwords are limited** on the web page (`logins.Guard`), on the login page and
+  HTTP Basic alike. HTTP Basic had no limit at all, and the login page's one-second wait
+  didn't slow guesses sent in parallel. Five wrong ones in 15 minutes from one address, or
+  20 from all addresses together (behind Tailscale or a relay everyone shares one), and
+  passwords are refused, the right one too, with 429 and `Retry-After`. Browsers already
+  logged in stay logged in. The log warns when it starts, and the daily report counts wrong
+  passwords by address. README, *The web page*.
 - **The hub's own name** (`HUB_NAME_CLAIM`): `<id>.gatekeeperhome.net`, with a Let's
   Encrypt certificate phones trust, so the app installs at home with no warning. Gatekeeper
   registers with a claim code and keeps its home address published through the name
@@ -353,6 +381,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   merged into a running visit only changed the lines picked after it, and the press reply
   can't speak mid-visit, so someone who rang after the no-answer line heard nothing at all.
   When the visit ends silent after such a press, Gatekeeper now says `REPLY_PRESSED`.
+- **The hub name's certificate is served as soon as Gatekeeper starts.** It used to wait
+  until the name service had answered, so while the service couldn't be reached (or had
+  refused), the name got the self-signed certificate and the app couldn't load. The
+  certificate already in `LOG_DIR/hub-name` is served first now, for as long as it's good.
+- **The app's notifications go only to push services on the internet.**
+  - A phone's subscription names the address to send to, so it has to be a name now, not
+    an IP address or a name without a dot.
+  - Gatekeeper looks the name up when it connects and connects only to an internet
+    address, never one on the home network, the machine itself or a VPN.
+  - It connects directly, without a proxy, and a redirect counts as a failure.
+  - Google's, Apple's and Mozilla's push services all work as before.
+- **The name service's limit sees IPv6 clients one by one.**
+  - Its compose network had no IPv6, so Docker carried IPv6 connections through its own
+    proxy, and every IPv6 client showed up as the same private address. 20 bad requests
+    from one could have locked them all out for an hour.
+  - The network has IPv6 now, so Docker forwards those clients directly, with their own
+    addresses.
+  - Only internet addresses are counted, and an IPv4 address written as IPv6 counts as the
+    IPv4 one.
+- **The name service limits clients that keep getting refused.** An address with 20
+  refused or malformed requests in an hour gets 429 (with `Retry-After`) until the oldest
+  is an hour old; the address is the one Caddy puts last in `X-Forwarded-For`. Its errors
+  no longer pass on Python's own wording for a bad length, body or key.
+- **The web page holds up to misbehaving clients.**
+  - A request whose `Content-Length` is negative or not a number is refused at once.
+  - At most 64 connections are open at once. Past that, new ones are closed straight away,
+    with a warning at most once a minute.
+  - A connection silent for 15 s is closed, over plain HTTP as well as HTTPS.
+  - Ignored quick-reply presses (bad signature or format) are logged at most once a
+    minute, with how many.
+  - Every answer has `X-Content-Type-Options: nosniff`.
+- **`WEB_PUBLIC_URL` reaches Gatekeeper in the compose stack.** It wasn't passed to the
+  container, so setting it in `.env` did nothing, and ntfy's notifications always opened
+  the page at `SERVER_IP`. Empty (the default) keeps that address.
 - **Daily report: a day with no restart keeps the state Gatekeeper started in** (#166). The
   doorbell button's listener and own perception's mode are logged when Gatekeeper starts, so
   on a day with no deploy or restart they were before the report's 24 h: own perception read

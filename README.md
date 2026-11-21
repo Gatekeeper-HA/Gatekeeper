@@ -120,6 +120,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `WEB_TLS` | `false` | The web page over HTTPS with its own self-signed certificate, for [talking back](#live) from the Live page. The compose stack reads it from `.env` |
 | `WEB_PUBLIC_URL` | `http(s)://<WEB_TLS_NAMES' first>:<WEB_PORT>/` | The web page's address as your phone reaches it: tapping a notification opens its [Live page](#live). The compose stack's `WEB_TLS_NAMES` (`SERVER_IP`) makes the default |
 | `WEB_TLS_NAMES` | | The addresses the page is reached at, comma-separated, named in the certificate. The compose stack sets `SERVER_IP` |
+| `WEB_HOSTS` | | More names the page answers to, comma-separated, such as a domain of your own behind a reverse proxy ([The web page](#the-web-page)). The compose stack reads it from `.env` |
 | `HUB_NAME_CLAIM` | | A claim code from Gatekeeper: turns on the [hub's own name](#hub-name), with a Let's Encrypt certificate. Needs `WEB_TLS`. The compose stack reads it from `.env` |
 | `HUB_NAME_ADDRESS` | the first private IPv4 of `WEB_TLS_NAMES` | The address on the home network the name points at |
 | `HUB_NAME_API` | `https://api.gatekeeperhome.net` | The name service ([cloud/](cloud/README.md)); run your own with your own domain |
@@ -643,6 +644,41 @@ visit (a cookie; only its hash is kept, in `LOG_DIR/web-logins.json`, so a resta
 log you out). *Log out* is at the end of the menu. Scripts can send the password with each
 request instead (HTTP Basic, any user name).
 
+**Wrong passwords are limited**, on the login page and HTTP Basic alike:
+- Each wrong one waits a second.
+- After 5 wrong ones in 15 minutes from one address, its passwords are refused, even the
+  right one, until 15 minutes after the first of them.
+- After 20 wrong ones in 15 minutes from all addresses together, everyone's are. Behind
+  Tailscale every phone arrives from the same address.
+- A browser that's already logged in stays logged in throughout, so guesses can't lock you
+  out of a phone you already use.
+- The log warns when passwords are refused, and the daily report counts the wrong ones by
+  address.
+
+Use a password nobody would guess: a few unrelated words is plenty.
+
+**The page answers only to its own names.** Otherwise a website could point a name of its
+own at Gatekeeper's address and use a browser at home to reach the page (DNS rebinding).
+It answers to:
+- addresses, like `SERVER_IP`;
+- names only your home network or Tailscale answers for: without a dot (`gatekeeper`), or
+  ending in `.local`, `.lan`, `.home`, `.home.arpa`, `.internal` or `.ts.net`;
+- the names in `WEB_TLS_NAMES` and `WEB_PUBLIC_URL`, and the [hub's own name](#hub-name);
+- as the Home Assistant add-on, everything through Home Assistant (Nabu Casa's address,
+  or Home Assistant's own domain), which has already logged you in.
+
+Any other name gets *Gatekeeper doesn't answer to ...*, and the log says which name.
+**With a domain of your own** (a reverse proxy in front of Gatekeeper, say), put it in
+`WEB_PUBLIC_URL`, so notifications open it too, or add it to `WEB_HOSTS` in `.env`:
+`WEB_HOSTS=gatekeeper.example.com`.
+
+**Every page is sent with a Content Security Policy.** Whatever reaches a page, such as a
+visitor's words or a name, is escaped, and the policy is a second line: a page runs only
+Gatekeeper's own script files, never a script written into the page, and loads pictures,
+clips and everything else only from Gatekeeper. Only Gatekeeper's own pages may show it in a
+frame. Home Assistant's ingress counts, since it serves the page from Home Assistant's own
+address.
+
 ### Settings
 
 *Settings* (`settings/`) turns the opt-in features on without editing `.env`:
@@ -705,6 +741,9 @@ on the home network, with no certificate to install and no warning.
   even the name service. It's renewed by itself once two thirds of its life has passed
   (day 60 of 90; Let's Encrypt's lifetimes are getting shorter, and this follows), and the
   new one is used without a restart.
+- **Without the name service:** once it has a certificate, the name needs only DNS. If the name
+  service or Let's Encrypt can't be reached when Gatekeeper starts, it serves the
+  certificate it already has and tries them again later.
 - **The address `https://SERVER_IP:8098/`** keeps its own self-signed certificate, so
   what's already installed from it keeps working.
 
@@ -723,7 +762,8 @@ on the home network, with no certificate to install and no warning.
 4. Open `https://<id>.gatekeeperhome.net/` on the phone and install the app from there
    ([The app](#the-app)). Log in once more: the new address is a new site to the phone.
 
-To have notifications open it too, set `WEB_PUBLIC_URL=https://<id>.gatekeeperhome.net/`.
+To have ntfy's notifications open it too, set `WEB_PUBLIC_URL=https://<id>.gatekeeperhome.net/`
+in `.env`. The app's own notifications already open in the app.
 
 **If the phone can't find the name:** some routers drop public names that point at a home
 address (DNS rebinding protection), and Gatekeeper's log warns that the name `doesn't
@@ -765,8 +805,8 @@ saw.
 With [recordings](#recordings) on, each visit links to its clips: tap one to watch it,
 with sound, in the phone's or browser's own player.
 
-The page has no scripts and works on a phone, like the faces page (`faces/`, linked
-from it). Pictures come from the camera's snapshots of each visit while it keeps them; a
+The page needs no script of its own and works on a phone, like the faces page (`faces/`,
+linked from it). Pictures come from the camera's snapshots of each visit while it keeps them; a
 visit that started with a doorbell press, before anyone was seen, shows the frame sent
 with its notification (kept `AUDIO_RETENTION_DAYS`). A press during a visit is part of
 that visit, so it has no label of its own.
