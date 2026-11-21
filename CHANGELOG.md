@@ -319,6 +319,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     someone the camera hasn't caught going inside.
 
 ### Changed
+- **The daily report says which visits the conversation model would have warned**
+  (Gatekeeper#195): *would have warned 1 (threat level: normal 1): Mon 09:15 (no_response)*,
+  times and how each visit ended only, so a warning on a harmless visit can be found.
 - **The house rule check catches what a conversation test found.** In made-up
   conversations, models gave the house away by being kind:
   - *"I'll let Delphine know you stopped by"*: a household name, a new rule (`names`);
