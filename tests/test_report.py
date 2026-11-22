@@ -1345,7 +1345,8 @@ def test_own_perception_is_compared_with_frigates_arrivals():
     assert "own_perception" not in failing(r)
     assert (
         f"Own perception (shadow, since {report.local(NOW - 8000)}): saw 1 of 3 of Frigate's "
-        f"porch arrivals in the zone, 1 elsewhere, missed {report.local(NOW - 3000)}; "
+        f"porch arrivals in the zone, 1 elsewhere ({report.local(NOW - 4000)}: Frigate 10 s; "
+        f"track in no zone; no visit), missed {report.local(NOW - 3000)}; "
         f"3 track(s), 1 on the porch Frigate didn't have ({report.local(NOW - 3500)} 0.88, 10 s); "
         "detector on 1500 of 18000 frames: on cpu 3.0 fps, median 190 ms (1 h); "
         "on cuda 1.0 fps, median 180 ms (2 h)" in render_text(r)
@@ -1385,6 +1386,50 @@ def test_porch_tracks_frigate_didnt_have_say_their_score_length_and_visit():
         f"2 on the porch Frigate didn't have (1 started a visit: {report.local(NOW - 3020)} "
         f"0.57, 12 s, visit: completed; {report.local(NOW - 2000)} 0.88, 10 s)"
     ) in render_text(r)
+
+
+def test_an_arrival_seen_elsewhere_says_where_its_track_was_and_what_visit_it_started():
+    # Starting the visits, Frigate has someone on the porch while own perception's tracks
+    # stay on the walkway: no visit, nobody greeted. A second one overlaps a track that did
+    # start a visit (an earlier `left`), which makes it harmless (#197).
+    on = "own perception on (visits): go2rtc:8554/front_door_sub, zones porch"
+    left = (
+        NOW - 2990,
+        "own_perception",
+        f"own perception: person track {NOW - 3010:.6f}-own2 start={NOW - 3010:.1f} "
+        f"end={NOW - 2995:.1f} zones=door path=(0.80,0.95)->(0.40,0.50) best=0.80 hits=30",
+    )
+    log = own_log((NOW - 8000, "app", on), own_track(NOW - 2000, NOW - 1990, "walkway"), left)
+    gone = visit(NOW - 3010, NOW - 2995, event_id=f"{NOW - 3010:.6f}-own2", outcome="left")
+    arrivals = [
+        {"start_time": NOW - 3000, "end_time": NOW - 2990},
+        {"start_time": NOW - 2001, "end_time": NOW - 1995},
+    ]
+    r = build(
+        inputs(
+            arrivals=arrivals,
+            log_text=log,
+            trigger_zones=("porch",),
+            perception="own",
+            own_perception="visits",
+            window_visits=[gone],
+            visits=[gone],
+        )
+    )
+    own = r["own_perception"]
+    assert own["seen_elsewhere"] == [report.local(NOW - 3000), report.local(NOW - 2001)]
+    assert own["elsewhere_near"] == [
+        {"at": report.local(NOW - 3000), "seconds": 10.0, "zones": ["door"], "visits": ["left"]},
+        {"at": report.local(NOW - 2001), "seconds": 6.0, "zones": ["walkway"], "visits": []},
+    ]
+    assert (
+        f"2 elsewhere ({report.local(NOW - 3000)}: Frigate 10 s; track in door; visit: left, "
+        f"{report.local(NOW - 2001)}: Frigate 6 s; track in walkway; no visit)"
+    ) in render_text(r)
+
+
+def test_elsewhere_from_a_report_before_its_details_is_a_number_only():
+    assert report.elsewhere_text({"seen_elsewhere": ["Sat 04:39"]}) == "1 elsewhere"
 
 
 def test_extra_tracks_from_a_report_before_their_details_are_times_only():

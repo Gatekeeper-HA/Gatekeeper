@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Daily report: arrivals own perception saw elsewhere say where.** Each of Frigate's porch
+  arrivals that own perception's tracks saw only outside the trigger zones
+  (`own_perception.elsewhere_near`) gives Frigate's event length, the zones its tracks saw,
+  and any visit they started. Starting the visits, such an arrival with no visit is someone
+  nobody greeted, which the line used to give as a bare count (#197).
 - **A Content Security Policy on every page** (`csp.py`), as a second line behind escaping.
   - Scripts run only from Gatekeeper's own files. The service worker's registration and the
     Zones and Live pages' scripts moved from the pages into `webapp/` (`app.js`, `zones.js`,
