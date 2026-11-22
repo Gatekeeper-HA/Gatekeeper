@@ -79,7 +79,7 @@ python -m hubnames zone            # set up the zone's own records (Deploying)
 | `HUBNAMES_PORT` | `8080` | the API's port |
 | `SERVER_IPV4`, `SERVER_IPV6` | | this server's addresses, for `zone` (IPv6 optional) |
 
-It needs Python 3.11 and `cryptography`. The tests are in `cloud/tests` and run with the
+It needs Python 3.13 and `cryptography`. The tests are in `cloud/tests` and run with the
 rest (`pytest`).
 
 ## Deploying
