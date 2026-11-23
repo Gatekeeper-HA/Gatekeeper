@@ -377,6 +377,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **The delivery guess sees visitors who rang or knocked.** A visit started by the doorbell
+  button or a knock while the person was on camera is on their own track, but the guess
+  skipped every visit not started by a person's dwell, so visitors who rang (the likeliest
+  couriers) never got one. Presses with nobody seen are still skipped (#201).
 - **The hub name's certificate is served as soon as Gatekeeper starts.** It used to wait
   until the name service had answered, so while the service couldn't be reached (or had
   refused), the name got the self-signed certificate and the app couldn't load. The

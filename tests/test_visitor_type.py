@@ -109,3 +109,22 @@ def test_visits_are_guessed_in_the_background_but_not_presses_or_packages(tmp_pa
             break
         time.sleep(0.02)
     assert list(g.guesses.all()) == ["1799999600.000000-aaa111"]
+
+
+def test_a_visit_started_by_the_button_or_a_knock_on_someones_track_is_guessed(tmp_path):
+    # Someone on camera rang (or knocked) before their dwell started the visit: the visit
+    # is on their own track, so it has a path and frames to guess from.
+    g = guesser(tmp_path)
+    g.visit_logged({"event_id": "1799999600.000000-aaa111", "trigger": "button"})
+    g.visit_logged({"event_id": "1799999700.000000-bbb222", "trigger": "knock"})
+    g.visit_logged({"event_id": "press-1799999800.000", "trigger": "knock"})
+    g.visit_logged({"event_id": "1799999900.000000-ccc333", "trigger": None})
+    for _ in range(100):
+        if len(g.guesses.all()) >= 2:
+            break
+        time.sleep(0.02)
+    time.sleep(0.05)
+    assert sorted(g.guesses.all()) == [
+        "1799999600.000000-aaa111",
+        "1799999700.000000-bbb222",
+    ]

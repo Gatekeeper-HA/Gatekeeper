@@ -988,7 +988,9 @@ day reads apart from a listener that isn't hearing anything.
 
 ## Delivery guess (shadow)
 
-With `DELIVERY_GUESS` on, Gatekeeper guesses whether each greeted visitor was a delivery.
+With `DELIVERY_GUESS` on, Gatekeeper guesses whether each greeted visitor was a delivery,
+whether they started the visit by walking up, ringing or knocking (a press with nobody on
+camera has nobody to look at, so it gets no guess).
 For now it only shows the guess: on the Visits page next to your label, and in the daily
 report, which says how often the two agree. Nothing at the door depends on it yet.
 
