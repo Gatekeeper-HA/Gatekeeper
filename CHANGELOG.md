@@ -11,6 +11,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   (`own_perception.elsewhere_near`) gives Frigate's event length, the zones its tracks saw,
   and any visit they started. Starting the visits, such an arrival with no visit is someone
   nobody greeted, which the line used to give as a bare count (#197).
+- **Daily report: own perception's misses say how close it came.** Each of Frigate's porch
+  arrivals own perception missed (`own_perception.missed_near`) gives Frigate's event
+  length and own perception's nearest track: seconds before or after, whether it was in a
+  trigger zone, and the visit it started. Someone just greeted whose track ended a few
+  seconds before Frigate's event no longer reads like a stranger nobody greeted (#193).
 - **Daily report: labels that disagree with a face recognition** (#175). A visit Gatekeeper
   took for an enrolled person that the owner labelled as something else (a courier, a guest)
   is a possible false face match. The report now lists each one with the visit's start, the

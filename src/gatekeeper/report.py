@@ -711,6 +711,9 @@ def own_perception_info(
             for e, near_tracks in zip(elsewhere, elsewhere_tracks, strict=True)
         ],
         "missed": [local(e["start_time"]) for e in missed],
+        # How close it came to each miss: someone just greeted whose track ended a few
+        # seconds before Frigate's event, or nobody near at all (#193).
+        "missed_near": [nearest_track(e, tracks, now, in_zone, outcomes) for e in missed],
         "missed_visits": None
         if visits_since is None
         else sum(e["start_time"] >= visits_since - OWN_SLACK_SECONDS for e in missed),
@@ -736,6 +739,34 @@ def own_perception_info(
     }
 
 
+def nearest_track(arrival: dict, tracks: list, now: float, in_zone, outcomes: dict) -> dict:
+    """For one of Frigate's porch arrivals own perception missed: how long Frigate saw the
+    person, and own perception's nearest track: how many seconds before Frigate's event it
+    ended (``when`` "before") or after it ended that the track started ("after"), whether
+    it was in a trigger zone, and the visit it started (its outcome), if any. ``track``
+    None: it had no track at all."""
+    start, end = arrival["start_time"], arrival.get("end_time") or now
+    out: dict = {
+        "at": local(start),
+        "seconds": round(end - start, 1) if arrival.get("end_time") else None,
+        "track": None,
+    }
+    best = None
+    for t0, t1, zones_seen, track_id, _ in tracks:
+        if t1 < start:
+            gap, when = start - t1, "before"
+        elif t0 > end:
+            gap, when = t0 - end, "after"
+        else:
+            gap, when = 0.0, "during"
+        if best is None or gap < best[0]:
+            best = (gap, when, in_zone(zones_seen), outcomes.get(track_id))
+    if best is not None:
+        gap, when, zone, visit = best
+        out["track"] = {"gap": round(gap, 1), "when": when, "in_zone": zone, "visit": visit}
+    return out
+
+
 def elsewhere_text(own: dict) -> str:
     """The arrivals it saw elsewhere, for the Own perception line: each one's time, Frigate's
     length, the zones its tracks saw and any visit they started (reports from before #197
@@ -751,6 +782,32 @@ def elsewhere_text(own: dict) -> str:
         about.append(f"visit: {', '.join(x['visits'])}" if x["visits"] else "no visit")
         parts.append(f"{x['at']}: {'; '.join(about)}")
     return f"{len(near)} elsewhere ({', '.join(parts)})"
+
+
+def missed_near_text(own: dict) -> str:
+    """The misses for the Own perception line, each with Frigate's length and the nearest
+    track (reports from before #193 have the times only)."""
+    near = own.get("missed_near")
+    if near is None:
+        return ", ".join(own["missed"])
+    parts = []
+    for m in near:
+        about = [f"Frigate {m['seconds']:g} s"] if m["seconds"] is not None else []
+        t = m["track"]
+        if t is None:
+            about.append("no track of its own")
+        else:
+            where = "" if t["in_zone"] else " outside the zone"
+            if t["when"] == "before":
+                about.append(f"nearest track{where} ended {t['gap']:g} s before")
+            elif t["when"] == "after":
+                about.append(f"nearest track{where} started {t['gap']:g} s after")
+            else:
+                about.append(f"a track{where} at the same time")
+            if t["visit"]:
+                about.append(f"visit: {t['visit']}")
+        parts.append(f"{m['at']} ({'; '.join(about)})")
+    return ", ".join(parts)
 
 
 def extra_tracks_text(own: dict, most: int = 10) -> str:
@@ -2063,7 +2120,7 @@ def summary_lines(report: dict) -> list[str]:
             f"{own['since']}): saw {own['seen']} of {own['arrivals']} of Frigate's porch "
             "arrivals in the zone"
             + (f", {elsewhere_text(own)}" if own["seen_elsewhere"] else "")
-            + (f", missed {', '.join(own['missed'])}" if own["missed"] else "")
+            + (f", missed {missed_near_text(own)}" if own["missed"] else "")
             + (
                 f", {len(own['restarting'])} while Gatekeeper restarted"
                 f" ({', '.join(own['restarting'])})"
