@@ -680,6 +680,41 @@ def test_a_press_during_the_visit_gets_the_bells_lines(settings):
     assert run(press=True) == "no_answer_pressed_1"
 
 
+def test_a_press_after_the_no_answer_line_is_answered(settings):
+    # Someone who rings during the last listening turn: the no-answer line was already
+    # picked, and acknowledge_press can't speak mid-visit. Tell them the press was heard.
+    keys = ("greeting", "pressed", *ALL_REPLY_KEYS)
+
+    def run(press_on: str | None):
+        rig = Rig(settings, answer="", answer2="", presynth_keys=keys)
+        capture = rig.capture
+
+        def ringing_capture(url, path, seconds):
+            if path.name == press_on:
+                rig.interaction.pressed_during(EID)  # app.on_press, the press merged
+            return capture(url, path, seconds)
+
+        rig.capture = ringing_capture
+        rig.interaction._capture = ringing_capture
+        visit = rig.interaction.run(EID)
+        return [c[1] for c in rig.calls if c[0] == "play"], visit
+
+    played, visit = run(f"{EID}-2.wav")  # rang after the no-answer line
+    assert played == [
+        "_presynth_greeting.wav",
+        "_presynth_no_answer.wav",
+        "_presynth_pressed.wav",
+    ]
+    assert (visit.outcome, visit.response) == ("completed", settings.reply_pressed)
+    assert visit.dialogue[-1]["asked"] == "no_answer"  # the line said is still counted
+
+    played, visit = run(f"{EID}.wav")  # rang before it: the line was the bell's already
+    assert "_presynth_pressed.wav" not in played
+    played, visit = run(None)  # never rang
+    assert "_presynth_pressed.wav" not in played
+    assert visit.response == settings.reply_no_answer
+
+
 def test_a_press_after_the_visit_isnt_kept(settings):
     rig = Rig(settings)
     rig.interaction.pressed_during(EID)  # a press in the cooldown: no visit running
