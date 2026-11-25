@@ -1,12 +1,12 @@
 # Pinned dependencies for the gatekeeper image (Python 3.13, linux x86_64 + aarch64).
-# Made by scripts/lock.sh: releases from before 2026-11-18T15:20:21Z (7-day cooldown).
+# Made by scripts/lock.sh: releases from before 2026-11-18T17:09:48Z (7-day cooldown).
 # Don't edit by hand; change pyproject.toml, then run scripts/lock.sh.
 --index-url https://pypi.org/simple
 --find-links https://download.pytorch.org/whl/torch/
 
 addict==2.4.0  # via misaki
 aiohappyeyeballs==2.7.1  # via aiohttp
-aiohttp==3.14.5  # via reolink-aio, gatekeeper (pyproject.toml)
+aiohttp==3.14.5  # via reolink-aio, snitun, gatekeeper (pyproject.toml)
 aioice==0.13.0  # via aiortc
 aiortc==1.16.0  # via gatekeeper (pyproject.toml)
 aiortsp==1.4.0  # via reolink-aio
@@ -26,7 +26,7 @@ click==8.5.1  # via huggingface-hub, spacy, weasel
 cloudpathlib==0.26.0  # via weasel
 cloudpickle==3.1.3  # via joblib
 confection==1.3.4  # via spacy, thinc, weasel
-cryptography==50.0.2  # via aiortc, pyopenssl
+cryptography==50.0.2  # via aiortc, pyopenssl, snitun
 csvw==4.2.0  # via segments
 ctranslate2==4.9.0  # via faster-whisper
 curated-tokenizers==0.0.10  # via spacy-curated-transformers
@@ -105,6 +105,7 @@ segments==2.4.0  # via phonemizer-fork
 setuptools==84.2.1  # via spacy, thinc, torch
 shellingham==1.5.4  # via typer
 smart-open==9.0.4  # via weasel
+snitun==0.47.0  # via gatekeeper (pyproject.toml)
 soundfile==0.14.0  # via gatekeeper (pyproject.toml)
 spacy==3.8.18  # via misaki
 spacy-curated-transformers==0.3.1  # via misaki

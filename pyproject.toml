@@ -38,6 +38,11 @@ talkback = [
 doorbell = [
     "reolink-aio",
 ]
+# The web page away from home through Gatekeeper's relay, with Cloud Plus (tunnel.py): SniTun,
+# the relay behind Home Assistant Cloud.
+remote = [
+    "snitun",
+]
 dev = [
     "numpy",  # the audio tap and VAD work on numpy arrays; cheap, unlike torch
     "av",  # PyAV: the recording tests write and read real clips
@@ -46,6 +51,7 @@ dev = [
     "pyyaml",  # tests compare the Frigate configs
     "pytest-cov>=5",
     "ruff>=0.6",
+    "snitun",  # the tunnel's tests run SniTun's own relay and client (tests/test_tunnel.py)
 ]
 
 [project.scripts]

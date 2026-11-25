@@ -124,6 +124,7 @@ add-on options in Home Assistant). Unset or empty variables use the default.
 | `HUB_NAME_CLAIM` | | A claim code from Gatekeeper: turns on the [hub's own name](#hub-name), with a Let's Encrypt certificate. Needs `WEB_TLS`. The compose stack reads it from `.env` |
 | `HUB_NAME_ADDRESS` | the first private IPv4 of `WEB_TLS_NAMES` | The address on the home network the name points at |
 | `HUB_NAME_API` | `https://api.gatekeeperhome.net` | The name service ([cloud/](cloud/README.md)); run your own with your own domain |
+| `RELAY` | on | With Cloud Plus, the web page away from home through Gatekeeper's relay ([Away from home](#away-from-home)). `RELAY=0` keeps it off |
 | `HUB_NAME_ACME` | Let's Encrypt | The ACME directory the certificate comes from. Let's Encrypt's staging directory (`https://acme-staging-v02.api.letsencrypt.org/directory`) for tests: its certificates aren't trusted |
 | `LIVE_STREAM`, `LIVE_HD_STREAM` | `<CAMERA_NAME>_live`, `<CAMERA_NAME>_live_hd` | go2rtc's streams for the [Live page](#live): the video as it is, the audio as Opus |
 | `GO2RTC_TALK_STREAM` | `front_door_talk` | go2rtc stream name for talkback |
@@ -773,6 +774,24 @@ OPNsense, as a private domain of the DNS resolver: `private-domain: "gatekeeperh
 Everything it keeps is in `LOG_DIR/hub-name`, readable only by Gatekeeper: its keys, the
 name and the certificate. The daily report gives the name, the address, the days the
 certificate has left, and any failed tries.
+
+### Away from home
+
+With **Cloud Plus**, the app works away from home by the same name, with no VPN. Gatekeeper
+keeps a tunnel open to Gatekeeper's relay ([cloud/](cloud/README.md#the-relay)). A phone
+connects to the hub's name, and the relay passes its connection down the tunnel **still
+encrypted**: TLS ends here, with the hub name's own certificate, so the relay never sees a
+page, a picture or a password.
+
+- **It turns itself on** when the hub has a [hub name](#hub-name) and Cloud Plus. Without
+  Cloud Plus, Gatekeeper checks again every hour. `RELAY=0` keeps it off.
+- **Not with a weak password.** Through the relay the page faces the internet, so the tunnel
+  stays off while `GATEKEEPER_WEB_PASSWORD` is shorter than 12 characters. The log says so.
+  Use a few unrelated words.
+- **Each phone keeps its own address** on the way in, so the
+  [limit on wrong passwords](#the-web-page) counts each phone on its own.
+- **The log says** `relay: tunnel up through relay.gatekeeperhome.net` when it's open, and
+  why when it isn't. Its pass is renewed every hour without phones noticing.
 
 ## Visits
 
