@@ -1345,7 +1345,8 @@ def test_own_perception_is_compared_with_frigates_arrivals():
     assert "own_perception" not in failing(r)
     assert (
         f"Own perception (shadow, since {report.local(NOW - 8000)}): saw 1 of 3 of Frigate's "
-        f"porch arrivals in the zone, 1 elsewhere, missed {report.local(NOW - 3000)}; "
+        f"porch arrivals in the zone, 1 elsewhere, missed {report.local(NOW - 3000)} "
+        "(nearest track ended 490 s before); "
         f"3 track(s), 1 on the porch Frigate didn't have ({report.local(NOW - 3500)} 0.88, 10 s); "
         "detector on 1500 of 18000 frames: on cpu 3.0 fps, median 190 ms (1 h); "
         "on cuda 1.0 fps, median 180 ms (2 h)" in render_text(r)
@@ -1385,6 +1386,77 @@ def test_porch_tracks_frigate_didnt_have_say_their_score_length_and_visit():
         f"2 on the porch Frigate didn't have (1 started a visit: {report.local(NOW - 3020)} "
         f"0.57, 12 s, visit: completed; {report.local(NOW - 2000)} 0.88, 10 s)"
     ) in render_text(r)
+
+
+def test_a_miss_says_how_close_own_perceptions_nearest_track_was():
+    # Someone greeted walks away: their track ends, and Frigate's porch event for them
+    # starts 8 s later, past the 5 s slack. A miss, but the report shows the greeted visit
+    # right before it, apart from a miss with no track anywhere near (#193).
+    on = "own perception on (visits): go2rtc:8554/front_door_sub, zones porch"
+    greeted_track = (
+        NOW - 2970,
+        "own_perception",
+        f"own perception: person track {NOW - 3030:.6f}-own2 start={NOW - 3030:.1f} "
+        f"end={NOW - 2975:.1f} zones=porch,door path=(0.40,0.90)->(0.70,0.95) best=0.81 hits=40",
+    )
+    log = own_log((NOW - 8000, "app", on), greeted_track, own_track(NOW - 900, NOW - 880, "-"))
+    greeted = visit(NOW - 3030, NOW - 2975, event_id=f"{NOW - 3030:.6f}-own2")
+    arrivals = [
+        {"start_time": NOW - 3029, "end_time": NOW - 2990},  # seen: the greeted visit
+        {"start_time": NOW - 2967, "end_time": NOW - 2955},  # them again, 8 s after
+        {"start_time": NOW - 860, "end_time": NOW - 850},  # off the porch track: 10 s
+    ]
+    r = build(
+        inputs(
+            arrivals=arrivals,
+            log_text=log,
+            trigger_zones=("porch",),
+            perception="own",
+            own_perception="visits",
+            window_visits=[greeted],
+            visits=[greeted],
+        )
+    )
+    own = r["own_perception"]
+    assert own["missed"] == [report.local(NOW - 2967), report.local(NOW - 860)]
+    assert own["missed_near"] == [
+        {
+            "at": report.local(NOW - 2967),
+            "seconds": 12.0,
+            "track": {"gap": 8.0, "when": "before", "in_zone": True, "visit": "completed"},
+        },
+        {
+            "at": report.local(NOW - 860),
+            "seconds": 10.0,
+            "track": {"gap": 20.0, "when": "before", "in_zone": False, "visit": None},
+        },
+    ]
+    # Still a miss: the check is unchanged, the line explains it.
+    assert failing(r)["own_perception"] == (
+        "own perception starts the visits but missed 2 of Frigate's porch arrivals: not greeted"
+    )
+    assert (
+        f"missed {report.local(NOW - 2967)} (Frigate 12 s; nearest track ended 8 s before; "
+        f"visit: completed), {report.local(NOW - 860)} (Frigate 10 s; nearest track outside "
+        "the zone ended 20 s before)"
+    ) in render_text(r)
+
+
+def test_a_miss_with_no_track_at_all_says_so():
+    own = {
+        "missed": ["Sat 04:39"],
+        "missed_near": [{"at": "Sat 04:39", "seconds": 3.5, "track": None}],
+    }
+    assert report.missed_near_text(own) == "Sat 04:39 (Frigate 3.5 s; no track of its own)"
+    after = {"at": "Sat 05:00", "seconds": None, "track": None}
+    after["track"] = {"gap": 6.0, "when": "after", "in_zone": True, "visit": "left"}
+    own = {"missed": ["Sat 05:00"], "missed_near": [after]}
+    expected = "Sat 05:00 (nearest track started 6 s after; visit: left)"
+    assert report.missed_near_text(own) == expected
+
+
+def test_misses_from_a_report_before_their_details_are_times_only():
+    assert report.missed_near_text({"missed": ["Sat 04:39"]}) == "Sat 04:39"
 
 
 def test_extra_tracks_from_a_report_before_their_details_are_times_only():
