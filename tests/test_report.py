@@ -1898,6 +1898,28 @@ def test_the_owners_labels_are_compared_with_what_gatekeeper_did():
     )
 
 
+def test_a_label_that_disagrees_with_a_face_recognition_names_the_visit():
+    courier = visit(NOW - 9000, NOW - 8990, outcome="household", label="amazon")
+    courier["details"] = {"name": "Alex", "greeted": True}
+    home = visit(NOW - 5000, NOW - 4990, outcome="household", label="household")
+    home["details"] = {"name": "Sam", "greeted": False}
+    r = build(inputs(labelled=[courier, home, visit(NOW - 4000, NOW - 3990, label="ups")]))
+    assert r["counts"]["labels_face_disputed"] == [
+        {"at": report.local(NOW - 9000), "name": "Alex", "label": "amazon"}
+    ]
+    assert (
+        "Labelled otherwise after a face recognition (a false face match? check the "
+        f"snapshot): {report.local(NOW - 9000)} Alex → Amazon delivery" in render_text(r)
+    )
+
+
+def test_labels_that_agree_with_a_face_recognition_add_no_line():
+    home = visit(NOW - 5000, NOW - 4990, outcome="household", label="household")
+    r = build(inputs(labelled=[home]))
+    assert r["counts"]["labels_face_disputed"] == []
+    assert "face recognition" not in render_text(r)
+
+
 def test_which_no_answer_lines_get_people_talking():
     def silent(start, key, heard=""):
         return visit(

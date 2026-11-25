@@ -1,0 +1,5 @@
+# The tools the image check installs inside the image (.github/workflows/image.yml).
+# Dependabot keeps them current (.github/dependabot.yml).
+pip-audit==2.10.1
+pytest==9.2.0
+pyyaml==6.0.3

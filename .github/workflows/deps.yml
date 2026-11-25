@@ -1,0 +1,89 @@
+name: Dependencies
+
+# Every Monday, the image's Python packages move to their newest releases that are at least
+# 7 days old (scripts/lock.sh --upgrade), as one pull request listing what moved. CI, the image
+# check (image.yml) and the owner's review decide whether it goes in. Dependabot keeps the
+# rest current (.github/dependabot.yml).
+#
+# The pull request is opened with DEPS_TOKEN, a fine-grained token for this repository
+# (Contents and Pull requests: read and write): one opened with the workflow's own token
+# wouldn't run CI. README, "Keeping dependencies current".
+
+on:
+  schedule:
+    - cron: "23 9 * * 1" # Mondays, 09:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency: deps
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - name: The token
+        env:
+          DEPS_TOKEN: ${{ secrets.DEPS_TOKEN }}
+        run: |
+          if [ -z "$DEPS_TOKEN" ]; then
+            echo "::error::DEPS_TOKEN isn't set: README, \"Keeping dependencies current\""
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.DEPS_TOKEN }}
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.12.21"
+
+      - name: The newest releases past the cooldown
+        run: sh scripts/lock.sh --upgrade
+
+      - name: What moved
+        id: moved
+        run: |
+          python3 - <<'EOF'
+          import re, subprocess
+          diff = subprocess.run(
+              ["git", "diff", "-U0", "--", "requirements.lock", "requirements-cuda.lock"],
+              capture_output=True, text=True, check=True,
+          ).stdout
+          old, new = {}, {}
+          for line in diff.splitlines():
+              if m := re.match(r"^([-+])([A-Za-z0-9_.-]+)==([^ ;]+)", line):
+                  (old if m[1] == "-" else new)[m[2].lower()] = m[3]
+          names = sorted(n for n in set(old) | set(new) if old.get(n) != new.get(n))
+          cutoff = re.search(r"releases from before (\S+)", open("requirements.lock").read())[1]
+          with open("body.md", "w") as f:
+              f.write(f"The image's packages at their newest releases from before {cutoff} "
+                      "(`scripts/lock.sh --upgrade`, a 7-day cooldown).\n\n"
+                      "| Package | Was | Now |\n|---|---|---|\n")
+              for n in names:
+                  f.write(f"| {n} | {old.get(n, '(new)')} | {new.get(n, '(gone)')} |\n")
+              f.write("\nThe image check (`image.yml`) builds the image and runs the tests, "
+                      "Gatekeeper's models and pip-audit in it. Merging deploys to the rig.\n")
+          with open(__import__("os").environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"count={len(names)}\n")
+          print(f"{len(names)} package(s) moved")
+          EOF
+
+      - name: The pull request
+        if: steps.moved.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ secrets.DEPS_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C deps/python
+          git commit -q -am "Dependencies: the newest releases past the 7-day cooldown"
+          git push -q --force origin deps/python
+          title="Dependencies: the newest releases past the 7-day cooldown"
+          if [ "$(gh pr view deps/python --json state --jq .state 2>/dev/null)" = OPEN ]; then
+            gh pr edit deps/python --title "$title" --body-file body.md
+          else
+            gh pr create --base main --head deps/python --title "$title" --body-file body.md
+          fi

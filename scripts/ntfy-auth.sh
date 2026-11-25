@@ -13,7 +13,7 @@ if [ $# -ne 1 ] || [ -z "$1" ]; then
     exit 2
 fi
 
-docker run --rm -e PHONE_PASSWORD="$1" python:3.11.16-slim-bookworm sh -c '
+docker run --rm -e PHONE_PASSWORD="$1" python:3.13.18-slim-bookworm sh -c '
 pip install -q --disable-pip-version-check --root-user-action=ignore bcrypt >/dev/null
 python - <<"EOF"
 import os

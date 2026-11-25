@@ -1268,8 +1268,50 @@ pytest --cov
 
 The speech (`faster-whisper`, `kokoro`) and talkback (`aiortc`) dependencies are optional
 extras, imported lazily, so the core logic is tested without them. The image installs
-everything from `requirements.lock`; regenerate it after changing dependencies in
-`pyproject.toml` (the command is at the top of the file).
+everything from `requirements.lock` (and the GPU image `requirements-cuda.lock` too), made by
+`scripts/lock.sh` with [uv](https://docs.astral.sh/uv/):
+
+- **After changing dependencies** in `pyproject.toml` or `requirements-cuda.in`:
+  `scripts/lock.sh`. Each package keeps its pinned version where it still fits.
+- **To move everything to its newest version:** `scripts/lock.sh --upgrade`.
+- **Only releases at least 7 days old are used** (`COOLDOWN_DAYS`). A broken or malicious
+  release usually comes to light and is pulled within days, before it could reach a hub.
+  The cutoff is at the top of each lock file.
+
+### Keeping dependencies current
+
+Everything Gatekeeper is built from moves to its newest release once that release is **at
+least 7 days old**. A broken or malicious release usually comes to light within days. Each
+move arrives as a pull request; merging it deploys to the rig.
+
+- **The image's Python packages:** every Monday, `.github/workflows/deps.yml` runs
+  `scripts/lock.sh --upgrade` and opens one pull request listing what moved.
+- **Everything else, through Dependabot** (`.github/dependabot.yml`):
+  - **GitHub Actions.**
+  - **The Dockerfiles' base images.** Python moves only within 3.13 there: a new Python
+    version is a change of its own.
+  - **The compose files' images, one pull request each.** Frigate gets only its patch
+    releases; its upgrades are done by hand, since they change its config.
+  - **The pinned tools** (`cloud/requirements.txt`, `.github/image-check/requirements.txt`).
+- **The image check** (`.github/workflows/image.yml`) runs on every pull request that changes
+  what goes into the image, and every Monday on `main`. It builds the image, then:
+  - runs the test suite inside it;
+  - loads and runs Gatekeeper's models (`scripts/image-check.py`): Kokoro speaks, Whisper
+    must hear it, the knock and package models run;
+  - resolves the GPU image's CUDA libraries;
+  - checks every package against known vulnerabilities (pip-audit).
+
+**`DEPS_TOKEN`:** the weekly pull request is opened with a token of the owner's, since one
+opened with the workflow's own token wouldn't run CI. To set it up:
+1. **Make the token.** In GitHub, go to **Settings → Developer settings → Fine-grained
+   tokens → Generate new token**, with:
+   - Resource owner: `Gatekeeper-HA`;
+   - Repository access: only `Gatekeeper`;
+   - Permissions: **Contents** and **Pull requests**, both read and write;
+   - Expiration: a year, with a reminder to renew it.
+2. **Save it:** in the repository, **Settings → Secrets and variables → Actions → New
+   repository secret**, named `DEPS_TOKEN`.
+3. **Try it:** **Actions → Dependencies → Run workflow**.
 
 ```bash
 # Rebuild after code or dependency changes

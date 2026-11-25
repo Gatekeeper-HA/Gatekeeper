@@ -1,0 +1,6 @@
+# The relay's packages (Dockerfile), kept current by Dependabot (.github/dependabot.yml).
+# SniTun, the relay behind Home Assistant Cloud (it needs Python 3.13). The sweep
+# (__main__.py) reads its tunnel list, so a new version must pass `python -m relay.check`,
+# which CI runs on every pull request.
+snitun==0.47.0
+cryptography==50.0.2
