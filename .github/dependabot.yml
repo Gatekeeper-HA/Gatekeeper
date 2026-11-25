@@ -2,8 +2,8 @@
 # GitHub Actions, the images' base images, the compose files' images and the pinned tools.
 # The image's Python packages are scripts/lock.sh's (the weekly .github/workflows/deps.yml).
 #
-# Only releases at least 7 days old, 30 for a new major version, like scripts/lock.sh: a broken
-# or malicious release usually comes to light within days. Security updates don't wait.
+# Only releases at least 7 days old, like scripts/lock.sh: a broken or malicious release
+# usually comes to light within days. Security updates don't wait.
 
 version: 2
 
@@ -11,7 +11,7 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly, day: monday }
-    cooldown: { default-days: 7, semver-major-days: 30 }
+    cooldown: { default-days: 7 }
     groups:
       actions: { patterns: ["*"] }
 
@@ -20,7 +20,7 @@ updates:
   - package-ecosystem: docker
     directories: [/, /cloud]
     schedule: { interval: weekly, day: monday }
-    cooldown: { default-days: 7, semver-major-days: 30 }
+    cooldown: { default-days: 7 }
     ignore:
       - dependency-name: python
         update-types: [version-update:semver-major, version-update:semver-minor]
@@ -31,7 +31,7 @@ updates:
   - package-ecosystem: docker-compose
     directories: [/, /cloud]
     schedule: { interval: weekly, day: monday }
-    cooldown: { default-days: 7, semver-major-days: 30 }
+    cooldown: { default-days: 7 }
     ignore:
       - dependency-name: blakeblackshear/frigate
         update-types: [version-update:semver-major, version-update:semver-minor]
@@ -41,4 +41,4 @@ updates:
   - package-ecosystem: pip
     directories: [/cloud, /.github/image-check]
     schedule: { interval: weekly, day: monday }
-    cooldown: { default-days: 7, semver-major-days: 30 }
+    cooldown: { default-days: 7 }
