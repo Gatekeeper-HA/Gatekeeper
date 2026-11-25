@@ -1,0 +1,62 @@
+name: Image
+
+# The image as it ships (the CPU one), built from the lock files, and checked inside:
+# - the test suite, with every dependency installed (CI's skips the heavy ones);
+# - Gatekeeper's models loaded and run (scripts/image-check.py), which the tests don't do;
+# - the GPU image's CUDA libraries, resolved for this Python;
+# - its packages against known vulnerabilities (pip-audit).
+# On pull requests that change what goes into it, and every Monday on main, for
+# vulnerabilities found since.
+
+on:
+  pull_request:
+    paths:
+      - Dockerfile
+      - pyproject.toml
+      - requirements.lock
+      - requirements-cuda.lock
+      - requirements-cuda.in
+      - scripts/lock.sh
+      - scripts/image-check.py
+      - .github/image-check/**
+      - .github/workflows/image.yml
+  schedule:
+    - cron: "47 10 * * 1" # Mondays, 10:47 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build
+        run: docker build --quiet -t gatekeeper:check .
+
+      - name: Its tools
+        run: |
+          docker create --name check -v "$PWD:/repo:ro" -w /repo --entrypoint sleep \
+            gatekeeper:check infinity
+          docker start check
+          docker exec check pip install --quiet --root-user-action=ignore \
+            -r .github/image-check/requirements.txt
+
+      - name: The tests
+        # The rig scripts' tests need git, jq and docker, which the image hasn't: CI runs them.
+        run: |
+          docker exec check python -m pytest -p no:cacheprovider -o addopts= -q \
+            --ignore=tests/test_rig_logs.py tests cloud/tests
+
+      - name: Gatekeeper's models
+        run: docker exec check python scripts/image-check.py
+
+      - name: The GPU image's CUDA libraries
+        run: |
+          docker exec check pip install --dry-run --quiet --root-user-action=ignore \
+            --ignore-installed -r requirements-cuda.lock
+
+      - name: Known vulnerabilities
+        run: docker exec check pip-audit --progress-spinner off

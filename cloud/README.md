@@ -87,7 +87,7 @@ python -m hubnames plus <id> 90    # Cloud Plus for 90 more days; `off` ends it
 | `RELAY_FERNET_KEYS` | | the keys shared with the relay, comma-separated; the first makes new passes. Without them, no passes |
 | `TURN_SECRET` | | coturn's secret, shared with the relay |
 
-It needs Python 3.11 and `cryptography`. The tests are in `cloud/tests` and run with the
+It needs Python 3.13 and `cryptography`. The tests are in `cloud/tests` and run with the
 rest (`pytest`).
 
 ### The relay

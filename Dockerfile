@@ -1,4 +1,4 @@
-FROM python:3.11.16-slim-bookworm
+FROM python:3.13.18-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -14,8 +14,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /src
 
 # Dependencies first, so code changes don't reinstall torch (nor CUDA library changes).
+# Kokoro and misaki (its pronunciation) say they need Python older than 3.13, a limit from
+# their last release (April 2025), when their dependencies had no 3.13 builds yet. They're
+# pure Python and run on 3.13, so they're installed without that check, and without their
+# dependencies, which the lock already holds.
 COPY requirements.lock ./
-RUN pip install -r requirements.lock
+RUN grep -vE '^(kokoro|misaki)==' requirements.lock > /tmp/rest.txt \
+    && pip install -r /tmp/rest.txt \
+    && grep -E '^(kokoro|misaki)==' requirements.lock | sed 's/ *#.*//' > /tmp/old-limit.txt \
+    && pip install --no-deps --ignore-requires-python -r /tmp/old-limit.txt \
+    && rm /tmp/rest.txt /tmp/old-limit.txt
 
 # VARIANT=cuda (docker-compose.gpu.yml) adds the CUDA libraries that Whisper and the
 # person detector (own_perception.py) need to run on an NVIDIA GPU (~1.5 GB), and swaps
@@ -28,7 +36,7 @@ COPY requirements-cuda.lock ./
 RUN if [ "$VARIANT" = "cuda" ]; then \
       pip uninstall -y onnxruntime && pip install -r requirements-cuda.lock; \
     fi
-ENV LD_LIBRARY_PATH=/usr/local/lib/python3.11/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.11/site-packages/nvidia/cudnn/lib:/usr/local/lib/python3.11/site-packages/nvidia/cuda_runtime/lib:/usr/local/lib/python3.11/site-packages/nvidia/cufft/lib:/usr/local/lib/python3.11/site-packages/nvidia/curand/lib:/usr/local/lib/python3.11/site-packages/nvidia/nvjitlink/lib
+ENV LD_LIBRARY_PATH=/usr/local/lib/python3.13/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.13/site-packages/nvidia/cudnn/lib:/usr/local/lib/python3.13/site-packages/nvidia/cuda_runtime/lib:/usr/local/lib/python3.13/site-packages/nvidia/cufft/lib:/usr/local/lib/python3.13/site-packages/nvidia/curand/lib:/usr/local/lib/python3.13/site-packages/nvidia/nvjitlink/lib
 
 COPY pyproject.toml VERSION README.md LICENSE ./
 COPY src ./src
