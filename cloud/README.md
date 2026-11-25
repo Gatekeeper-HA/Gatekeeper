@@ -36,6 +36,8 @@ It runs behind a proxy that gives it HTTPS.
 | `PUT /v1/hubs/<id>/address` | `{"address": "192.168.1.20"}` | 204 |
 | `PUT /v1/hubs/<id>/challenge` | `{"values": [<TXT value>, ...]}` (at most 2; none removes them) | 204 |
 | `PUT /v1/hubs/<id>/caa` | `{"account": <its Let's Encrypt account URL>}` | 204 |
+| `POST /v1/hubs/<id>/tunnel` | `{}` | 200: a pass for the relay ([The relay](#the-relay)) |
+| `POST /v1/hubs/<id>/turn` | `{}` | 200: TURN credentials for Live |
 | `DELETE /v1/hubs/<id>` | | 204 |
 
 **Signing:** `Authorization: Hub <unix time>.<signature>`. The signature (Ed25519,
@@ -45,7 +47,8 @@ the service's clock.
 
 **Errors:** `{"error": ...}`, with:
 - 400 for a bad body;
-- 403 for an unknown or used claim code, or a bad signature;
+- 403 for an unknown or used claim code, a bad signature, or a pass for a hub without
+  Cloud Plus;
 - 404 for an unknown hub;
 - 429 past 60 changes an hour, or for an address whose requests were refused 20 times in
   the last hour (any 400, 403 or 404), with `Retry-After`;
@@ -68,6 +71,8 @@ HUBNAMES_ZONE=<the zone> PDNS_API_KEY=<PowerDNS's API key> python -m hubnames
 python -m hubnames claims 5        # 5 new claim codes, printed once (only hashes are kept)
 python -m hubnames remove <id>     # take a hub's name down
 python -m hubnames zone            # set up the zone's own records (Deploying)
+python -m hubnames plus            # the hubs with Cloud Plus, and until when
+python -m hubnames plus <id> 90    # Cloud Plus for 90 more days; `off` ends it
 ```
 
 | Setting | Default | |
@@ -78,9 +83,39 @@ python -m hubnames zone            # set up the zone's own records (Deploying)
 | `HUBNAMES_DB` | `/data/hubnames.db` | the hubs and claim codes |
 | `HUBNAMES_PORT` | `8080` | the API's port |
 | `SERVER_IPV4`, `SERVER_IPV6` | | this server's addresses, for `zone` (IPv6 optional) |
+| `RELAY_IPV4`, `RELAY_IPV6` | | the relay's addresses, for `relay.<zone>` (`zone`) |
+| `RELAY_FERNET_KEYS` | | the keys shared with the relay, comma-separated; the first makes new passes. Without them, no passes |
+| `TURN_SECRET` | | coturn's secret, shared with the relay |
 
-It needs Python 3.11 and `cryptography`. The tests are in `cloud/tests` and run with the
+It needs Python 3.13 and `cryptography`. The tests are in `cloud/tests` and run with the
 rest (`pytest`).
+
+### The relay
+
+With Cloud Plus, the app also works away from home. The hub keeps a tunnel open to the relay,
+[SniTun](https://github.com/NabuCasa/snitun), the relay behind Home Assistant Cloud. A phone
+connects to the hub's name, which points at the relay while the tunnel is up. The relay reads
+only the name in the TLS hello and passes the still-encrypted connection down that hub's
+tunnel, so TLS ends on the hub. The relay never holds a key for a hub's name.
+
+The name service decides who may use it:
+- **Cloud Plus** is a date per hub (`python -m hubnames plus`), set by hand until there's
+  billing.
+- **A pass** (`POST /v1/hubs/<id>/tunnel`, signed, Cloud Plus only) is a Fernet token that
+  only the relay can read:
+  - it names the hub's own name, and nothing else;
+  - it holds a new AES key, so the hub proves it's the one that asked;
+  - it sets SniTun's cipher, AES-GCM-SIV, and protocol 2, which keeps the phone's address
+    encrypted in the tunnel;
+  - it lasts an hour.
+
+  The hub asks for a new pass each time it connects, so a key is never used for two
+  connections.
+- **TURN credentials** (`POST /v1/hubs/<id>/turn`) let Live work away from home when no
+  direct path does. They're coturn's REST format, last 4 hours, and are made with a secret
+  that never leaves our servers.
+
+The relay itself runs on a server of its own, set up separately.
 
 ## Deploying
 

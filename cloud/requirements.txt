@@ -1,0 +1,4 @@
+# The name service's packages (Dockerfile), kept current by Dependabot
+# (.github/dependabot.yml). cryptography: the hubs' Ed25519 signatures, the same version as
+# the hub's image.
+cryptography==50.0.2

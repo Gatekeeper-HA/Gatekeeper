@@ -5,6 +5,8 @@
     PUT    /v1/hubs/<id>/address       {"address": "192.168.1.20"}
     PUT    /v1/hubs/<id>/challenge     {"values": [<DNS-01 TXT value>, ...]}
     PUT    /v1/hubs/<id>/caa           {"account": <its Let's Encrypt account URL>}
+    POST   /v1/hubs/<id>/tunnel        {}: a pass for the relay (Cloud Plus)
+    POST   /v1/hubs/<id>/turn          {}: TURN credentials for Live (Cloud Plus)
     DELETE /v1/hubs/<id>
 
 Every request but the health check is signed (service.py). Errors are ``{"error": ...}``.
@@ -32,7 +34,8 @@ from hubnames.store import Refused
 log = logging.getLogger(__name__)
 
 MAX_BODY = 4096
-HUB_PATH = re.compile(r"^/v1/hubs/([a-z2-7]{10})(?:/(address|challenge|caa))?$")
+HUB_PATH = re.compile(r"^/v1/hubs/([a-z2-7]{10})(?:/(address|challenge|caa|tunnel|turn))?$")
+PASSES = ("tunnel", "turn")
 
 
 def _counted(address: str) -> bool:
@@ -139,13 +142,22 @@ def serve(
                 self._send(404, {"error": "not found"})
 
         def do_POST(self):
-            if self.path != "/v1/hubs":
+            if self.path == "/v1/hubs":
+                return self._handle(lambda body, data: self._register(body, data), created=True)
+            match = HUB_PATH.match(self.path)
+            if not match or match.group(2) not in PASSES:
                 return self._send(404, {"error": "not found"})
-            self._handle(lambda body, data: self._register(body, data), created=True)
+            hub_id, what = match.groups()
+
+            def ask(body, data):
+                service.check(hub_id, self._auth(), "POST", self.path, body)
+                return service.tunnel(hub_id) if what == "tunnel" else service.turn(hub_id)
+
+            self._handle(ask)
 
         def do_PUT(self):
             match = HUB_PATH.match(self.path)
-            if not match or not match.group(2):
+            if not match or not match.group(2) or match.group(2) in PASSES:
                 return self._send(404, {"error": "not found"})
             hub_id, what = match.groups()
 
