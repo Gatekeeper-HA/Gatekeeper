@@ -330,8 +330,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     someone the camera hasn't caught going inside.
 
 ### Changed
-- **Dependencies stay current**, each at its newest release once it's 7 days old (30 for a
-  major version) (README, *Keeping dependencies current*):
+- **Dependencies stay current**, each at its newest release once it's 7 days old (README,
+  *Keeping dependencies current*):
   - every Monday, a pull request with the image's Python packages (`deps.yml`, which needs a
     `DEPS_TOKEN`);
   - Dependabot for GitHub Actions, the base images (Python within 3.13), the compose images
