@@ -1266,8 +1266,15 @@ pytest --cov
 
 The speech (`faster-whisper`, `kokoro`) and talkback (`aiortc`) dependencies are optional
 extras, imported lazily, so the core logic is tested without them. The image installs
-everything from `requirements.lock`; regenerate it after changing dependencies in
-`pyproject.toml` (the command is at the top of the file).
+everything from `requirements.lock` (and the GPU image `requirements-cuda.lock` too), made by
+`scripts/lock.sh` with [uv](https://docs.astral.sh/uv/):
+
+- **After changing dependencies** in `pyproject.toml` or `requirements-cuda.in`:
+  `scripts/lock.sh`. Each package keeps its pinned version where it still fits.
+- **To move everything to its newest version:** `scripts/lock.sh --upgrade`.
+- **Only releases at least 7 days old are used** (`COOLDOWN_DAYS`). A broken or malicious
+  release usually comes to light and is pulled within days, before it could reach a hub.
+  The cutoff is at the top of each lock file.
 
 ```bash
 # Rebuild after code or dependency changes

@@ -9,7 +9,7 @@ description = "Local AI doorbell assistant: greets visitors, listens, classifies
 readme = "README.md"
 license = "AGPL-3.0-only"
 license-files = ["LICENSE"]
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = [
     "paho-mqtt>=2.0",
     "pydantic-settings>=2.3",
@@ -22,6 +22,11 @@ speech = [
     "kokoro",
     "numpy",
     "soundfile",
+    # Kokoro's, listed so its CPU-only build comes from PyTorch's index ([tool.uv.sources]).
+    "torch",
+    # faster-whisper (1.2.1) opens audio with av.open(metadata_errors=...), which PyAV 19
+    # removed: Whisper can't load. Lift this once a faster-whisper release handles PyAV 19.
+    "av<19",
     # Kokoro's English pronunciation (misaki) needs spaCy's small English model. It isn't
     # on PyPI, and misaki downloads it at every container start when it's missing.
     "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
@@ -49,6 +54,21 @@ gatekeeper = "gatekeeper.app:main"
 [project.urls]
 Source = "https://github.com/Gatekeeper-HA/Gatekeeper"
 
+# torch's CPU-only build, for Linux: PyPI's pulls ~17 NVIDIA CUDA packages (several GB) that
+# are useless without an NVIDIA GPU. Only torch comes from this index. Its copies of other
+# packages have no publish times, so scripts/lock.sh's cooldown couldn't apply to them.
+[tool.uv]
+# The image is Linux (x86_64 and aarch64): scripts/lock.sh resolves for Linux only.
+environments = ["sys_platform == 'linux'"]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
 [tool.hatch.metadata]
 # For en-core-web-sm's URL above; the package is installed from GitHub, not PyPI.
 allow-direct-references = true
@@ -65,7 +85,7 @@ packages = ["src/gatekeeper"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py313"
 src = ["src", "tests", "cloud"]
 
 [tool.ruff.lint]
