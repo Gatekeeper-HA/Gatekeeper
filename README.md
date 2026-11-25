@@ -1281,8 +1281,8 @@ everything from `requirements.lock` (and the GPU image `requirements-cuda.lock` 
 ### Keeping dependencies current
 
 Everything Gatekeeper is built from moves to its newest release once that release is **at
-least 7 days old** (30 for a new major version). A broken or malicious release usually comes
-to light within days. Each move arrives as a pull request; merging it deploys to the rig.
+least 7 days old**. A broken or malicious release usually comes to light within days. Each
+move arrives as a pull request; merging it deploys to the rig.
 
 - **The image's Python packages:** every Monday, `.github/workflows/deps.yml` runs
   `scripts/lock.sh --upgrade` and opens one pull request listing what moved.
