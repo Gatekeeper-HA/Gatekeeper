@@ -1,0 +1,52 @@
+# The relay, on a server of its own (cloud/README.md, "The relay"): SniTun on 443 for the
+# hubs' tunnels and the phones, and coturn for Live away from home.
+
+name: relay
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  snitun:
+    build: .
+    restart: unless-stopped
+    environment:
+      RELAY_FERNET_KEYS: ${RELAY_FERNET_KEYS:?set RELAY_FERNET_KEYS in .env}
+    ports:
+      - "443:8443"
+    logging: *logging
+
+  coturn:
+    image: coturn/coturn:4.18.0
+    restart: unless-stopped
+    # On the server's own network: its media ports (49152-49999) published one by one would
+    # be thousands of rules.
+    network_mode: host
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command:
+      - -c
+      - /etc/coturn/turnserver.conf
+      - --static-auth-secret=${TURN_SECRET:?set TURN_SECRET in .env}
+      - --realm=${ZONE:?set ZONE in .env}
+      # Only on the public addresses (not Tailscale's, Docker's or DigitalOcean's private
+      # network), and never relaying to them either.
+      - --listening-ip=${RELAY_IPV4:?set RELAY_IPV4 in .env}
+      - --listening-ip=${RELAY_IPV6:?set RELAY_IPV6 in .env}
+      - --relay-ip=${RELAY_IPV4}
+      - --relay-ip=${RELAY_IPV6}
+      - --denied-peer-ip=${RELAY_IPV4}
+      - --denied-peer-ip=${RELAY_IPV6}
+    logging: *logging
+
+# IPv6 too, so Docker forwards IPv6 clients straight to SniTun (as it does IPv4 ones) instead
+# of through its own proxy, which would hide their addresses.
+networks:
+  default:
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: fd48:6b6e:7265::/64
