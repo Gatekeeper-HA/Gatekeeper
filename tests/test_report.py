@@ -1964,13 +1964,20 @@ def test_a_knock_listener_that_starts_visits_says_so():
     assert "Visits: 1 (person 1, button 0):" in text
 
 
+def knock_stats_line(ts: float, checks: int, top: str, seconds: int = 3600) -> str:
+    return (
+        f"{stamp(ts)} INFO     gatekeeper.knock [-] knock listener stats: "
+        f"{checks} check(s) in {seconds} s, top score {top}\n"
+    )
+
+
 def test_the_knock_listeners_checks_show_it_listening():
     log = "### gatekeeper\n" + "".join(
-        f"2026-10-28 {h}:00:00,000 INFO     gatekeeper.knock [-] knock listener stats: "
-        f"{n} check(s) in 3600 s, top score {top}\n"
-        for h, n, top in (("10", 12, "0.04"), ("11", 0, "0.00"), ("12", 25, "0.31"))
+        knock_stats_line(NOW - ago, n, top)
+        for ago, n, top in ((7200, 12, "0.04"), (3600, 0, "0.00"), (60, 25, "0.31"))
     )
     r = build(inputs(knocks=[], log_text=log))
+    top_at = report.local(report.log_time(stamp(NOW - 60)[:19]))
     assert r["knocks"] == {
         "heard": 0,
         "nobody_on_camera": 0,
@@ -1981,12 +1988,31 @@ def test_the_knock_listeners_checks_show_it_listening():
         "stats_hours": 3,
         "checks": 37,
         "top_score": 0.31,
-        "top_at": report.local(report.log_time("2026-10-28 12:00:00")),
+        "top_at": top_at,
+        "top_before_window": False,
     }
-    assert (
-        "Knocks heard (shadow): 0; 37 sound(s) checked, top score 0.31 in the hour to "
-        f"{report.local(report.log_time('2026-10-28 12:00:00'))}" in render_text(r)
+    expected = "Knocks heard (shadow): 0; 37 sound(s) checked, top score 0.31"
+    expected += f" in the hour to {top_at}"
+    assert expected + "\n" in render_text(r) + "\n"
+
+
+def test_a_top_score_from_the_hour_that_began_before_the_window_says_so():
+    # The listener's hours run from Gatekeeper's start: the window's first stats line
+    # also covers the 35 minutes before it, when the previous report's last knock was.
+    window_start = NOW - 24 * 3600
+    log = "### gatekeeper\n" + "".join(
+        knock_stats_line(ts, n, top)
+        for ts, n, top in ((window_start + 25 * 60, 140, "0.66"), (NOW - 600, 90, "0.31"))
     )
+    r = build(inputs(knocks=[], knock_listener="on", log_text=log))
+    assert r["knocks"]["top_score"] == 0.66 and r["knocks"]["top_before_window"] is True
+    assert "top score 0.66 in the hour to " in render_text(r)
+    assert ", which began before this report's window" in render_text(r)
+    # An hour wholly inside the window says nothing more.
+    log = "### gatekeeper\n" + knock_stats_line(window_start + 3700, 140, "0.66")
+    r = build(inputs(knocks=[], knock_listener="on", log_text=log))
+    assert r["knocks"]["top_before_window"] is False
+    assert "began before" not in render_text(r)
 
 
 def test_a_quiet_knock_listener_has_no_top_score_time():

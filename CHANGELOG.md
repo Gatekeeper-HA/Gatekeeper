@@ -463,6 +463,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   merged into a running visit only changed the lines picked after it, and the press reply
   can't speak mid-visit, so someone who rang after the no-answer line heard nothing at all.
   When the visit ends silent after such a press, Gatekeeper now says `REPLY_PRESSED`.
+- **Daily report: a knock top score from before the window says so** (#203). The knock
+  listener's hours run from Gatekeeper's start, so the window's first stats line also covers
+  sounds from before the window, such as the previous report's last knock. When the top
+  score's hour began before the window, the *Knocks heard* line adds *, which began before
+  this report's window* (`knocks.top_before_window`).
 - **The delivery guess sees visitors who rang or knocked.** A visit started by the doorbell
   button or a knock while the person was on camera is on their own track, but the guess
   skipped every visit not started by a person's dwell, so visitors who rang (the likeliest
