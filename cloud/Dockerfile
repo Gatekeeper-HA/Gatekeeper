@@ -1,7 +1,8 @@
-FROM python:3.11.16-slim-bookworm
+FROM python:3.13.18-slim-bookworm
 
-# cryptography: the hubs' Ed25519 signatures (the same version as the hub's image).
-RUN pip install --no-cache-dir cryptography==50.0.2 \
+# Its packages (requirements.txt), kept current by Dependabot.
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt \
     && useradd --system --uid 999 --home-dir /data hubnames \
     && install -d -o hubnames -m 700 /data
 
