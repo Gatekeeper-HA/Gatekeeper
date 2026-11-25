@@ -6,7 +6,7 @@
 services:
   # Writes the MQTT password file from the passwords in .env, then exits.
   mqtt-auth:
-    image: eclipse-mosquitto:2.0.22
+    image: eclipse-mosquitto:2.0.23
     restart: "no"
     environment:
       MQTT_FRIGATE_PASSWORD: "${MQTT_FRIGATE_PASSWORD:?set MQTT_FRIGATE_PASSWORD in .env}"
@@ -28,7 +28,7 @@ services:
         mv "$$f" /auth/passwd
 
   mqtt:
-    image: eclipse-mosquitto:2.0.22
+    image: eclipse-mosquitto:2.0.23
     container_name: mqtt
     restart: unless-stopped
     networks: [surveil]
