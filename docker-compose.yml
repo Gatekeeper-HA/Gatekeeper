@@ -70,7 +70,7 @@ services:
       FRIGATE_MQTT_PASSWORD: "${MQTT_FRIGATE_PASSWORD:?set MQTT_FRIGATE_PASSWORD in .env}"
 
   go2rtc:
-    image: alexxit/go2rtc:1.9.14
+    image: alexxit/go2rtc:1.9.15
     container_name: go2rtc
     restart: unless-stopped
     networks: [surveil]
