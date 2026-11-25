@@ -96,7 +96,7 @@ services:
   # buttons post to doorbell-replies without logging in; Gatekeeper reads it and
   # checks each button's signature.
   ntfy:
-    image: binwiederhier/ntfy:v2.28.0
+    image: binwiederhier/ntfy:v2.38.1
     container_name: ntfy
     restart: unless-stopped
     networks: [surveil]
