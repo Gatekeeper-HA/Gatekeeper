@@ -7,6 +7,7 @@
     PUT    /v1/hubs/<id>/caa           {"account": <its Let's Encrypt account URL>}
     POST   /v1/hubs/<id>/tunnel        {}: a pass for the relay (Cloud Plus)
     POST   /v1/hubs/<id>/turn          {}: TURN credentials for Live (Cloud Plus)
+    PUT    /v1/hubs/<id>/route         {"via": "relay" | "home"}: where its name points
     DELETE /v1/hubs/<id>
 
 Every request but the health check is signed (service.py). Errors are ``{"error": ...}``.
@@ -34,7 +35,7 @@ from hubnames.store import Refused
 log = logging.getLogger(__name__)
 
 MAX_BODY = 4096
-HUB_PATH = re.compile(r"^/v1/hubs/([a-z2-7]{10})(?:/(address|challenge|caa|tunnel|turn))?$")
+HUB_PATH = re.compile(r"^/v1/hubs/([a-z2-7]{10})(?:/(address|challenge|caa|route|tunnel|turn))?$")
 PASSES = ("tunnel", "turn")
 
 
@@ -165,6 +166,8 @@ def serve(
                 service.check(hub_id, self._auth(), "PUT", self.path, body)
                 if what == "address":
                     service.address(hub_id, data.get("address"))
+                elif what == "route":
+                    service.route(hub_id, data.get("via"))
                 elif what == "challenge":
                     values = data.get("values")
                     if not isinstance(values, list):

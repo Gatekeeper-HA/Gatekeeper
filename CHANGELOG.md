@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **A hub's name follows its tunnel** (Cloud Plus). Once the tunnel is up, the hub has the
+  name service point its name at the relay (`PUT /v1/hubs/<id>/route`, A and AAAA). When
+  the tunnel closes or Cloud Plus ends, the name points back at the home address, which
+  the service now remembers. A hub that's off can't say so, so the service's sweep sends
+  home the names of hubs whose Cloud Plus has ended. The hub's DNS check no longer warns
+  when its name is the relay's.
 - **The web page away from home through the relay, with Cloud Plus** (`tunnel.py`; README,
   *Away from home*).
   - Gatekeeper keeps a tunnel open to the relay with SniTun's client (the new `remote`

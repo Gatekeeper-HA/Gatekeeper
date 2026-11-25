@@ -51,7 +51,13 @@ def service() -> NameService:
         secret = os.environ.get("TURN_SECRET", "")
         if not secret:
             sys.exit("TURN_SECRET isn't set (it goes with RELAY_FERNET_KEYS)")
-        relay = Relay(f"relay.{zone.rstrip('.')}", tuple(keys), secret)
+        relay = Relay(
+            f"relay.{zone.rstrip('.')}",
+            tuple(keys),
+            secret,
+            ipv4=os.environ.get("RELAY_IPV4", ""),
+            ipv6=os.environ.get("RELAY_IPV6", ""),
+        )
     store = Store(os.environ.get("HUBNAMES_DB", "/data/hubnames.db"))
     return NameService(store, dns, relay=relay)
 

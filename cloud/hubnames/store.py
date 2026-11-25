@@ -61,6 +61,8 @@ class Store:
                 hub TEXT PRIMARY KEY, until REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS plus (
                 hub TEXT PRIMARY KEY, until REAL NOT NULL);
+            CREATE TABLE IF NOT EXISTS routes (
+                hub TEXT PRIMARY KEY, home TEXT, relayed INTEGER NOT NULL DEFAULT 0);
             """
         )
 
@@ -133,6 +135,37 @@ class Store:
             self._db.execute("DELETE FROM hubs WHERE id = ?", (hub_id,))
             self._db.execute("DELETE FROM challenges WHERE hub = ?", (hub_id,))
             self._db.execute("DELETE FROM plus WHERE hub = ?", (hub_id,))
+            self._db.execute("DELETE FROM routes WHERE hub = ?", (hub_id,))
+
+    def route(self, hub_id: str) -> tuple[str | None, bool]:
+        """The hub's home address (None: not known yet), and whether its name points at
+        the relay."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT home, relayed FROM routes WHERE hub = ?", (hub_id,)
+            ).fetchone()
+        return (row[0], bool(row[1])) if row else (None, False)
+
+    def set_route(self, hub_id: str, home: str | None = None, relayed: bool | None = None):
+        """Change the hub's home address and/or whether its name points at the relay."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT home, relayed FROM routes WHERE hub = ?", (hub_id,)
+            ).fetchone()
+            old_home, old_relayed = row if row else (None, 0)
+            self._db.execute(
+                "INSERT OR REPLACE INTO routes (hub, home, relayed) VALUES (?, ?, ?)",
+                (
+                    hub_id,
+                    old_home if home is None else home,
+                    old_relayed if relayed is None else int(relayed),
+                ),
+            )
+
+    def relayed_hubs(self) -> list[str]:
+        with self._lock:
+            rows = self._db.execute("SELECT hub FROM routes WHERE relayed = 1").fetchall()
+        return [r[0] for r in rows]
 
     def challenge_until(self, hub_id: str, until: float | None) -> None:
         """When the hub's challenge record is to be removed (None: it's gone)."""

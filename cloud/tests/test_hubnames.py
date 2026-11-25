@@ -217,6 +217,7 @@ def test_removing_a_hub_takes_its_records_down(names, pdns):
     removed = pdns.last()
     assert {k: r["changetype"] for k, r in removed.items()} == {
         (f"{hub_id}.{ZONE}.", "A"): "DELETE",
+        (f"{hub_id}.{ZONE}.", "AAAA"): "DELETE",  # the relay's, while relayed
         (f"{hub_id}.{ZONE}.", "CAA"): "DELETE",
         (f"_acme-challenge.{hub_id}.{ZONE}.", "TXT"): "DELETE",
     }
@@ -506,3 +507,77 @@ def test_the_relay_has_a_name_in_the_zone():
     assert ("relay", "A") not in {(r[0], r[1]) for r in zone_records(ZONE, "203.0.113.5")}
     with pytest.raises(ValueError):
         zone_records(ZONE, "203.0.113.5", relay_ipv4="relay.example")
+
+
+ROUTED = Relay(f"relay.{ZONE}", (FERNET_KEY,), "turn-secret", ipv4="203.0.113.9",
+               ipv6="2001:db8::9")  # fmt: skip
+
+
+def records(pdns):
+    return {k: [x["content"] for x in r.get("records", [])] for k, r in pdns.last().items()}
+
+
+def test_a_hubs_name_follows_its_tunnel(relayed, pdns, clock):
+    relayed.relay = ROUTED
+    hub_id, _ = hub(relayed)
+    name = f"{hub_id}.{ZONE}."
+    relayed.address(hub_id, "192.168.1.20")
+    assert records(pdns)[(name, "A")] == ["192.168.1.20"]
+    with pytest.raises(Refused, match="no Cloud Plus"):
+        relayed.route(hub_id, "relay")
+    relayed.store.set_plus(hub_id, NOW + 86400)
+
+    relayed.route(hub_id, "relay")  # the hub's tunnel is up
+    assert records(pdns) == {(name, "A"): ["203.0.113.9"], (name, "AAAA"): ["2001:db8::9"]}
+    patches = len(pdns.patches)
+    relayed.address(hub_id, "192.168.1.21")  # its 12-hourly update: the name stays relayed
+    assert len(pdns.patches) == patches
+    assert relayed.store.route(hub_id) == ("192.168.1.21", True)
+
+    relayed.route(hub_id, "home")  # the tunnel closed
+    assert records(pdns) == {(name, "A"): ["192.168.1.21"], (name, "AAAA"): []}
+    assert relayed.store.route(hub_id) == ("192.168.1.21", False)
+    with pytest.raises(ValueError, match="via"):
+        relayed.route(hub_id, "elsewhere")
+
+
+def test_the_sweep_sends_a_name_home_once_cloud_plus_ends(relayed, pdns, clock):
+    relayed.relay = ROUTED
+    hub_id, _ = hub(relayed)
+    relayed.address(hub_id, "192.168.1.20")
+    relayed.store.set_plus(hub_id, NOW + 3600)
+    relayed.route(hub_id, "relay")
+    relayed.sweep()  # still Cloud Plus: stays
+    assert relayed.store.route(hub_id) == ("192.168.1.20", True)
+    clock[0] = NOW + 3601
+    relayed.sweep()
+    assert records(pdns)[(f"{hub_id}.{ZONE}.", "A")] == ["192.168.1.20"]
+    assert relayed.store.route(hub_id) == ("192.168.1.20", False)
+    assert relayed.store.relayed_hubs() == []
+
+
+def test_the_route_over_http(relayed, pdns):
+    relayed.relay = ROUTED
+    server = serve(relayed, "127.0.0.1", 0)
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    hub_id, key = hub(relayed)
+    relayed.store.set_plus(hub_id, NOW + 86400)
+
+    def put(data):
+        path = f"/v1/hubs/{hub_id}/route"
+        body = json.dumps(data).encode()
+        headers = {"Authorization": signed(key, "PUT", path, body)}
+        req = urllib.request.Request(base + path, body, method="PUT", headers=headers)
+        try:
+            with urllib.request.urlopen(req) as r:
+                return r.status
+        except urllib.error.HTTPError as e:
+            return e.code
+
+    try:
+        assert put({"via": "relay"}) == 204
+        assert relayed.store.route(hub_id)[1] is True
+        assert put({"via": "home"}) == 204 and relayed.store.route(hub_id)[1] is False
+        assert put({"via": "moon"}) == 400
+    finally:
+        server.shutdown()

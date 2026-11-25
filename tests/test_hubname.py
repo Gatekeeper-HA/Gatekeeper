@@ -455,6 +455,13 @@ def test_a_router_that_drops_the_name_is_warned_about(tmp_path, service, acme, c
     assert f"hub name: {h.name} doesn't resolve to {HOME} on this network" in caplog.text
 
 
+def test_a_name_pointing_at_the_relay_is_as_it_should_be(tmp_path, service, acme, clock, caplog):
+    """With Cloud Plus and the tunnel up, the name is the relay's (tunnel.py)."""
+    h = hub(tmp_path, service, acme, clock, resolve=lambda name: ["203.0.113.9"])
+    h.step()
+    assert "doesn't resolve" not in caplog.text
+
+
 def test_a_home_address_is_a_private_ipv4():
     assert hubname.home_address(["", "example.com", "8.8.8.8", HOME]) == HOME
     assert hubname.home_address(["10.1.2.3"]) == "10.1.2.3"

@@ -165,6 +165,11 @@ class NameService:
         Cloud Plus, or the service has no relay."""
         return self._send("POST", f"/v1/hubs/{self.hub_id}/tunnel", {})
 
+    def route(self, via: str) -> None:
+        """Point this hub's name at the relay while its tunnel is up (``via`` "relay"), or
+        back at its home address ("home")."""
+        self._send("PUT", f"/v1/hubs/{self.hub_id}/route", {"via": via})
+
 
 class Acme:
     """A small ACME client (RFC 8555): an account, and a certificate for one name by DNS-01.
@@ -494,7 +499,7 @@ class HubName:
             found, why = [], str(e)
         else:
             why = f"got {', '.join(found)}" if found else "no address"
-        if self.address not in found:
+        if self.address not in found and not self._relayed(found):
             log.warning(
                 "hub name: %s doesn't resolve to %s on this network (%s); a router that "
                 "blocks DNS rebinding needs it allowed (README, Hub name)",
@@ -502,6 +507,14 @@ class HubName:
                 self.address,
                 why,
             )
+
+    def _relayed(self, found: list[str]) -> bool:
+        """The name points at the relay, its tunnel up (tunnel.py): as it should."""
+        try:
+            relay = self._resolve("relay." + self.name.split(".", 1)[1])
+        except OSError:
+            return False
+        return bool(found) and set(found) <= set(relay)
 
     def _serve_kept(self) -> None:
         """The certificate kept from before, served before anything else is tried: the name

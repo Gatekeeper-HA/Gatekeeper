@@ -87,12 +87,17 @@ def test_without_cloud_plus_it_asks_again_later_then_connects(monkeypatch, caplo
     monkeypatch.setattr(tunnel, "RECHECK", 0.05)
     answers = [Stop(NO_PLUS), Stop(NO_PLUS), a_pass(time.time() + 3600)]
 
+    routes = []
+
     class Service:
         def tunnel(self):
             answer = answers.pop(0)
             if isinstance(answer, Exception):
                 raise answer
             return answer
+
+        def route(self, via):
+            routes.append(via)
 
     Peer.started = []
 
@@ -114,6 +119,7 @@ def test_without_cloud_plus_it_asks_again_later_then_connects(monkeypatch, caplo
     off = [r.getMessage() for r in caplog.records if r.getMessage().startswith("relay: off")]
     assert off == [f"relay: off ({NO_PLUS}); asking again in an hour"]  # once, not each time
     assert "relay: tunnel up through relay.hubs.example" in caplog.text
+    assert routes == ["relay"]  # the hub's name points at the relay once it's up
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="SniTun's relay runs on Linux only")
@@ -141,9 +147,14 @@ def test_a_phone_reaches_the_page_through_the_relay(tmp_path, monkeypatch, caplo
     port = probe.getsockname()[1]
     probe.close()
 
+    routes = []
+
     class Service:
         def tunnel(self):
             return {**names.tunnel(hub.id), "relay": "::1", "port": port}
+
+        def route(self, via):
+            routes.append(via)
 
     guard = Guard()
     server = web.serve(
@@ -205,3 +216,36 @@ def test_a_phone_reaches_the_page_through_the_relay(tmp_path, monkeypatch, caplo
 
     asyncio.run(main())
     assert caplog.text.count("relay: tunnel up through") == 1  # renewals aren't logged
+    assert routes == ["relay"]  # pointed at the relay once, not at each renewal
+
+
+def test_a_closed_tunnel_sends_the_name_home_until_it_reconnects(monkeypatch):
+    monkeypatch.setattr(tunnel, "RETRY", (0.05,))
+    routes, peers = [], []
+
+    class Service:
+        def tunnel(self):
+            return a_pass(time.time() + 3600)
+
+        def route(self, via):
+            routes.append(via)
+
+    class Closing(Peer):
+        def __init__(self, host, port):
+            super().__init__(host, port)
+            peers.append(self)
+
+    async def main():
+        t = tunnel.Tunnel(lambda: Service(), lambda sock, address: None, peer=Closing)
+        stop = asyncio.Event()
+        task = asyncio.create_task(t.run(stop))
+        while not t.up:
+            await asyncio.sleep(0.01)
+        peers[0].closed.set_result(None)  # the relay went away
+        while len(peers) < 2 or not t.up:
+            await asyncio.sleep(0.01)
+        stop.set()
+        await task
+
+    asyncio.run(main())
+    assert routes == ["relay", "home", "relay"]

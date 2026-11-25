@@ -788,6 +788,10 @@ page, a picture or a password.
 - **Not with a weak password.** Through the relay the page faces the internet, so the tunnel
   stays off while `GATEKEEPER_WEB_PASSWORD` is shorter than 12 characters. The log says so.
   Use a few unrelated words.
+- **The hub's name points at the relay while the tunnel is up**, and back at the home
+  address when it closes or Cloud Plus ends. Gatekeeper tells the name service which.
+  At home too, pages then go out to the relay and back, which is quick. Live still
+  goes direct over the home network.
 - **Each phone keeps its own address** on the way in, so the
   [limit on wrong passwords](#the-web-page) counts each phone on its own.
 - **The log says** `relay: tunnel up through relay.gatekeeperhome.net` when it's open, and

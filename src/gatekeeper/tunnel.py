@@ -9,6 +9,9 @@ the hub name's own certificate: the relay passes each connection on still encryp
 - **Phones.** Each phone's connection arrives as one of the tunnel's channels, with the phone's
   address. It's handed to the web page's server over a socket pair, so the page sees the
   phone's own address (the login limit, the log) as if the phone had connected directly.
+- **The hub's name** points at the relay while the tunnel is up, and back at the home
+  address when it closes or Cloud Plus ends: the hub tells the name service (``PUT
+  /v1/hubs/<id>/route``). At home too, phones then go through the relay; Live goes direct.
 - **Renewal.** A pass lasts an hour. ``RENEW_BEFORE`` its end a new tunnel replaces the old one
   (the relay keeps the newer of two for a name), so phones hardly notice.
 - **Not with a weak password.** Through the relay the page faces the internet, so the tunnel
@@ -129,6 +132,8 @@ class Tunnel:
         self._clock = clock
         self._peer = peer
         self._said = ""  # the last state logged: each is logged once
+        self._client = None  # the name service, as last asked for a pass
+        self._routed = False  # the name points at the relay
         self.up = False
         self.thread: threading.Thread | None = None
 
@@ -140,7 +145,7 @@ class Tunnel:
 
     async def _pass(self) -> tuple[dict | None, float]:
         """A pass, or None and how long to wait before asking again."""
-        client = self._service()
+        client = self._client = self._service()
         if client is None:
             return None, 60.0  # the hub's name isn't registered yet
         try:
@@ -148,6 +153,19 @@ class Tunnel:
         except Stop as e:  # no Cloud Plus, or no relay
             self._say(logging.INFO, "relay: off (%s); asking again in an hour", e)
             return None, RECHECK
+
+    async def _route(self, via: str) -> None:
+        """Point the hub's name at the relay or back home. A failure is logged, and tried
+        again with the next pass."""
+        if self._client is None or self._routed == (via == "relay"):
+            return
+        try:
+            await asyncio.to_thread(self._client.route, via)
+        except Exception as e:  # noqa: BLE001 (the tunnel keeps going either way)
+            log.warning("relay: couldn't point the hub's name %s (%s)", via, e)
+            return
+        self._routed = via == "relay"
+        log.info("relay: the hub's name points %s", "at the relay" if self._routed else "home")
 
     async def _connect(self, p: dict):
         peer = self._peer(p["relay"], p["port"])
@@ -184,6 +202,7 @@ class Tunnel:
                     if current is not None:  # Cloud Plus ended, or the relay went away
                         await self._close(current)
                         current, self.up = None, False
+                    await self._route("home")
                     await pause(wait)
                     continue
                 # The relay keeps the newer of two tunnels for a name: the old one is done.
@@ -195,6 +214,7 @@ class Tunnel:
                 else:
                     self.up = True
                     self._say(logging.INFO, "relay: tunnel up through %s", p["relay"])
+                await self._route("relay")
                 renew = max(MIN_RENEW, p["until"] - RENEW_BEFORE - self._clock())
                 closed = asyncio.ensure_future(peer.wait())
                 await asyncio.wait((closed, stopping), timeout=renew,
@@ -206,6 +226,7 @@ class Tunnel:
                     current, self.up = None, False
                     failures += 1
                     self._say(logging.WARNING, "relay: the tunnel closed; connecting again")
+                    await self._route("home")
                     await pause(RETRY[0])
         finally:
             stopping.cancel()
