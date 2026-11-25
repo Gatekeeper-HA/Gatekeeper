@@ -225,6 +225,10 @@ class Settings(BaseSettings):
     hub_name_address: str = ""
     hub_name_api: str = "https://api.gatekeeperhome.net"
     hub_name_acme: str = "https://acme-v02.api.letsencrypt.org/directory"
+    # The relay (tunnel.py): with Cloud Plus, phones away from home reach the web page through
+    # Gatekeeper's relay, by the hub's name, TLS still ending here. Off with RELAY=0, and off
+    # anyway while web_password is shorter than 12 characters: it would face the internet.
+    relay: bool = True
     # Defaults to rtsp://go2rtc:8554/<camera_name> when unset.
     audio_rtsp_url: str = ""
 

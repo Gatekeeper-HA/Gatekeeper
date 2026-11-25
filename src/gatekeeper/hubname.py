@@ -159,6 +159,12 @@ class NameService:
     def caa(self, account: str) -> None:
         self._send("PUT", f"/v1/hubs/{self.hub_id}/caa", {"account": account})
 
+    def tunnel(self) -> dict:
+        """A pass for the relay (tunnel.py): ``relay``, ``port``, ``token``, ``aes_key``,
+        ``aes_iv``, ``protocol_version``, ``cipher`` and ``until``. Stop when this hub has no
+        Cloud Plus, or the service has no relay."""
+        return self._send("POST", f"/v1/hubs/{self.hub_id}/tunnel", {})
+
 
 class Acme:
     """A small ACME client (RFC 8555): an account, and a certificate for one name by DNS-01.
@@ -532,6 +538,18 @@ class HubName:
                     wait / 3600,
                 )
             stop.wait(wait)
+
+    def service(self) -> NameService | None:
+        """The name service, with this hub's key, once the hub is registered (for the
+        relay's passes, tunnel.py); None before."""
+        try:
+            hub = self._state("hub.json")
+            if hub.get("api") != self.api or not hub.get("id"):
+                return None
+            key = _key(self.folder / "hub-key.pem", _ed25519)
+        except OSError:
+            return None
+        return NameService(self.api, key, hub["id"], self._clock)
 
     def start(self) -> HubName:
         self.thread = threading.Thread(target=self.run, name="hub-name", daemon=True)
