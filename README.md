@@ -1089,6 +1089,8 @@ the zone, saw elsewhere, or missed, and its porch tracks that Frigate had no arr
 Each miss says how long Frigate saw the person and how close own perception's nearest
 track was (seconds before or after, and the visit it started), so someone just greeted
 whose track ended a moment early can be told from someone nobody saw.
+Each arrival it saw elsewhere gives the zones its tracks saw and any visit they started:
+starting the visits, one with no visit is someone at the door nobody greeted.
 
 **Where the detector runs.** With the [GPU override](#gpu-nvidia) it runs on the NVIDIA GPU,
 at Frigate's 5 frames a second. On the rig's GTX 1660 Ti that's about 19 ms a frame, and

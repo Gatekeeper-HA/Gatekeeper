@@ -662,6 +662,7 @@ def own_perception_info(
     # Gatekeeper restarting (a deploy, say): from stopping to reading the stream again.
     down = down_while(lines, OWN_READING)
     seen, elsewhere, missed, restarting = [], [], [], []
+    elsewhere_tracks: list[list] = []
     for e in compared:
         start, end = e["start_time"], e.get("end_time") or now
         overlapping = [t for t in tracks if near(start, end, t[0], t[1])]
@@ -669,6 +670,7 @@ def own_perception_info(
             seen.append(e)
         elif overlapping:
             elsewhere.append(e)
+            elsewhere_tracks.append(overlapping)
         elif any(a <= start <= min(b, a + RESTART_SECONDS) for a, b, _ in down):
             restarting.append(e)
         else:
@@ -697,6 +699,17 @@ def own_perception_info(
         "arrivals": len(compared),
         "seen": len(seen),
         "seen_elsewhere": [local(e["start_time"]) for e in elsewhere],
+        # Its tracks then stayed out of the trigger zones, so with PERCEPTION=own they
+        # started no visit: which zones they saw, and any visit one did start (#197).
+        "elsewhere_near": [
+            {
+                "at": local(e["start_time"]),
+                "seconds": round(e["end_time"] - e["start_time"], 1) if e.get("end_time") else None,
+                "zones": sorted(set().union(*(t[2] for t in near_tracks))),
+                "visits": [outcomes[t[3]] for t in near_tracks if t[3] in outcomes],
+            }
+            for e, near_tracks in zip(elsewhere, elsewhere_tracks, strict=True)
+        ],
         "missed": [local(e["start_time"]) for e in missed],
         # How close it came to each miss: someone just greeted whose track ended a few
         # seconds before Frigate's event, or nobody near at all (#193).
@@ -752,6 +765,23 @@ def nearest_track(arrival: dict, tracks: list, now: float, in_zone, outcomes: di
         gap, when, zone, visit = best
         out["track"] = {"gap": round(gap, 1), "when": when, "in_zone": zone, "visit": visit}
     return out
+
+
+def elsewhere_text(own: dict) -> str:
+    """The arrivals it saw elsewhere, for the Own perception line: each one's time, Frigate's
+    length, the zones its tracks saw and any visit they started (reports from before #197
+    have the number only)."""
+    near = own.get("elsewhere_near")
+    if near is None:
+        return f"{len(own['seen_elsewhere'])} elsewhere"
+    parts = []
+    for x in near:
+        about = [f"Frigate {x['seconds']:g} s"] if x["seconds"] is not None else []
+        zones = ", ".join(x["zones"])
+        about.append(f"track in {zones}" if zones else "track in no zone")
+        about.append(f"visit: {', '.join(x['visits'])}" if x["visits"] else "no visit")
+        parts.append(f"{x['at']}: {'; '.join(about)}")
+    return f"{len(near)} elsewhere ({', '.join(parts)})"
 
 
 def missed_near_text(own: dict) -> str:
@@ -2092,7 +2122,7 @@ def summary_lines(report: dict) -> list[str]:
             f"Own perception ({'starts the visits' if starts else 'shadow'}, since "
             f"{own['since']}): saw {own['seen']} of {own['arrivals']} of Frigate's porch "
             "arrivals in the zone"
-            + (f", {len(own['seen_elsewhere'])} elsewhere" if own["seen_elsewhere"] else "")
+            + (f", {elsewhere_text(own)}" if own["seen_elsewhere"] else "")
             + (f", missed {missed_near_text(own)}" if own["missed"] else "")
             + (
                 f", {len(own['restarting'])} while Gatekeeper restarted"

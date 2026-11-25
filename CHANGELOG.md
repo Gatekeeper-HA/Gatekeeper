@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Daily report: arrivals own perception saw elsewhere say where.** Each of Frigate's porch
+  arrivals that own perception's tracks saw only outside the trigger zones
+  (`own_perception.elsewhere_near`) gives Frigate's event length, the zones its tracks saw,
+  and any visit they started. Starting the visits, such an arrival with no visit is someone
+  nobody greeted, which the line used to give as a bare count (#197).
 - **Daily report: own perception's misses say how close it came.** Each of Frigate's porch
   arrivals own perception missed (`own_perception.missed_near`) gives Frigate's event
   length and own perception's nearest track: seconds before or after, whether it was in a
