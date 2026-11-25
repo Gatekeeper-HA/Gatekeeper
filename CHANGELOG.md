@@ -11,6 +11,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   length and own perception's nearest track: seconds before or after, whether it was in a
   trigger zone, and the visit it started. Someone just greeted whose track ended a few
   seconds before Frigate's event no longer reads like a stranger nobody greeted (#193).
+- **Daily report: labels that disagree with a face recognition** (#175). A visit Gatekeeper
+  took for an enrolled person that the owner labelled as something else (a courier, a guest)
+  is a possible false face match. The report now lists each one with the visit's start, the
+  name it recognized and the label (*Labelled otherwise after a face recognition …*,
+  `counts.labels_face_disputed`), so the visit and its snapshot can be found. Before, the
+  *Your labels* line gave only a tally.
 - **The relay's server** (`cloud/relay`): SniTun 0.47 on port 443, and coturn 4.18 for Live.
   - It closes tunnels whose pass has run out (SniTun checks passes only when a tunnel
     connects).
@@ -445,6 +451,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **A doorbell press during a visit's last listening turn is answered** (#178). A press
+  merged into a running visit only changed the lines picked after it, and the press reply
+  can't speak mid-visit, so someone who rang after the no-answer line heard nothing at all.
+  When the visit ends silent after such a press, Gatekeeper now says `REPLY_PRESSED`.
 - **The hub name's certificate is served as soon as Gatekeeper starts.** It used to wait
   until the name service had answered, so while the service couldn't be reached (or had
   refused), the name got the self-signed certificate and the app couldn't load. The

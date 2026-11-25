@@ -6,7 +6,7 @@
 services:
   # Writes the MQTT password file from the passwords in .env, then exits.
   mqtt-auth:
-    image: eclipse-mosquitto:2.0.22
+    image: eclipse-mosquitto:2.0.23
     restart: "no"
     environment:
       MQTT_FRIGATE_PASSWORD: "${MQTT_FRIGATE_PASSWORD:?set MQTT_FRIGATE_PASSWORD in .env}"
@@ -28,7 +28,7 @@ services:
         mv "$$f" /auth/passwd
 
   mqtt:
-    image: eclipse-mosquitto:2.0.22
+    image: eclipse-mosquitto:2.0.23
     container_name: mqtt
     restart: unless-stopped
     networks: [surveil]
@@ -70,7 +70,7 @@ services:
       FRIGATE_MQTT_PASSWORD: "${MQTT_FRIGATE_PASSWORD:?set MQTT_FRIGATE_PASSWORD in .env}"
 
   go2rtc:
-    image: alexxit/go2rtc:1.9.14
+    image: alexxit/go2rtc:1.9.15
     container_name: go2rtc
     restart: unless-stopped
     networks: [surveil]
@@ -96,7 +96,7 @@ services:
   # buttons post to doorbell-replies without logging in; Gatekeeper reads it and
   # checks each button's signature.
   ntfy:
-    image: binwiederhier/ntfy:v2.28.0
+    image: binwiederhier/ntfy:v2.38.1
     container_name: ntfy
     restart: unless-stopped
     networks: [surveil]
@@ -120,7 +120,7 @@ services:
   # Enable with COMPOSE_PROFILES=ha in .env; then connect HA's MQTT integration
   # to broker "mqtt" as user "homeassistant" (MQTT_HOMEASSISTANT_PASSWORD).
   homeassistant:
-    image: ghcr.io/home-assistant/home-assistant:2026.9.4
+    image: ghcr.io/home-assistant/home-assistant:2026.11.3
     profiles: [ha]
     container_name: homeassistant
     restart: unless-stopped
