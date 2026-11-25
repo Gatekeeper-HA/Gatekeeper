@@ -322,6 +322,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **The daily report says which visits the conversation model would have warned**
   (Gatekeeper#195): *would have warned 1 (threat level: normal 1): Mon 09:15 (no_response)*,
   times and how each visit ended only, so a warning on a harmless visit can be found.
+- **Dependencies stay current**, each at its newest release once it's 7 days old (30 for a
+  major version) (README, *Keeping dependencies current*):
+  - every Monday, a pull request with the image's Python packages (`deps.yml`, which needs a
+    `DEPS_TOKEN`);
+  - Dependabot for GitHub Actions, the base images (Python within 3.13), the compose images
+    (Frigate patch releases only) and the pinned tools. The name service's packages moved to
+    `cloud/requirements.txt` for this.
+  - **The image check** (`image.yml`), on pull requests that change the image and every Monday
+    on main:
+    - it builds the image and runs the tests inside it;
+    - Gatekeeper's models load and run (`scripts/image-check.py`);
+    - the CUDA libraries resolve;
+    - pip-audit finds no known vulnerability.
 - **Python 3.13** (was 3.11), in the image, CI and the name service's image.
   - It's needed for SniTun's authenticated ciphers (the relay), and 3.11's security fixes
     end in October 2027.
