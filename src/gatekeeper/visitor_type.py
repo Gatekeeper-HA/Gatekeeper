@@ -31,6 +31,10 @@ import numpy as np
 
 log = logging.getLogger(__name__)
 
+# What starts a visit on a person's track (sessions.SessionTracker): their dwell, or a
+# doorbell press or knock while they were on camera.
+VISIT_TRIGGERS = ("person", "button", "knock")
+
 # SigLIP base, the ONNX export (quantized), pinned to the revision tested on the rig.
 SIGLIP_REPO = "Xenova/siglip-base-patch16-224"
 SIGLIP_REVISION = "4649052661e53c7000355844105f8a1792088239"
@@ -207,9 +211,14 @@ class DeliveryGuesser:
         self._lock = threading.Lock()  # one guess at a time
 
     def visit_logged(self, record: dict) -> None:
-        """``Interaction``'s on_logged: guess this visit later, on its own thread."""
+        """``Interaction``'s on_logged: guess this visit later, on its own thread. Any visit
+        on a person's own track is guessed, whatever started it: someone on camera who rang
+        or knocked before their dwell started the visit keeps their track's id (trigger
+        "button" or "knock"). A press with nobody seen yet ("press-…") has no path to go on."""
         event_id = str(record.get("event_id", ""))
-        if record.get("trigger") != "person" or event_id.startswith(("press-", "package-")):
+        if record.get("trigger") not in VISIT_TRIGGERS or event_id.startswith(
+            ("press-", "package-")
+        ):
             return
         threading.Thread(
             target=self._later, args=(record,), name="delivery-guess", daemon=True

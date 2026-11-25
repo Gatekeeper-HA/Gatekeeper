@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Daily report: arrivals own perception saw elsewhere say where.** Each of Frigate's porch
+  arrivals that own perception's tracks saw only outside the trigger zones
+  (`own_perception.elsewhere_near`) gives Frigate's event length, the zones its tracks saw,
+  and any visit they started. Starting the visits, such an arrival with no visit is someone
+  nobody greeted, which the line used to give as a bare count (#197).
+- **Daily report: own perception's misses say how close it came.** Each of Frigate's porch
+  arrivals own perception missed (`own_perception.missed_near`) gives Frigate's event
+  length and own perception's nearest track: seconds before or after, whether it was in a
+  trigger zone, and the visit it started. Someone just greeted whose track ended a few
+  seconds before Frigate's event no longer reads like a stranger nobody greeted (#193).
 - **Daily report: labels that disagree with a face recognition** (#175). A visit Gatekeeper
   took for an enrolled person that the owner labelled as something else (a courier, a guest)
   is a possible false face match. The report now lists each one with the visit's start, the
@@ -444,6 +454,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   (`~/.local/state/gatekeeper/logs/`, two days), and the report reads it back. It says
   *Logs kept across the deploy* instead of *Logs only since…*, which now only shows when a
   container was recreated some other way (by hand).
+- **The daily report says which visits the conversation model would have warned**
+  (Gatekeeper#195): *would have warned 1 (threat level: normal 1): Mon 09:15 (no_response)*,
+  times and how each visit ended only, so a warning on a harmless visit can be found.
 
 ### Fixed
 - **A doorbell press during a visit's last listening turn is answered** (#178). A press
@@ -455,6 +468,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   sounds from before the window, such as the previous report's last knock. When the top
   score's hour began before the window, the *Knocks heard* line adds *, which began before
   this report's window* (`knocks.top_before_window`).
+- **The delivery guess sees visitors who rang or knocked.** A visit started by the doorbell
+  button or a knock while the person was on camera is on their own track, but the guess
+  skipped every visit not started by a person's dwell, so visitors who rang (the likeliest
+  couriers) never got one. Presses with nobody seen are still skipped (#201).
 - **The hub name's certificate is served as soon as Gatekeeper starts.** It used to wait
   until the name service had answered, so while the service couldn't be reached (or had
   refused), the name got the self-signed certificate and the app couldn't load. The

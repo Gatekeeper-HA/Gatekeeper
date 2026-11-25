@@ -671,6 +671,7 @@ def own_perception_info(
     # Gatekeeper restarting (a deploy, say): from stopping to reading the stream again.
     down = down_while(lines, OWN_READING)
     seen, elsewhere, missed, restarting = [], [], [], []
+    elsewhere_tracks: list[list] = []
     for e in compared:
         start, end = e["start_time"], e.get("end_time") or now
         overlapping = [t for t in tracks if near(start, end, t[0], t[1])]
@@ -678,6 +679,7 @@ def own_perception_info(
             seen.append(e)
         elif overlapping:
             elsewhere.append(e)
+            elsewhere_tracks.append(overlapping)
         elif any(a <= start <= min(b, a + RESTART_SECONDS) for a, b, _ in down):
             restarting.append(e)
         else:
@@ -706,7 +708,21 @@ def own_perception_info(
         "arrivals": len(compared),
         "seen": len(seen),
         "seen_elsewhere": [local(e["start_time"]) for e in elsewhere],
+        # Its tracks then stayed out of the trigger zones, so with PERCEPTION=own they
+        # started no visit: which zones they saw, and any visit one did start (#197).
+        "elsewhere_near": [
+            {
+                "at": local(e["start_time"]),
+                "seconds": round(e["end_time"] - e["start_time"], 1) if e.get("end_time") else None,
+                "zones": sorted(set().union(*(t[2] for t in near_tracks))),
+                "visits": [outcomes[t[3]] for t in near_tracks if t[3] in outcomes],
+            }
+            for e, near_tracks in zip(elsewhere, elsewhere_tracks, strict=True)
+        ],
         "missed": [local(e["start_time"]) for e in missed],
+        # How close it came to each miss: someone just greeted whose track ended a few
+        # seconds before Frigate's event, or nobody near at all (#193).
+        "missed_near": [nearest_track(e, tracks, now, in_zone, outcomes) for e in missed],
         "missed_visits": None
         if visits_since is None
         else sum(e["start_time"] >= visits_since - OWN_SLACK_SECONDS for e in missed),
@@ -730,6 +746,77 @@ def own_perception_info(
         "device": (stats[-1].get("device") or "cpu") if stats else None,
         "blind": blind_hours(stats, window_start),
     }
+
+
+def nearest_track(arrival: dict, tracks: list, now: float, in_zone, outcomes: dict) -> dict:
+    """For one of Frigate's porch arrivals own perception missed: how long Frigate saw the
+    person, and own perception's nearest track: how many seconds before Frigate's event it
+    ended (``when`` "before") or after it ended that the track started ("after"), whether
+    it was in a trigger zone, and the visit it started (its outcome), if any. ``track``
+    None: it had no track at all."""
+    start, end = arrival["start_time"], arrival.get("end_time") or now
+    out: dict = {
+        "at": local(start),
+        "seconds": round(end - start, 1) if arrival.get("end_time") else None,
+        "track": None,
+    }
+    best = None
+    for t0, t1, zones_seen, track_id, _ in tracks:
+        if t1 < start:
+            gap, when = start - t1, "before"
+        elif t0 > end:
+            gap, when = t0 - end, "after"
+        else:
+            gap, when = 0.0, "during"
+        if best is None or gap < best[0]:
+            best = (gap, when, in_zone(zones_seen), outcomes.get(track_id))
+    if best is not None:
+        gap, when, zone, visit = best
+        out["track"] = {"gap": round(gap, 1), "when": when, "in_zone": zone, "visit": visit}
+    return out
+
+
+def elsewhere_text(own: dict) -> str:
+    """The arrivals it saw elsewhere, for the Own perception line: each one's time, Frigate's
+    length, the zones its tracks saw and any visit they started (reports from before #197
+    have the number only)."""
+    near = own.get("elsewhere_near")
+    if near is None:
+        return f"{len(own['seen_elsewhere'])} elsewhere"
+    parts = []
+    for x in near:
+        about = [f"Frigate {x['seconds']:g} s"] if x["seconds"] is not None else []
+        zones = ", ".join(x["zones"])
+        about.append(f"track in {zones}" if zones else "track in no zone")
+        about.append(f"visit: {', '.join(x['visits'])}" if x["visits"] else "no visit")
+        parts.append(f"{x['at']}: {'; '.join(about)}")
+    return f"{len(near)} elsewhere ({', '.join(parts)})"
+
+
+def missed_near_text(own: dict) -> str:
+    """The misses for the Own perception line, each with Frigate's length and the nearest
+    track (reports from before #193 have the times only)."""
+    near = own.get("missed_near")
+    if near is None:
+        return ", ".join(own["missed"])
+    parts = []
+    for m in near:
+        about = [f"Frigate {m['seconds']:g} s"] if m["seconds"] is not None else []
+        t = m["track"]
+        if t is None:
+            about.append("no track of its own")
+        else:
+            where = "" if t["in_zone"] else " outside the zone"
+            if t["when"] == "before":
+                about.append(f"nearest track{where} ended {t['gap']:g} s before")
+            elif t["when"] == "after":
+                about.append(f"nearest track{where} started {t['gap']:g} s after")
+            else:
+                about.append(f"a track{where} at the same time")
+            if t["visit"]:
+                about.append(f"visit: {t['visit']}")
+        parts.append(f"{m['at']} ({'; '.join(about)})")
+    return ", ".join(parts)
 
 
 def extra_tracks_text(own: dict, most: int = 10) -> str:
@@ -896,6 +983,7 @@ def conversation_model_info(answers: dict, visits: list[dict], labels: dict) -> 
         "agrees": {"right": 0, "of": 0},
         "labels_agree": {"right": 0, "of": 0},
         "would_warn": collections.Counter(),  # by threat level
+        "warned": [],  # the visits it would have warned: when, and how they ended
         "suspicious_not_warned": 0,
         "broken": collections.Counter(),  # lines, by rule
         # With its vision file: pictures it described, and couldn't.
@@ -946,6 +1034,8 @@ def conversation_model_info(answers: dict, visits: list[dict], labels: dict) -> 
         level = ((v.get("details") or {}).get("threat") or {}).get("level", 0)
         if any(t["action"] == "warn" for t in usable):
             out["would_warn"][level] += 1
+            ended = v.get("classification") or v.get("outcome") or "?"
+            out["warned"].append(f"{local(visit_start(v))} ({ended})")
         elif level >= 2:
             out["suspicious_not_warned"] += 1
     seconds.sort()
@@ -2046,8 +2136,8 @@ def summary_lines(report: dict) -> list[str]:
             f"Own perception ({'starts the visits' if starts else 'shadow'}, since "
             f"{own['since']}): saw {own['seen']} of {own['arrivals']} of Frigate's porch "
             "arrivals in the zone"
-            + (f", {len(own['seen_elsewhere'])} elsewhere" if own["seen_elsewhere"] else "")
-            + (f", missed {', '.join(own['missed'])}" if own["missed"] else "")
+            + (f", {elsewhere_text(own)}" if own["seen_elsewhere"] else "")
+            + (f", missed {missed_near_text(own)}" if own["missed"] else "")
             + (
                 f", {len(own['restarting'])} while Gatekeeper restarted"
                 f" ({', '.join(own['restarting'])})"
@@ -2159,7 +2249,9 @@ def conversation_model_line(cm: dict) -> str:
             " (threat level: " + ", ".join(f"{LEVEL_NAMES[level]} {n}" for level, n in warns) + ")"
             if warned
             else ""
-        ),
+        )
+        # Which visits (Gatekeeper#195); reports from before it have no ``warned``.
+        + (": " + ", ".join(cm["warned"]) if cm.get("warned") else ""),
     ]
     if cm["suspicious_not_warned"]:
         parts.append(f"{cm['suspicious_not_warned']} suspicious visit(s) it wouldn't have warned")

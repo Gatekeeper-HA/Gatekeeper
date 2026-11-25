@@ -20,7 +20,7 @@ services:
     logging: *logging
 
   coturn:
-    image: coturn/coturn:4.18.0
+    image: coturn/coturn:4.19.1
     restart: unless-stopped
     # On the server's own network: its media ports (49152-49999) published one by one would
     # be thousands of rules.

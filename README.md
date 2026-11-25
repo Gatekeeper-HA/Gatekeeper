@@ -990,7 +990,9 @@ top score comes from that hour, the line says so.
 
 ## Delivery guess (shadow)
 
-With `DELIVERY_GUESS` on, Gatekeeper guesses whether each greeted visitor was a delivery.
+With `DELIVERY_GUESS` on, Gatekeeper guesses whether each greeted visitor was a delivery,
+whether they started the visit by walking up, ringing or knocking (a press with nobody on
+camera has nobody to look at, so it gets no guess).
 For now it only shows the guess: on the Visits page next to your label, and in the daily
 report, which says how often the two agree. Nothing at the door depends on it yet.
 
@@ -1021,7 +1023,7 @@ a knock, the earlier exchanges and the visitor's words, but not yet what the cam
 Its answers are checked against the house rules (`house_rules.py`) and kept in
 `LOG_DIR/conversation-model.json`. The Visits page shows them under each visit. The daily
 report counts how often its kind of visit agrees with Gatekeeper's and with your labels,
-how often it would have warned someone off, and any line that breaks a rule. Its time per turn is the model's own: a turn asked while its server
+how often it would have warned someone off (and which visits, by time), and any line that breaks a rule. Its time per turn is the model's own: a turn asked while its server
 was starting or loading is timed from the ask that was answered, and the report counts the
 waits apart. Nothing at the
 door depends on it yet.
@@ -1088,6 +1090,11 @@ own perception: person track 1800000000.123456-own3 start=1800000000.1 end=18000
 Every hour it logs how many frames it looked at, how long the detector took and where it
 ran. The daily report compares the tracks with Frigate's porch arrivals: those it saw in
 the zone, saw elsewhere, or missed, and its porch tracks that Frigate had no arrival for.
+Each miss says how long Frigate saw the person and how close own perception's nearest
+track was (seconds before or after, and the visit it started), so someone just greeted
+whose track ended a moment early can be told from someone nobody saw.
+Each arrival it saw elsewhere gives the zones its tracks saw and any visit they started:
+starting the visits, one with no visit is someone at the door nobody greeted.
 
 **Where the detector runs.** With the [GPU override](#gpu-nvidia) it runs on the NVIDIA GPU,
 at Frigate's 5 frames a second. On the rig's GTX 1660 Ti that's about 19 ms a frame, and

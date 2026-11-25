@@ -1345,7 +1345,9 @@ def test_own_perception_is_compared_with_frigates_arrivals():
     assert "own_perception" not in failing(r)
     assert (
         f"Own perception (shadow, since {report.local(NOW - 8000)}): saw 1 of 3 of Frigate's "
-        f"porch arrivals in the zone, 1 elsewhere, missed {report.local(NOW - 3000)}; "
+        f"porch arrivals in the zone, 1 elsewhere ({report.local(NOW - 4000)}: Frigate 10 s; "
+        f"track in no zone; no visit), missed {report.local(NOW - 3000)} "
+        "(nearest track ended 490 s before); "
         f"3 track(s), 1 on the porch Frigate didn't have ({report.local(NOW - 3500)} 0.88, 10 s); "
         "detector on 1500 of 18000 frames: on cpu 3.0 fps, median 190 ms (1 h); "
         "on cuda 1.0 fps, median 180 ms (2 h)" in render_text(r)
@@ -1385,6 +1387,121 @@ def test_porch_tracks_frigate_didnt_have_say_their_score_length_and_visit():
         f"2 on the porch Frigate didn't have (1 started a visit: {report.local(NOW - 3020)} "
         f"0.57, 12 s, visit: completed; {report.local(NOW - 2000)} 0.88, 10 s)"
     ) in render_text(r)
+
+
+def test_a_miss_says_how_close_own_perceptions_nearest_track_was():
+    # Someone greeted walks away: their track ends, and Frigate's porch event for them
+    # starts 8 s later, past the 5 s slack. A miss, but the report shows the greeted visit
+    # right before it, apart from a miss with no track anywhere near (#193).
+    on = "own perception on (visits): go2rtc:8554/front_door_sub, zones porch"
+    greeted_track = (
+        NOW - 2970,
+        "own_perception",
+        f"own perception: person track {NOW - 3030:.6f}-own2 start={NOW - 3030:.1f} "
+        f"end={NOW - 2975:.1f} zones=porch,door path=(0.40,0.90)->(0.70,0.95) best=0.81 hits=40",
+    )
+    log = own_log((NOW - 8000, "app", on), greeted_track, own_track(NOW - 900, NOW - 880, "-"))
+    greeted = visit(NOW - 3030, NOW - 2975, event_id=f"{NOW - 3030:.6f}-own2")
+    arrivals = [
+        {"start_time": NOW - 3029, "end_time": NOW - 2990},  # seen: the greeted visit
+        {"start_time": NOW - 2967, "end_time": NOW - 2955},  # them again, 8 s after
+        {"start_time": NOW - 860, "end_time": NOW - 850},  # off the porch track: 10 s
+    ]
+    r = build(
+        inputs(
+            arrivals=arrivals,
+            log_text=log,
+            trigger_zones=("porch",),
+            perception="own",
+            own_perception="visits",
+            window_visits=[greeted],
+            visits=[greeted],
+        )
+    )
+    own = r["own_perception"]
+    assert own["missed"] == [report.local(NOW - 2967), report.local(NOW - 860)]
+    assert own["missed_near"] == [
+        {
+            "at": report.local(NOW - 2967),
+            "seconds": 12.0,
+            "track": {"gap": 8.0, "when": "before", "in_zone": True, "visit": "completed"},
+        },
+        {
+            "at": report.local(NOW - 860),
+            "seconds": 10.0,
+            "track": {"gap": 20.0, "when": "before", "in_zone": False, "visit": None},
+        },
+    ]
+    # Still a miss: the check is unchanged, the line explains it.
+    assert failing(r)["own_perception"] == (
+        "own perception starts the visits but missed 2 of Frigate's porch arrivals: not greeted"
+    )
+    assert (
+        f"missed {report.local(NOW - 2967)} (Frigate 12 s; nearest track ended 8 s before; "
+        f"visit: completed), {report.local(NOW - 860)} (Frigate 10 s; nearest track outside "
+        "the zone ended 20 s before)"
+    ) in render_text(r)
+
+
+def test_a_miss_with_no_track_at_all_says_so():
+    own = {
+        "missed": ["Sat 04:39"],
+        "missed_near": [{"at": "Sat 04:39", "seconds": 3.5, "track": None}],
+    }
+    assert report.missed_near_text(own) == "Sat 04:39 (Frigate 3.5 s; no track of its own)"
+    after = {"at": "Sat 05:00", "seconds": None, "track": None}
+    after["track"] = {"gap": 6.0, "when": "after", "in_zone": True, "visit": "left"}
+    own = {"missed": ["Sat 05:00"], "missed_near": [after]}
+    expected = "Sat 05:00 (nearest track started 6 s after; visit: left)"
+    assert report.missed_near_text(own) == expected
+
+
+def test_misses_from_a_report_before_their_details_are_times_only():
+    assert report.missed_near_text({"missed": ["Sat 04:39"]}) == "Sat 04:39"
+
+
+def test_an_arrival_seen_elsewhere_says_where_its_track_was_and_what_visit_it_started():
+    # Starting the visits, Frigate has someone on the porch while own perception's tracks
+    # stay on the walkway: no visit, nobody greeted. A second one overlaps a track that did
+    # start a visit (an earlier `left`), which makes it harmless (#197).
+    on = "own perception on (visits): go2rtc:8554/front_door_sub, zones porch"
+    left = (
+        NOW - 2990,
+        "own_perception",
+        f"own perception: person track {NOW - 3010:.6f}-own2 start={NOW - 3010:.1f} "
+        f"end={NOW - 2995:.1f} zones=door path=(0.80,0.95)->(0.40,0.50) best=0.80 hits=30",
+    )
+    log = own_log((NOW - 8000, "app", on), own_track(NOW - 2000, NOW - 1990, "walkway"), left)
+    gone = visit(NOW - 3010, NOW - 2995, event_id=f"{NOW - 3010:.6f}-own2", outcome="left")
+    arrivals = [
+        {"start_time": NOW - 3000, "end_time": NOW - 2990},
+        {"start_time": NOW - 2001, "end_time": NOW - 1995},
+    ]
+    r = build(
+        inputs(
+            arrivals=arrivals,
+            log_text=log,
+            trigger_zones=("porch",),
+            perception="own",
+            own_perception="visits",
+            window_visits=[gone],
+            visits=[gone],
+        )
+    )
+    own = r["own_perception"]
+    assert own["seen_elsewhere"] == [report.local(NOW - 3000), report.local(NOW - 2001)]
+    assert own["elsewhere_near"] == [
+        {"at": report.local(NOW - 3000), "seconds": 10.0, "zones": ["door"], "visits": ["left"]},
+        {"at": report.local(NOW - 2001), "seconds": 6.0, "zones": ["walkway"], "visits": []},
+    ]
+    assert (
+        f"2 elsewhere ({report.local(NOW - 3000)}: Frigate 10 s; track in door; visit: left, "
+        f"{report.local(NOW - 2001)}: Frigate 6 s; track in walkway; no visit)"
+    ) in render_text(r)
+
+
+def test_elsewhere_from_a_report_before_its_details_is_a_number_only():
+    assert report.elsewhere_text({"seen_elsewhere": ["Sat 04:39"]}) == "1 elsewhere"
 
 
 def test_extra_tracks_from_a_report_before_their_details_are_times_only():
@@ -1645,7 +1762,7 @@ def test_the_delivery_guess_is_held_to_the_owners_labels():
 
 
 def test_the_conversation_model_is_held_to_gatekeeper_and_the_labels():
-    from gatekeeper.report import conversation_model_info
+    from gatekeeper.report import conversation_model_info, local
 
     def said(*turns):
         return [{"asked": "greeting_1", "heard": heard} for heard in turns]
@@ -1705,6 +1822,7 @@ def test_the_conversation_model_is_held_to_gatekeeper_and_the_labels():
         "agrees": {"right": 2, "of": 4},  # a and b right; c (nothing) and d (solicitor) wrong
         "labels_agree": {"right": 1, "of": 2},
         "would_warn": {1: 1},
+        "warned": [f"{local(NOW - 770)} (cooperative_other)"],
         "suspicious_not_warned": 1,
         "broken": {"occupancy": 1},
         "camera": {"described": 1, "not": 1},
@@ -1716,7 +1834,8 @@ def test_the_conversation_model_is_held_to_gatekeeper_and_the_labels():
     line = (
         "Conversation model (shadow, m.gguf): 5 visit(s), 6 turn(s); its kind of visit agrees "
         "with Gatekeeper's 2 of 4, with your labels 1 of 2; would have warned 1 (threat level: "
-        "watch 1); 1 suspicious visit(s) it wouldn't have warned; 1 line(s) break a house rule "
+        f"watch 1): {local(NOW - 770)} (cooperative_other); "
+        "1 suspicious visit(s) it wouldn't have warned; 1 line(s) break a house rule "
         "(occupancy 1); 1 answer(s) unusable; described the picture of 1 (couldn't for 1); "
         "1 visit(s) not answered (its server was down); "
         "1.0 s median, 2.5 s max"
@@ -1724,6 +1843,9 @@ def test_the_conversation_model_is_held_to_gatekeeper_and_the_labels():
     assert line in render_text(r)
     # As saved and read back: the levels are strings.
     assert line in render_text(json.loads(json.dumps(r)))
+    # Reports from before Gatekeeper#195 have no ``warned``: the counts alone.
+    del info["warned"]
+    assert "watch 1); 1 suspicious" in render_text(build(inputs(conversation_model=info)))
     empty = conversation_model_info({}, visits, labels)
     assert "Conversation model (shadow): no visits answered" in render_text(
         build(inputs(conversation_model=empty))
