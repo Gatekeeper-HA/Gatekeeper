@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **The relay's server** (`cloud/relay`): SniTun 0.47 on port 443, and coturn 4.18 for Live.
+  - It closes tunnels whose pass has run out (SniTun checks passes only when a tunnel
+    connects).
+  - SniTun logs only warnings, and coturn nothing: no names or addresses are kept.
+  - coturn relays only to internet addresses, never to private, special or its own. This was
+    checked live with coturn's own test client.
+  - CI builds the image and runs `relay/check.py` in it, end to end with SniTun's own relay
+    and client:
+    - a pass opens a tunnel, and a phone reaches the hub through it by name;
+    - other names, a pass without its key, a forged pass and an expired pass are refused;
+    - the sweep closes a tunnel once its pass has run out.
 - **The name service gives out passes for the relay** (step 2 of remote access, Cloud Plus).
   - **Cloud Plus** is a date per hub, set with `python -m hubnames plus <id> <days>` until
     there's billing.
