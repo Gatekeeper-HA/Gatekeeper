@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Daily report: labels that disagree with a face recognition** (#175). A visit Gatekeeper
+  took for an enrolled person that the owner labelled as something else (a courier, a guest)
+  is a possible false face match. The report now lists each one with the visit's start, the
+  name it recognized and the label (*Labelled otherwise after a face recognition …*,
+  `counts.labels_face_disputed`), so the visit and its snapshot can be found. Before, the
+  *Your labels* line gave only a tally.
 - **The relay's server** (`cloud/relay`): SniTun 0.47 on port 443, and coturn 4.18 for Live.
   - It closes tunnels whose pass has run out (SniTun checks passes only when a tunnel
     connects).
