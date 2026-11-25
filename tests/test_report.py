@@ -1717,7 +1717,7 @@ def test_the_delivery_guess_is_held_to_the_owners_labels():
 
 
 def test_the_conversation_model_is_held_to_gatekeeper_and_the_labels():
-    from gatekeeper.report import conversation_model_info
+    from gatekeeper.report import conversation_model_info, local
 
     def said(*turns):
         return [{"asked": "greeting_1", "heard": heard} for heard in turns]
@@ -1777,6 +1777,7 @@ def test_the_conversation_model_is_held_to_gatekeeper_and_the_labels():
         "agrees": {"right": 2, "of": 4},  # a and b right; c (nothing) and d (solicitor) wrong
         "labels_agree": {"right": 1, "of": 2},
         "would_warn": {1: 1},
+        "warned": [f"{local(NOW - 770)} (cooperative_other)"],
         "suspicious_not_warned": 1,
         "broken": {"occupancy": 1},
         "camera": {"described": 1, "not": 1},
@@ -1788,7 +1789,8 @@ def test_the_conversation_model_is_held_to_gatekeeper_and_the_labels():
     line = (
         "Conversation model (shadow, m.gguf): 5 visit(s), 6 turn(s); its kind of visit agrees "
         "with Gatekeeper's 2 of 4, with your labels 1 of 2; would have warned 1 (threat level: "
-        "watch 1); 1 suspicious visit(s) it wouldn't have warned; 1 line(s) break a house rule "
+        f"watch 1): {local(NOW - 770)} (cooperative_other); "
+        "1 suspicious visit(s) it wouldn't have warned; 1 line(s) break a house rule "
         "(occupancy 1); 1 answer(s) unusable; described the picture of 1 (couldn't for 1); "
         "1 visit(s) not answered (its server was down); "
         "1.0 s median, 2.5 s max"
@@ -1796,6 +1798,9 @@ def test_the_conversation_model_is_held_to_gatekeeper_and_the_labels():
     assert line in render_text(r)
     # As saved and read back: the levels are strings.
     assert line in render_text(json.loads(json.dumps(r)))
+    # Reports from before Gatekeeper#195 have no ``warned``: the counts alone.
+    del info["warned"]
+    assert "watch 1); 1 suspicious" in render_text(build(inputs(conversation_model=info)))
     empty = conversation_model_info({}, visits, labels)
     assert "Conversation model (shadow): no visits answered" in render_text(
         build(inputs(conversation_model=empty))

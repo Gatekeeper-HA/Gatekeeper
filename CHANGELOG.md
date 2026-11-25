@@ -449,6 +449,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   (`~/.local/state/gatekeeper/logs/`, two days), and the report reads it back. It says
   *Logs kept across the deploy* instead of *Logs only since…*, which now only shows when a
   container was recreated some other way (by hand).
+- **The daily report says which visits the conversation model would have warned**
+  (Gatekeeper#195): *would have warned 1 (threat level: normal 1): Mon 09:15 (no_response)*,
+  times and how each visit ended only, so a warning on a harmless visit can be found.
 
 ### Fixed
 - **A doorbell press during a visit's last listening turn is answered** (#178). A press
