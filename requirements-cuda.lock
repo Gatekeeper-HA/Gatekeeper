@@ -1,8 +1,8 @@
 # CUDA libraries for the GPU image (Dockerfile VARIANT=cuda), Python 3.13, linux x86_64.
-# Made by scripts/lock.sh: releases from before 2026-11-15T04:40:27Z (7-day cooldown).
+# Made by scripts/lock.sh: releases from before 2026-11-18T15:20:21Z (7-day cooldown).
 # Don't edit by hand; change requirements-cuda.in, then run scripts/lock.sh.
 flatbuffers==25.12.19     # via onnxruntime-gpu, -c requirements.lock
-numpy==2.5.4              # via onnxruntime-gpu, -c requirements.lock
+numpy==2.5.5              # via onnxruntime-gpu, -c requirements.lock
 nvidia-cublas-cu12==12.9.3.13  # via nvidia-cudnn-cu12, -r requirements-cuda.in
 nvidia-cuda-nvrtc-cu12==12.9.86  # via nvidia-cublas-cu12
 nvidia-cuda-runtime-cu12==12.9.79  # via -r requirements-cuda.in
