@@ -322,6 +322,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **The daily report says which visits the conversation model would have warned**
   (Gatekeeper#195): *would have warned 1 (threat level: normal 1): Mon 09:15 (no_response)*,
   times and how each visit ended only, so a warning on a harmless visit can be found.
+- **Python 3.13** (was 3.11), in the image, CI and the name service's image.
+  - It's needed for SniTun's authenticated ciphers (the relay), and 3.11's security fixes
+    end in October 2027.
+  - Kokoro and misaki still say they need Python older than 3.13, a limit from their last
+    release (April 2025). They're pure Python and run on 3.13, so the Dockerfile installs
+    them without that check.
+- **Dependencies at their newest versions, after a 7-day cooldown** (`scripts/lock.sh`).
+  - The lock files are made by `scripts/lock.sh`. It uses only releases at least 7 days old
+    (`COOLDOWN_DAYS`), so a broken or malicious release has time to come to light before it
+    reaches a hub. `--upgrade` moves everything to its newest version past the cutoff, and
+    the cutoff is at the top of each lock file.
+  - Only torch comes from PyTorch's CPU index (`[tool.uv.sources]`). Its copies of other
+    packages have no publish dates, and they had been holding sympy, fsspec and others back.
+  - The lock is for Linux only, which is what the image runs.
+  - 56 packages moved, among them:
+    - torch 2.15, transformers 5.23, huggingface-hub 2.4;
+    - ctranslate2 4.9, onnxruntime 1.32, spaCy 3.8.18;
+    - aiortc 1.16, reolink-aio 0.23, numpy 2.5;
+    - the CUDA libraries' patch releases.
+  - PyAV is held below 19: faster-whisper 1.2.1 opens audio with an argument PyAV 19
+    removed, so Whisper couldn't load.
+  - Checked on the rig, in the new GPU image:
+    - the full test suite;
+    - Kokoro speaking;
+    - Whisper on the GPU, and the rig's large-v3-turbo loaded from the old cache;
+    - the knock classifier on the GPU, and the package model;
+    - the person detector on the GPU;
+    - PyAV and aiortc.
 - **The house rule check catches what a conversation test found.** In made-up
   conversations, models gave the house away by being kind:
   - *"I'll let Delphine know you stopped by"*: a household name, a new rule (`names`);
