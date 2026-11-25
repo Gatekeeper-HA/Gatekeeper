@@ -1,0 +1,44 @@
+# Keeps what Gatekeeper is built from current (README, "Keeping dependencies current"): the
+# GitHub Actions, the images' base images, the compose files' images and the pinned tools.
+# The image's Python packages are scripts/lock.sh's (the weekly .github/workflows/deps.yml).
+#
+# Only releases at least 7 days old, 30 for a new major version, like scripts/lock.sh: a broken
+# or malicious release usually comes to light within days. Security updates don't wait.
+
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    cooldown: { default-days: 7, semver-major-days: 30 }
+    groups:
+      actions: { patterns: ["*"] }
+
+  # The Dockerfiles' base images. Python itself moves only within 3.13 here; a new Python
+  # version is a change of its own (scripts/lock.sh's PYTHON, pyproject.toml, CI).
+  - package-ecosystem: docker
+    directories: [/, /cloud]
+    schedule: { interval: weekly, day: monday }
+    cooldown: { default-days: 7, semver-major-days: 30 }
+    ignore:
+      - dependency-name: python
+        update-types: [version-update:semver-major, version-update:semver-minor]
+
+  # The compose files' images, one pull request each, so each can be tried and rolled back
+  # on its own. Frigate's 0.x minor releases are major ones (config changes): only its patch
+  # releases come this way, its upgrades are done by hand.
+  - package-ecosystem: docker-compose
+    directories: [/, /cloud]
+    schedule: { interval: weekly, day: monday }
+    cooldown: { default-days: 7, semver-major-days: 30 }
+    ignore:
+      - dependency-name: blakeblackshear/frigate
+        update-types: [version-update:semver-major, version-update:semver-minor]
+
+  # The pinned packages outside the lock files: the name service's, and the image check's
+  # tools (.github/image-check/requirements.txt).
+  - package-ecosystem: pip
+    directories: [/cloud, /.github/image-check]
+    schedule: { interval: weekly, day: monday }
+    cooldown: { default-days: 7, semver-major-days: 30 }

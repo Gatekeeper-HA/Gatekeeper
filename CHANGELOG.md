@@ -11,6 +11,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   length and own perception's nearest track: seconds before or after, whether it was in a
   trigger zone, and the visit it started. Someone just greeted whose track ended a few
   seconds before Frigate's event no longer reads like a stranger nobody greeted (#193).
+- **The name service gives out passes for the relay** (step 2 of remote access, Cloud Plus).
+  - **Cloud Plus** is a date per hub, set with `python -m hubnames plus <id> <days>` until
+    there's billing.
+  - **`POST /v1/hubs/<id>/tunnel`** gives a hub with Cloud Plus a one-hour pass for the relay
+    (SniTun). It's a Fernet token naming only the hub's own name, with a new AES key each
+    time, AES-GCM-SIV and protocol 2. It's tested end to end with SniTun 0.47's own relay
+    and client.
+  - **`POST /v1/hubs/<id>/turn`** gives coturn REST credentials for Live (4 hours), made with
+    a secret that stays on our servers.
+  - **`zone`** adds `relay.<zone>`. The settings are `RELAY_IPV4`, `RELAY_IPV6`,
+    `RELAY_FERNET_KEYS` and `TURN_SECRET`.
 - **A Content Security Policy on every page** (`csp.py`), as a second line behind escaping.
   - Scripts run only from Gatekeeper's own files. The service worker's registration and the
     Zones and Live pages' scripts moved from the pages into `webapp/` (`app.js`, `zones.js`,
@@ -324,6 +335,47 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     someone the camera hasn't caught going inside.
 
 ### Changed
+- **Dependencies stay current**, each at its newest release once it's 7 days old (30 for a
+  major version) (README, *Keeping dependencies current*):
+  - every Monday, a pull request with the image's Python packages (`deps.yml`, which needs a
+    `DEPS_TOKEN`);
+  - Dependabot for GitHub Actions, the base images (Python within 3.13), the compose images
+    (Frigate patch releases only) and the pinned tools. The name service's packages moved to
+    `cloud/requirements.txt` for this.
+  - **The image check** (`image.yml`), on pull requests that change the image and every Monday
+    on main:
+    - it builds the image and runs the tests inside it;
+    - Gatekeeper's models load and run (`scripts/image-check.py`);
+    - the CUDA libraries resolve;
+    - pip-audit finds no known vulnerability.
+- **Python 3.13** (was 3.11), in the image, CI and the name service's image.
+  - It's needed for SniTun's authenticated ciphers (the relay), and 3.11's security fixes
+    end in October 2027.
+  - Kokoro and misaki still say they need Python older than 3.13, a limit from their last
+    release (April 2025). They're pure Python and run on 3.13, so the Dockerfile installs
+    them without that check.
+- **Dependencies at their newest versions, after a 7-day cooldown** (`scripts/lock.sh`).
+  - The lock files are made by `scripts/lock.sh`. It uses only releases at least 7 days old
+    (`COOLDOWN_DAYS`), so a broken or malicious release has time to come to light before it
+    reaches a hub. `--upgrade` moves everything to its newest version past the cutoff, and
+    the cutoff is at the top of each lock file.
+  - Only torch comes from PyTorch's CPU index (`[tool.uv.sources]`). Its copies of other
+    packages have no publish dates, and they had been holding sympy, fsspec and others back.
+  - The lock is for Linux only, which is what the image runs.
+  - 56 packages moved, among them:
+    - torch 2.15, transformers 5.23, huggingface-hub 2.4;
+    - ctranslate2 4.9, onnxruntime 1.32, spaCy 3.8.18;
+    - aiortc 1.16, reolink-aio 0.23, numpy 2.5;
+    - the CUDA libraries' patch releases.
+  - PyAV is held below 19: faster-whisper 1.2.1 opens audio with an argument PyAV 19
+    removed, so Whisper couldn't load.
+  - Checked on the rig, in the new GPU image:
+    - the full test suite;
+    - Kokoro speaking;
+    - Whisper on the GPU, and the rig's large-v3-turbo loaded from the old cache;
+    - the knock classifier on the GPU, and the package model;
+    - the person detector on the GPU;
+    - PyAV and aiortc.
 - **The house rule check catches what a conversation test found.** In made-up
   conversations, models gave the house away by being kind:
   - *"I'll let Delphine know you stopped by"*: a household name, a new rule (`names`);
