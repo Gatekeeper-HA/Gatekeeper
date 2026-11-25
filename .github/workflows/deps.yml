@@ -41,7 +41,7 @@ jobs:
           version: "0.12.21"
 
       - name: The newest releases past the cooldown
-        run: scripts/lock.sh --upgrade
+        run: sh scripts/lock.sh --upgrade
 
       - name: What moved
         id: moved
