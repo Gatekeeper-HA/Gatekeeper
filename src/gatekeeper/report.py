@@ -974,6 +974,7 @@ def conversation_model_info(answers: dict, visits: list[dict], labels: dict) -> 
         "agrees": {"right": 0, "of": 0},
         "labels_agree": {"right": 0, "of": 0},
         "would_warn": collections.Counter(),  # by threat level
+        "warned": [],  # the visits it would have warned: when, and how they ended
         "suspicious_not_warned": 0,
         "broken": collections.Counter(),  # lines, by rule
         # With its vision file: pictures it described, and couldn't.
@@ -1024,6 +1025,8 @@ def conversation_model_info(answers: dict, visits: list[dict], labels: dict) -> 
         level = ((v.get("details") or {}).get("threat") or {}).get("level", 0)
         if any(t["action"] == "warn" for t in usable):
             out["would_warn"][level] += 1
+            ended = v.get("classification") or v.get("outcome") or "?"
+            out["warned"].append(f"{local(visit_start(v))} ({ended})")
         elif level >= 2:
             out["suspicious_not_warned"] += 1
     seconds.sort()
@@ -2232,7 +2235,9 @@ def conversation_model_line(cm: dict) -> str:
             " (threat level: " + ", ".join(f"{LEVEL_NAMES[level]} {n}" for level, n in warns) + ")"
             if warned
             else ""
-        ),
+        )
+        # Which visits (Gatekeeper#195); reports from before it have no ``warned``.
+        + (": " + ", ".join(cm["warned"]) if cm.get("warned") else ""),
     ]
     if cm["suspicious_not_warned"]:
         parts.append(f"{cm['suspicious_not_warned']} suspicious visit(s) it wouldn't have warned")
