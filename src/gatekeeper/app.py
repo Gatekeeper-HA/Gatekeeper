@@ -185,6 +185,27 @@ def start_hub_name(settings: Settings, tls, hosts=None):
     ).start()
 
 
+def start_tunnel(settings: Settings, hub_name, server):
+    """The web page away from home through Gatekeeper's relay, with Cloud Plus (tunnel.py).
+    It needs the hub's own name (``hub_name``, hubname.HubName) and a password fit to face
+    the internet; ``server``: the web page's, which takes the phones' connections."""
+    if hub_name is None or not settings.relay:
+        return None
+    try:
+        from gatekeeper.tunnel import MIN_PASSWORD, Tunnel, strong
+    except ImportError as e:
+        log.warning("relay: off: %s (the remote extra isn't installed)", e)
+        return None
+    if not strong(settings.web_password.get_secret_value()):
+        log.warning(
+            "relay: off: the web page's password is shorter than %d characters, and through "
+            "the relay the page faces the internet (README, Away from home)",
+            MIN_PASSWORD,
+        )
+        return None
+    return Tunnel(hub_name.service, server.process_request).start()
+
+
 def start_thread(name: str, target, *args, **kwargs) -> None:
     threading.Thread(target=target, args=args, kwargs=kwargs, name=name, daemon=True).start()
 
@@ -779,7 +800,7 @@ def main() -> None:
             names = [n.strip() for n in settings.web_tls_names.split(",") if n.strip()]
             tls = server_context(*certificate(settings.log_dir / "web-tls", names))
         hosts = web_hosts(settings)
-        start_hub_name(settings, tls, hosts)
+        hub_name = start_hub_name(settings, tls, hosts)
         live = LivePage(
             settings.go2rtc_api,
             settings.live_stream,
@@ -816,7 +837,7 @@ def main() -> None:
                 lambda: os.kill(os.getpid(), signal.SIGTERM),  # stop_on_sigterm's clean stop
             ),
         )
-        web.serve(
+        server = web.serve(
             page,
             settings.web_password.get_secret_value(),
             settings.web_port,
@@ -830,6 +851,7 @@ def main() -> None:
             settings_page=settings_page,
             hosts=hosts,
         )
+        start_tunnel(settings, hub_name, server)
     start_thread(
         "sweep", tracker.sweep_forever, settings.sweep_interval_seconds, on_sweep=health.sweep_done
     )

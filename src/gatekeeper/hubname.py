@@ -159,6 +159,17 @@ class NameService:
     def caa(self, account: str) -> None:
         self._send("PUT", f"/v1/hubs/{self.hub_id}/caa", {"account": account})
 
+    def tunnel(self) -> dict:
+        """A pass for the relay (tunnel.py): ``relay``, ``port``, ``token``, ``aes_key``,
+        ``aes_iv``, ``protocol_version``, ``cipher`` and ``until``. Stop when this hub has no
+        Cloud Plus, or the service has no relay."""
+        return self._send("POST", f"/v1/hubs/{self.hub_id}/tunnel", {})
+
+    def route(self, via: str) -> None:
+        """Point this hub's name at the relay while its tunnel is up (``via`` "relay"), or
+        back at its home address ("home")."""
+        self._send("PUT", f"/v1/hubs/{self.hub_id}/route", {"via": via})
+
 
 class Acme:
     """A small ACME client (RFC 8555): an account, and a certificate for one name by DNS-01.
@@ -488,7 +499,7 @@ class HubName:
             found, why = [], str(e)
         else:
             why = f"got {', '.join(found)}" if found else "no address"
-        if self.address not in found:
+        if self.address not in found and not self._relayed(found):
             log.warning(
                 "hub name: %s doesn't resolve to %s on this network (%s); a router that "
                 "blocks DNS rebinding needs it allowed (README, Hub name)",
@@ -496,6 +507,14 @@ class HubName:
                 self.address,
                 why,
             )
+
+    def _relayed(self, found: list[str]) -> bool:
+        """The name points at the relay, its tunnel up (tunnel.py): as it should."""
+        try:
+            relay = self._resolve("relay." + self.name.split(".", 1)[1])
+        except OSError:
+            return False
+        return bool(found) and set(found) <= set(relay)
 
     def _serve_kept(self) -> None:
         """The certificate kept from before, served before anything else is tried: the name
@@ -532,6 +551,18 @@ class HubName:
                     wait / 3600,
                 )
             stop.wait(wait)
+
+    def service(self) -> NameService | None:
+        """The name service, with this hub's key, once the hub is registered (for the
+        relay's passes, tunnel.py); None before."""
+        try:
+            hub = self._state("hub.json")
+            if hub.get("api") != self.api or not hub.get("id"):
+                return None
+            key = _key(self.folder / "hub-key.pem", _ed25519)
+        except OSError:
+            return None
+        return NameService(self.api, key, hub["id"], self._clock)
 
     def start(self) -> HubName:
         self.thread = threading.Thread(target=self.run, name="hub-name", daemon=True)

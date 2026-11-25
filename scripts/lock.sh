@@ -34,7 +34,7 @@ trap 'rm -rf "$tmp"' EXIT
 # index gives no publish times, so the cutoff can't apply to torch; everything else comes
 # from PyPI and keeps it.
 # shellcheck disable=SC2086
-uv pip compile pyproject.toml --extra speech --extra talkback --extra doorbell \
+uv pip compile pyproject.toml --extra speech --extra talkback --extra doorbell --extra remote \
   --python-version "$python" --universal --no-header --annotation-style line \
   --emit-index-url --exclude-newer "$cutoff" --exclude-newer-package torch=false \
   $upgrade -o requirements.lock --quiet

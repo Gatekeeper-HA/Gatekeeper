@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **A hub's name follows its tunnel** (Cloud Plus). Once the tunnel is up, the hub has the
+  name service point its name at the relay (`PUT /v1/hubs/<id>/route`, A and AAAA). When
+  the tunnel closes or Cloud Plus ends, the name points back at the home address, which
+  the service now remembers. A hub that's off can't say so, so the service's sweep sends
+  home the names of hubs whose Cloud Plus has ended. The hub's DNS check no longer warns
+  when its name is the relay's.
+- **The web page away from home through the relay, with Cloud Plus** (`tunnel.py`; README,
+  *Away from home*).
+  - Gatekeeper keeps a tunnel open to the relay with SniTun's client (the new `remote`
+    extra). Each time it connects, it asks the name service for a pass, signed with the hub
+    name's key. Without Cloud Plus it asks again hourly. A new tunnel replaces the old one
+    5 minutes before its pass runs out.
+  - Each phone's connection reaches the web page's server through a socket pair, with the
+    phone's own address, so the login limit and the log see the phone. TLS still ends on
+    the hub.
+  - It stays off while the web page's password is shorter than 12 characters, and with
+    `RELAY=0`.
+  - Tested end to end with SniTun's own relay and client:
+    - a phone reaches the login page by the hub's name, over IPv6;
+    - its wrong passwords count against its own address;
+    - six renewals in a row go unnoticed.
 - **Daily report: arrivals own perception saw elsewhere say where.** Each of Frigate's porch
   arrivals that own perception's tracks saw only outside the trigger zones
   (`own_perception.elsewhere_near`) gives Frigate's event length, the zones its tracks saw,

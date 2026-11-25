@@ -38,6 +38,7 @@ It runs behind a proxy that gives it HTTPS.
 | `PUT /v1/hubs/<id>/caa` | `{"account": <its Let's Encrypt account URL>}` | 204 |
 | `POST /v1/hubs/<id>/tunnel` | `{}` | 200: a pass for the relay ([The relay](#the-relay)) |
 | `POST /v1/hubs/<id>/turn` | `{}` | 200: TURN credentials for Live |
+| `PUT /v1/hubs/<id>/route` | `{"via": "relay"}` or `{"via": "home"}` | 204: where its name points |
 | `DELETE /v1/hubs/<id>` | | 204 |
 
 **Signing:** `Authorization: Hub <unix time>.<signature>`. The signature (Ed25519,
@@ -111,6 +112,16 @@ The name service decides who may use it:
 
   The hub asks for a new pass each time it connects, so a key is never used for two
   connections.
+- **Where a hub's name points** follows its tunnel. The hub says so with `PUT
+  /v1/hubs/<id>/route`:
+  - `relay` once its tunnel is up: A and AAAA records with the relay's addresses
+    (`RELAY_IPV4`, `RELAY_IPV6`), Cloud Plus only;
+  - `home` when the tunnel closes or Cloud Plus ends: back to the home address, which
+    the service remembers from the hub's `address` updates. While a name is the
+    relay's, those updates leave it there.
+
+  A hub that's off can't say so, so every minute the service sends home the names of
+  hubs whose Cloud Plus has ended.
 - **TURN credentials** (`POST /v1/hubs/<id>/turn`) let Live work away from home when no
   direct path does. They're coturn's REST format, last 4 hours, and are made with a secret
   that never leaves our servers.

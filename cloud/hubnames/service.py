@@ -72,6 +72,9 @@ class Relay:
     keys: tuple[str, ...]
     turn_secret: str
     port: int = 443
+    # Its addresses, for the names of hubs whose tunnel is up (``route``).
+    ipv4: str = ""
+    ipv6: str = ""
 
 
 def zone_records(
@@ -194,7 +197,33 @@ class NameService:
             raise ValueError("address: an IPv4 address") from None
         if not any(ip in n for n in HOME_NETWORKS):
             raise ValueError("address: only a home network's (10.x, 172.16-31.x, 192.168.x)")
-        self.dns.change([(hub_id, "A", TTL, [str(ip)])])
+        self.store.set_route(hub_id, home=str(ip))
+        if not self.store.route(hub_id)[1]:  # while relayed, the name stays the relay's
+            self.dns.change([(hub_id, "A", TTL, [str(ip)])])
+
+    def route(self, hub_id: str, via: str) -> None:
+        """Point the hub's name at the relay while its tunnel is up (``via`` "relay",
+        Cloud Plus only), or back at its home address ("home"). The hub says which."""
+        if via == "relay":
+            relay = self._plus(hub_id)
+            if not relay.ipv4:
+                raise LookupError("this service has no relay")
+            self.dns.change(
+                [
+                    (hub_id, "A", TTL, [relay.ipv4]),
+                    (hub_id, "AAAA", TTL, [relay.ipv6] if relay.ipv6 else []),
+                ]
+            )
+            self.store.set_route(hub_id, relayed=True)
+        elif via == "home":
+            self._home(hub_id)
+        else:
+            raise ValueError('via: "relay" or "home"')
+
+    def _home(self, hub_id: str) -> None:
+        home, _ = self.store.route(hub_id)
+        self.dns.change([(hub_id, "A", TTL, [home] if home else []), (hub_id, "AAAA", TTL, [])])
+        self.store.set_route(hub_id, relayed=False)
 
     def challenge(self, hub_id: str, values: list[str]) -> None:
         """Publish the DNS-01 challenge's TXT values (at most 2); none removes them. They're
@@ -269,6 +298,7 @@ class NameService:
         self.dns.change(
             [
                 (hub_id, "A", TTL, []),
+                (hub_id, "AAAA", TTL, []),
                 (hub_id, "CAA", CAA_TTL, []),
                 (f"_acme-challenge.{hub_id}", "TXT", TTL, []),
             ]
@@ -279,7 +309,8 @@ class NameService:
         log.info("hub %s removed", hub_id)
 
     def sweep(self) -> None:
-        """Remove the challenge records left longer than CHALLENGE_SECONDS."""
+        """Remove the challenge records left longer than CHALLENGE_SECONDS, and send home
+        the names of hubs whose Cloud Plus has ended (a hub that's off can't say so)."""
         for hub_id in self.store.challenges_due():
             try:
                 self.dns.change([(f"_acme-challenge.{hub_id}", "TXT", TTL, [])])
@@ -287,3 +318,13 @@ class NameService:
                 log.warning("couldn't remove hub %s's challenge: %s", hub_id, e)
                 continue
             self.store.challenge_until(hub_id, None)
+        now = self._clock()
+        for hub_id in self.store.relayed_hubs():
+            if (self.store.plus_until(hub_id) or 0) > now and self.relay is not None:
+                continue
+            try:
+                self._home(hub_id)
+            except OSError as e:
+                log.warning("couldn't send hub %s's name home: %s", hub_id, e)
+                continue
+            log.info("hub %s: Cloud Plus has ended; its name points home again", hub_id)
