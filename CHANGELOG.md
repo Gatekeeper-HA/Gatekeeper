@@ -377,6 +377,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   container was recreated some other way (by hand).
 
 ### Fixed
+- **Daily report: a knock top score from before the window says so** (#203). The knock
+  listener's hours run from Gatekeeper's start, so the window's first stats line also covers
+  sounds from before the window, such as the previous report's last knock. When the top
+  score's hour began before the window, the *Knocks heard* line adds *, which began before
+  this report's window* (`knocks.top_before_window`).
 - **The hub name's certificate is served as soon as Gatekeeper starts.** It used to wait
   until the name service had answered, so while the service couldn't be reached (or had
   refused), the name got the self-signed certificate and the app couldn't load. The

@@ -189,7 +189,8 @@ WRONG_PASSWORD = re.compile(r"^web: a wrong password from (?P<address>\S+) ")
 HUB_NAME_MIN_DAYS = 14
 # knock.py's hourly line: how many sounds the classifier checked, and the top score.
 KNOCK_STATS = re.compile(
-    r"^knock listener stats: (?P<checks>\d+) check\(s\) in \d+ s, top score (?P<top>[\d.]+)"
+    r"^knock listener stats: (?P<checks>\d+) check\(s\) in (?P<seconds>\d+) s, "
+    r"top score (?P<top>[\d.]+)"
 )
 OWN_TRACK = re.compile(
     r"own perception: person track (?P<id>\S+) start=(?P<start>[\d.]+) end=(?P<end>[\d.]+) "
@@ -497,13 +498,17 @@ def doorbell_info(lines: list[str]) -> dict | None:
     }
 
 
-def knock_stats(lines: list[str]) -> dict:
+def knock_stats(lines: list[str], window_start: float | None = None) -> dict:
     """The knock listener's hourly stats in the window: the sounds it checked, the top
     score, and how many hours it logged (0: no stats line, so nothing shows it listening).
     ``top_at``: when the hour with the top score ended (its stats line), so the sound can
-    be found and listened to; None when no check scored above 0 or the line has no time."""
+    be found and listened to; None when no check scored above 0 or the line has no time.
+    ``top_before_window``: that hour began before ``window_start``. The listener's hours
+    run from Gatekeeper's start, not the report's, so the window's first stats line also
+    covers sounds from before it, such as the previous report's last knock: a top score
+    over the threshold on a day with no knock is then not a knock missed."""
     hours = checks = 0
-    top, top_at = 0.0, None
+    top, top_at, top_from = 0.0, None, None
     for line in lines:
         m = GATEKEEPER_LINE.match(line)
         if k := KNOCK_STATS.match(m["message"] if m else line):
@@ -512,11 +517,15 @@ def knock_stats(lines: list[str]) -> dict:
             if float(k["top"]) > top:
                 top = float(k["top"])
                 top_at = local(log_time(m["time"])) if m else None
+                top_from = log_time(m["time"]) - int(k["seconds"]) if m else None
     return {
         "stats_hours": hours,
         "checks": checks,
         "top_score": top if hours else None,
         "top_at": top_at,
+        "top_before_window": bool(
+            window_start is not None and top_from is not None and top_from < window_start
+        ),
     }
 
 
@@ -1694,7 +1703,7 @@ def build(i: Inputs) -> dict:
                 for k in i.knocks
             ],
             "listener": i.knock_listener,
-            **knock_stats(sources.get("gatekeeper", [])),
+            **knock_stats(sources.get("gatekeeper", []), since),
         },
         "line_texts": i.line_texts,
         "doorbell": doorbell,
@@ -1868,6 +1877,11 @@ def summary_lines(report: dict) -> list[str]:
             + (
                 f"; {kn['checks']} sound(s) checked, top score {kn['top_score']:.2f}"
                 + (f" in the hour to {kn['top_at']}" if kn.get("top_at") else "")
+                + (
+                    ", which began before this report's window"
+                    if kn.get("top_before_window")
+                    else ""
+                )
                 if kn["stats_hours"]
                 else "; no checks logged"
             )

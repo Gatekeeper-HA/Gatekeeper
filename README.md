@@ -984,7 +984,9 @@ else in the 15 minutes around them scored over 0.05. The classifier needs an NVI
 ([GPU](#gpu-nvidia)): about 0.1 s a check there, against about 12 s on a CPU core.
 Each hour Gatekeeper logs how many sounds it checked and the top score; the daily report
 adds them up (*Knocks heard (shadow): 0; 37 sound(s) checked, top score 0.04*), so a quiet
-day reads apart from a listener that isn't hearing anything.
+day reads apart from a listener that isn't hearing anything. The hours run from when
+Gatekeeper started, so the window's first one can begin before the report's window; when the
+top score comes from that hour, the line says so.
 
 ## Delivery guess (shadow)
 
