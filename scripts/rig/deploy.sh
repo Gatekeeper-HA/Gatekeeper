@@ -11,7 +11,8 @@
 # - Then checks that Gatekeeper turns healthy (10 min) and Frigate gets camera frames
 #   (3 min). If not, it rolls back to the commit that was running and alerts.
 # - Commits that only touch docs, tests or CI just move the checkout.
-# - Each deploy is added to deploys.jsonl (for the daily report) and sent via ntfy.
+# - Each deploy is added to deploys.jsonl (for the daily report, with the pull requests it
+#   takes) and sent via ntfy.
 #
 # It only moves forward along the branch. While the checkout is on something else (you
 # checked out a branch to try it) or has local changes, it waits and says so once.
@@ -138,10 +139,18 @@ wait_once() {
 
 record() {
   jq -nc --argjson ts "$(date +%s)" --arg from "$current" --arg to "$target" \
-    --arg subject "$subject" --arg result "$1" --arg detail "$2" \
-    '{ts: $ts, from: $from, to: $to, subject: $subject, result: $result, detail: $detail}' \
+    --arg subject "$subject" --arg result "$1" --arg detail "$2" --argjson prs "$(prs)" \
+    '{ts: $ts, from: $from, to: $to, subject: $subject, result: $result, detail: $detail,
+      prs: $prs}' \
     >> "$state/deploys.jsonl"
   log "$1 $(short "$target") $subject${2:+ ($2)}"
+}
+
+# The pull requests this deploy takes (oldest first): several can merge within a minute,
+# and one deploy then takes them all, though its record is named after the last.
+prs() {
+  git log --reverse --format=%s "$current..$target" \
+    | sed -nE 's/.*\(#([0-9]+)\)$/\1/p' | jq -sc .
 }
 
 log() { echo "$(date -Is) $*"; }
