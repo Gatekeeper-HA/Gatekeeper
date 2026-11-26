@@ -918,6 +918,15 @@ def line_info(visits: list[dict], kind: str) -> dict[str, dict[str, int]]:
 DELIVERY_LABELS = {"amazon", "ups", "fedex", "usps", "dhl", "courier", "food", "groceries"}
 
 
+def deploy_text(deploy: dict) -> str:
+    """One deploy for the Deploys line, with the pull requests it took: several merged
+    within a minute or two go live in one deploy named after the last of them."""
+    text = f"{deploy.get('to', '')[:7]} {deploy.get('result')}"
+    if prs := deploy.get("prs"):
+        text += " (" + ", ".join(f"#{n}" for n in prs) + ")"
+    return text
+
+
 def delivery_guess_info(guesses: dict, labels: dict, since: float) -> dict | None:
     """Gatekeeper's delivery guesses: how many it made in the window, and how often they
     agree with the owner's labels so far (all of them: labels come slowly). None without
@@ -2189,7 +2198,7 @@ def summary_lines(report: dict) -> list[str]:
     if report["deploys"]:
         lines.append(
             "Deploys: "
-            + ", ".join(f"{d.get('to', '')[:7]} {d.get('result')}" for d in report["deploys"])
+            + ", ".join(deploy_text(d) for d in report["deploys"])
         )
     silent = report["recording_audio"]["silent_hours"]
     audio = "OK" if not silent else "missing at " + ", ".join(silent)

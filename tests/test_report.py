@@ -365,6 +365,23 @@ def test_the_notified_line_gives_each_backend():
     assert "Notified: 2/2, slowest 0.30 s (ntfy 2)" in render_text(r)
 
 
+def test_the_deploys_line_names_the_pull_requests_each_deploy_took():
+    # Several merges a minute apart go live in one deploy, named after the last of them:
+    # the line names them all, so an image bump that rode along is seen live.
+    deploys = [
+        {"to": "a1e506a60187", "result": "deployed", "prs": [206]},
+        {"to": "77b6dfb3e9c9", "result": "deployed", "prs": [207, 208, 209, 176, 179]},
+        {"to": "972f47f685b0", "result": "moved", "prs": []},
+        {"to": "0eb0ad5a4355", "result": "deployed"},  # written before deploy.sh kept prs
+    ]
+    r = build(inputs(host={**HOST, "deploys": deploys}))
+    assert (
+        "Deploys: a1e506a deployed (#206), 77b6dfb deployed (#207, #208, #209, #176, #179), "
+        "972f47f moved, 0eb0ad5 deployed"
+    ) in render_text(r)
+    assert r["deploys"][1]["prs"] == [207, 208, 209, 176, 179]
+
+
 def test_problems_fail_their_checks_and_make_the_title():
     late = visit(NOW - 600, NOW - 590)
     r = build(

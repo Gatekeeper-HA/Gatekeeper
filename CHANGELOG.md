@@ -6,6 +6,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Daily report: each deploy names the pull requests it took.** Several merges a minute or
+  two apart go live in one deploy, which was named only after its last commit: an image bump
+  riding along was invisible. `deploy.sh` now records `prs` (oldest first) and the *Deploys*
+  line lists them, e.g. `77b6dfb deployed (#207, #179)` (#214).
 - **Daily report: arrivals own perception saw elsewhere say where.** Each of Frigate's porch
   arrivals that own perception's tracks saw only outside the trigger zones
   (`own_perception.elsewhere_near`) gives Frigate's event length, the zones its tracks saw,
