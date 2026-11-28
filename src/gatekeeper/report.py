@@ -43,6 +43,11 @@ TRANSCRIBE_P90_SECONDS = {"cuda": 3.0, "cpu": 8.0}  # per answer, by Whisper's d
 REPLY_P90_SECONDS = {"cuda": 3.5, "cpu": 7.0}
 MIN_CAMERA_FPS = 1.0
 BLIND_MIN_SECONDS = 600  # a stats line over less than this (a restart) isn't judged
+# Own perception logs "stream ended; reconnecting" on each failed read, at most its 30 s
+# backoff plus the open's timeout apart while the stream stays down: lines closer than
+# this are one outage, and one of BLIND_MIN_SECONDS or more fails camera_watched. From one
+# rig: a doorbell's maintenance reboot was under a minute, a run of restarts ~7 min.
+OUTAGE_GAP_SECONDS = 120.0
 FRIGATE_ERRORS = 50  # outside dropouts: an outage logs the record watchdog every ~20 s
 # A camera dropout or restart is a burst of Frigate errors (ffmpeg crashing, the watchdog
 # retrying): lines less than DROPOUT_GAP_SECONDS apart, over within DROPOUT_SECONDS. One
@@ -196,6 +201,7 @@ OWN_TRACK = re.compile(
     r"own perception: person track (?P<id>\S+) start=(?P<start>[\d.]+) end=(?P<end>[\d.]+) "
     r"zones=(?P<zones>\S+)(?:.*? best=(?P<best>[\d.]+))?"
 )
+OWN_STREAM_ENDED = re.compile(r"^own perception: stream ended; reconnecting")
 OWN_STATS = re.compile(
     r"own perception stats: (?P<frames>\d+) frames in (?P<seconds>\d+) s, "
     r"(?P<detected>\d+) through the detector \(median (?P<ms>\d+) ms(?: on (?P<device>\w+))?\)"
@@ -633,10 +639,13 @@ def own_perception_info(
     an "on" line in ``lines`` says otherwise. None when it logged nothing (off)."""
     started, tracks = None, []
     stats: list[dict] = []
+    stream_ended: list[float] = []
     for line in lines:
         m = GATEKEEPER_LINE.match(line)
         message = m["message"] if m else line
-        if on := OWN_ON.match(message):
+        if m and OWN_STREAM_ENDED.match(message):
+            stream_ended.append(log_time(m["time"]))
+        elif on := OWN_ON.match(message):
             mode = on["mode"]  # the last: it starts the visits since a restart, say
             if started is None and m:
                 started = log_time(m["time"])
@@ -745,7 +754,18 @@ def own_perception_info(
         "devices": [device_stats(name, hours) for name, hours in devices.items()],
         "device": (stats[-1].get("device") or "cpu") if stats else None,
         "blind": blind_hours(stats, window_start),
+        "outages": stream_outages(stream_ended, window_start),
     }
+
+
+def outages_text(outages: list[dict]) -> str:
+    """``stream_outages``' stretches: "36 min (Mon 09:00 to 09:36)", joined by "; "."""
+    parts = []
+    for o in outages:
+        same_day = o["to"].split()[0] == o["from"].split()[0]
+        to = o["to"].split()[-1] if same_day else o["to"]
+        parts.append(f"{o['minutes']} min ({o['from']} to {to})")
+    return "; ".join(parts)
 
 
 def nearest_track(arrival: dict, tracks: list, now: float, in_zone, outcomes: dict) -> dict:
@@ -848,6 +868,24 @@ def blind_hours(stats: list[dict], window_start: float = 0.0) -> list[str]:
         if st["seconds"] >= BLIND_MIN_SECONDS and st["frames"] < MIN_CAMERA_FPS * st["seconds"]:
             out.append(local(st["from"] + st["seconds"]))
     return out
+
+
+def stream_outages(times: list[float], window_start: float = 0.0) -> list[dict]:
+    """Stretches in which own perception's stream stayed down: its "stream ended;
+    reconnecting" lines (``times``) less than ``OUTAGE_GAP_SECONDS`` apart, from the first
+    to the last, lasting ``BLIND_MIN_SECONDS`` or more. These catch an outage shorter than
+    the stats hour that ``blind_hours`` judges. Each: start, end (local), minutes."""
+    runs: list[list[float]] = []
+    for t in sorted(t for t in times if t >= window_start):
+        if runs and t - runs[-1][-1] < OUTAGE_GAP_SECONDS:
+            runs[-1].append(t)
+        else:
+            runs.append([t])
+    return [
+        {"from": local(r[0]), "to": local(r[-1]), "minutes": round((r[-1] - r[0]) / 60)}
+        for r in runs
+        if r[-1] - r[0] >= BLIND_MIN_SECONDS
+    ]
 
 
 def own_arrivals(lines: list[str], zones: list[str], since: float) -> tuple[list[dict], float]:
@@ -1687,12 +1725,15 @@ def build(i: Inputs) -> dict:
     if own and own_visits:
         # Starting the visits on a dark camera: arrivals can't be missed, so arrivals_greeted
         # and own_perception stay green while nothing at the door is seen.
-        blind = own["blind"]
+        blind, outages = own["blind"], own.get("outages") or []
         check(
             "camera_watched",
-            not blind,
+            not blind and not outages,
             f"the camera was blind for {len(blind)} hour(s) (to {', '.join(blind[:6])}"
-            f"{', …' if len(blind) > 6 else ''}): nobody at the door could be seen",
+            f"{', …' if len(blind) > 6 else ''}): nobody at the door could be seen"
+            if blind
+            else f"the camera's stream was down for {outages_text(outages)}: nobody at the "
+            "door could be seen",
         )
     recording = recording_info(sources.get("gatekeeper", []))
     if recording:
@@ -2162,6 +2203,7 @@ def summary_lines(report: dict) -> list[str]:
                 if own.get("blind")
                 else ""
             )
+            + (f"; stream down {outages_text(own['outages'])}" if own.get("outages") else "")
         )
     if f:
         detectors = ", ".join(f"{k} {v:.0f} ms" for k, v in f["detectors"].items() if v)

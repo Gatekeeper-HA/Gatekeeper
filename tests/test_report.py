@@ -2333,6 +2333,66 @@ def test_hours_with_the_camera_down_fail_a_check_when_own_perception_starts_the_
     assert [c["ok"] for c in healthy["checks"] if c["name"] == "camera_watched"] == [True]
 
 
+def stream_ended(ts):
+    return (ts, "own_perception", "own perception: stream ended; reconnecting in 30 s")
+
+
+def test_an_outage_shorter_than_a_stats_hour_fails_camera_watched():
+    # The stream was down for ~36 min inside one stats hour, which still averaged over
+    # 1 fps: only own perception's reconnect lines, ~30 s apart, show how long.
+    start = NOW - 2 * 3600
+    down = [stream_ended(start + 32 * i) for i in range(68)]  # 35.7 min
+    blip = [stream_ended(NOW - 1800)]  # one dropout, reconnected at once
+    reboot = [stream_ended(NOW - 1200 + 30 * i) for i in range(10)]  # 4.5 min
+    on = (NOW - 5 * 3600, "app", "own perception on (visits): go2rtc:8554/front_door_sub")
+    hour = own_stats(start + 3600, 7000)  # ~1.9 fps over the hour: not blind
+    log = own_log(on, *down, hour, *blip, *reboot, own_stats(NOW - 60, 18000))
+    r = build(
+        inputs(arrivals=[], log_text=log, trigger_zones=("porch",), perception="own", visits=[])
+    )
+    own = r["own_perception"]
+    assert own["blind"] == []
+    assert own["outages"] == [
+        {"from": report.local(start), "to": report.local(start + 32 * 67), "minutes": 36}
+    ]
+    text = f"36 min ({report.local(start)} to {report.local(start + 32 * 67).split()[-1]})"
+    assert failing(r)["camera_watched"] == (
+        f"the camera's stream was down for {text}: nobody at the door could be seen"
+    )
+    assert f"; stream down {text}" in render_text(r)
+    # In shadow mode (Frigate starts the visits) it's shown, not failed.
+    shadow = build(
+        inputs(
+            arrivals=[],
+            log_text=log.replace("(visits)", "(shadow)"),
+            trigger_zones=("porch",),
+            own_perception="shadow",
+            visits=[],
+        )
+    )
+    assert shadow["own_perception"]["outages"] == own["outages"]
+    assert "camera_watched" not in failing(shadow)
+    # Without the long stretch, a blip and a short reboot stay green.
+    short = build(
+        inputs(
+            arrivals=[],
+            log_text=own_log(on, hour, *blip, *reboot, own_stats(NOW - 60, 18000)),
+            trigger_zones=("porch",),
+            perception="own",
+            visits=[],
+        )
+    )
+    assert short["own_perception"]["outages"] == []
+    assert "camera_watched" not in failing(short)
+
+
+def test_an_outage_across_midnight_names_both_days():
+    same_day = [{"from": "Mon 09:00", "to": "Mon 09:36", "minutes": 36}]
+    assert report.outages_text(same_day) == "36 min (Mon 09:00 to 09:36)"
+    other_day = [{"from": "Fri 23:50", "to": "Sat 00:10", "minutes": 20}]
+    assert report.outages_text(other_day) == "20 min (Fri 23:50 to Sat 00:10)"
+
+
 def test_own_perceptions_arrivals_count_from_the_switch():
     # Frigate started the visits until a restart in the evening; own perception's tracks
     # before then were shadow tracks, not arrivals it had to greet.
