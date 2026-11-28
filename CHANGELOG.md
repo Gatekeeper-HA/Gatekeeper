@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Daily report: camera outages shorter than an hour.** Own perception's `stream ended;
+  reconnecting` warnings less than 2 minutes apart make a stretch; one of 10 minutes or more
+  is an outage (`own_perception.outages`, *stream down N min (from … to …)*), and
+  `camera_watched` fails on it when own perception starts the visits. The hourly blind
+  hours missed an outage shorter than a stats hour (#216).
 - **Daily report: arrivals own perception saw elsewhere say where.** Each of Frigate's porch
   arrivals that own perception's tracks saw only outside the trigger zones
   (`own_perception.elsewhere_near`) gives Frigate's event length, the zones its tracks saw,
